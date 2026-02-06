@@ -1,24 +1,22 @@
 ﻿"use client";
 
 import { createContext, useContext, useMemo, useState } from "react";
-import { connectFreighterWallet, connectManualWallet, getWalletMap, removeUserWallet, setUserWallet } from "@/lib/wallet";
+import { connectFreighterWallet, getWalletMap, removeUserWallet, setUserWallet } from "@/lib/wallet";
 import { useAuth } from "@/components/providers/auth-provider";
-
-export type WalletProviderType = "manual" | "freighter";
 
 interface WalletContextValue {
   walletAddress: string | null;
   connecting: boolean;
   walletReady: boolean;
   error: string | null;
-  connectWallet: (provider: WalletProviderType, manualAddress?: string) => Promise<boolean>;
+  connectWallet: () => Promise<boolean>;
   disconnectWallet: () => void;
 }
 
 const WalletContext = createContext<WalletContextValue | null>(null);
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [walletMap, setWalletMap] = useState<Record<string, string>>(() => getWalletMap());
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,16 +29,13 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       connecting,
       walletReady: true,
       error,
-      connectWallet: async (provider: WalletProviderType, manualAddress?: string) => {
+      connectWallet: async () => {
         if (!user) return false;
 
         setError(null);
         setConnecting(true);
 
-        const result =
-          provider === "freighter"
-            ? await connectFreighterWallet()
-            : connectManualWallet(manualAddress || "");
+        const result = await connectFreighterWallet();
         setConnecting(false);
 
         if (!result.ok) {
@@ -60,9 +55,10 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           delete next[user.id];
           return next;
         });
+        logout();
       },
     }),
-    [connecting, error, user, walletAddress],
+    [connecting, error, logout, user, walletAddress],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

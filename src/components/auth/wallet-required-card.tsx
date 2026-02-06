@@ -1,6 +1,5 @@
 "use client";
 
-import { FormEvent, useState } from "react";
 import { ShieldCheck, Wallet } from "lucide-react";
 import { useWallet } from "@/components/providers/wallet-provider";
 import { Button } from "@/components/ui/button";
@@ -8,18 +7,6 @@ import { Card } from "@/components/ui/card";
 
 export function WalletRequiredCard() {
   const { connectWallet, connecting, error } = useWallet();
-  const [manualAddress, setManualAddress] = useState("");
-  const [manualError, setManualError] = useState("");
-
-  const handleManualConnect = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setManualError("");
-
-    const ok = await connectWallet("manual", manualAddress);
-    if (!ok) {
-      setManualError("No se pudo conectar con la direccion manual.");
-    }
-  };
 
   return (
     <Card className="w-full max-w-xl text-left">
@@ -29,9 +16,7 @@ export function WalletRequiredCard() {
         </div>
         <div>
           <h2 className="text-2xl font-bold">Conecta tu wallet para continuar</h2>
-          <p className="text-sm text-[var(--color-muted)]">
-            Para operar en Terra Capital debes vincular una wallet Stellar (manual o Freighter).
-          </p>
+          <p className="text-sm text-[var(--color-muted)]">Para operar en Terra Capital debes conectar Freighter.</p>
         </div>
       </div>
 
@@ -42,24 +27,13 @@ export function WalletRequiredCard() {
         <p className="mt-1">La direccion publica queda asociada a tu sesion para compras, ventas y trazabilidad de activos tokenizados.</p>
       </div>
 
-      <form className="mt-5 grid gap-2" onSubmit={handleManualConnect}>
-        <input
-          className="h-11 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3"
-          placeholder="Direccion publica Stellar (G...)"
-          value={manualAddress}
-          onChange={(event) => setManualAddress(event.target.value)}
-          disabled={connecting}
-        />
-        <Button type="submit" variant="outline" className="h-11 w-full" disabled={connecting}>
-          {connecting ? "Validando wallet..." : "Conectar wallet manual"}
-        </Button>
-      </form>
-
-      <Button className="mt-3 h-11 w-full" onClick={() => connectWallet("freighter")} disabled={connecting}>
-        {connecting ? "Conectando wallet..." : "Conectar Freighter"}
+      <Button className="mt-5 h-11 w-full justify-center gap-2" onClick={() => connectWallet()} disabled={connecting}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/images/freighter-logo.svg" alt="Freighter" className="h-5 w-5" />
+        {connecting ? "Conectando Freighter..." : "Conectar con Freighter"}
       </Button>
 
-      {(error || manualError) && <p className="mt-4 text-sm text-red-500">{error || manualError}</p>}
+      {error && <p className="mt-4 text-sm text-red-500">{error}</p>}
     </Card>
   );
 }

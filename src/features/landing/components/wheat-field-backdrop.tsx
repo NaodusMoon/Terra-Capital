@@ -1,0 +1,67 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+
+type VantaTopologyEffect = {
+  destroy: () => void;
+};
+
+export function WheatFieldBackdrop() {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const effectRef = useRef<VantaTopologyEffect | null>(null);
+  const [vantaReady, setVantaReady] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const setup = async () => {
+      const p5Module = await import("p5");
+      const p5 = (p5Module as unknown as { default?: unknown }).default ?? p5Module;
+      (window as unknown as { p5?: unknown }).p5 = p5;
+
+      const vantaModule = await import("vanta/dist/vanta.topology.min");
+      const TOPOLOGY = (vantaModule as unknown as { default: (config: Record<string, unknown>) => VantaTopologyEffect }).default;
+
+      if (!mounted || !containerRef.current) return;
+
+      effectRef.current = TOPOLOGY({
+        el: containerRef.current,
+        mouseControls: true,
+        touchControls: true,
+        gyroControls: false,
+        minHeight: 200,
+        minWidth: 200,
+        scale: 1.25,
+        scaleMobile: 1.1,
+        color: 0xd8b561,
+        backgroundColor: 0x0f1e16,
+        points: 14,
+        spacing: 16,
+        showDots: true,
+      });
+      setVantaReady(true);
+    };
+
+    setup().catch(() => {
+      setVantaReady(false);
+    });
+
+    return () => {
+      mounted = false;
+      if (effectRef.current) {
+        effectRef.current.destroy();
+        effectRef.current = null;
+      }
+    };
+  }, []);
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+      <div ref={containerRef} className="h-full w-full" />
+      {!vantaReady && (
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_24%,rgba(149,195,82,0.3),transparent_33%),radial-gradient(circle_at_82%_16%,rgba(214,179,96,0.25),transparent_35%),linear-gradient(140deg,rgba(9,16,25,0.9),rgba(14,38,28,0.88))]" />
+      )}
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(9,16,25,0.1),rgba(9,16,25,0.32))]" />
+    </div>
+  );
+}

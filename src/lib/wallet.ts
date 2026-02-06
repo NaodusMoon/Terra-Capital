@@ -27,25 +27,6 @@ export function removeUserWallet(userId: string) {
   writeLocalStorage(STORAGE_KEYS.wallets, map);
 }
 
-export function isValidStellarPublicKey(address: string) {
-  return /^G[A-Z2-7]{55}$/.test(address.trim().toUpperCase());
-}
-
-export function connectManualWallet(address: string) {
-  const normalized = address.trim().toUpperCase();
-  if (!isValidStellarPublicKey(normalized)) {
-    return {
-      ok: false as const,
-      message: "Direccion Stellar invalida. Debe comenzar con G y tener 56 caracteres.",
-    };
-  }
-
-  return {
-    ok: true as const,
-    address: normalized,
-  };
-}
-
 export async function connectFreighterWallet() {
   const connected = await isConnected();
   if (connected.error) {
@@ -55,18 +36,22 @@ export async function connectFreighterWallet() {
     };
   }
 
-  if (!connected.isConnected) {
-    return {
-      ok: false as const,
-      message: "No detecto Freighter. Instala o habilita la extension.",
-    };
-  }
-
   const access = await requestAccess();
   if (access.error) {
+    const detail = access.error.message || "";
+    if (
+      detail.toLowerCase().includes("not connected") ||
+      detail.toLowerCase().includes("not installed")
+    ) {
+      return {
+        ok: false as const,
+        message: "No detecto Freighter. Instala o habilita la extension.",
+      };
+    }
+
     return {
       ok: false as const,
-      message: access.error.message || "No autorizaste el acceso de Freighter.",
+      message: detail || "No autorizaste el acceso de Freighter.",
     };
   }
 

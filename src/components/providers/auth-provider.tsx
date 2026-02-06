@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { createContext, useContext, useMemo, useState } from "react";
 import { getCurrentUser, loginUser, logoutUser, registerUser } from "@/lib/auth";
@@ -64,4 +64,3 @@ export function useAuth() {
   }
   return context;
 }
-

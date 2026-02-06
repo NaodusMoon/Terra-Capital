@@ -1,9 +1,9 @@
-﻿"use client";
+"use client";
 
 import { useSyncExternalStore } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Moon, SunMedium } from "lucide-react";
 import { useTheme } from "@/components/providers/theme-provider";
-import { Button } from "@/components/ui/button";
 
 export function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
@@ -14,18 +14,29 @@ export function ThemeToggle() {
   );
 
   return (
-    <Button type="button" variant="outline" className="gap-2" onClick={toggleTheme}>
+    <button
+      type="button"
+      onClick={toggleTheme}
+      aria-label={hydrated && theme === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+      title={hydrated && theme === "dark" ? "Modo claro" : "Modo oscuro"}
+      className="relative inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] transition hover:bg-[var(--color-surface-soft)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+    >
       {!hydrated ? (
-        <>
-          <SunMedium size={16} className="opacity-0" />
-          Tema
-        </>
+        <Moon size={17} className="opacity-70" />
       ) : (
-        <>
-          {theme === "dark" ? <SunMedium size={16} /> : <Moon size={16} />}
-          {theme === "dark" ? "Modo claro" : "Modo oscuro"}
-        </>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.span
+            key={theme}
+            initial={{ rotate: -35, scale: 0.6, opacity: 0 }}
+            animate={{ rotate: 0, scale: 1, opacity: 1 }}
+            exit={{ rotate: 35, scale: 0.6, opacity: 0 }}
+            transition={{ duration: 0.24, ease: "easeOut" }}
+            className="relative z-10"
+          >
+            {theme === "dark" ? <SunMedium size={17} /> : <Moon size={17} />}
+          </motion.span>
+        </AnimatePresence>
       )}
-    </Button>
+    </button>
   );
 }

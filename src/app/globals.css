@@ -1,29 +1,29 @@
 ﻿@import "tailwindcss";
 
 :root {
-  --color-background: #f6f8f6;
+  --color-background: #f3f6f1;
   --color-foreground: #10211a;
-  --color-primary: #4f9a42;
+  --color-primary: #4b9940;
   --color-primary-contrast: #f7fbf5;
-  --color-accent: #80b944;
-  --color-gold: #d6b360;
+  --color-accent: #7fb44c;
+  --color-gold: #ccab62;
   --color-surface: #ffffff;
-  --color-surface-soft: #ebf2e8;
-  --color-border: #d5e2d5;
-  --color-muted: #567163;
+  --color-surface-soft: #e9f0e5;
+  --color-border: #cfdecc;
+  --color-muted: #4f6b5c;
 }
 
 .dark {
-  --color-background: #091019;
+  --color-background: #081018;
   --color-foreground: #e7f0eb;
-  --color-primary: #6ab359;
+  --color-primary: #69b55c;
   --color-primary-contrast: #08140f;
-  --color-accent: #93c748;
-  --color-gold: #d0aa56;
-  --color-surface: #101b25;
-  --color-surface-soft: #172534;
-  --color-border: #253748;
-  --color-muted: #99b3a6;
+  --color-accent: #90c54d;
+  --color-gold: #d2af61;
+  --color-surface: #0f1b26;
+  --color-surface-soft: #172634;
+  --color-border: #23374a;
+  --color-muted: #9bb5a9;
 }
 
 @theme inline {
@@ -38,7 +38,7 @@
 body {
   font-family: var(--font-manrope), sans-serif;
   background:
-    linear-gradient(132deg, color-mix(in oklab, var(--color-background) 96%, black), var(--color-background));
+    linear-gradient(135deg, color-mix(in oklab, var(--color-background) 95%, black), var(--color-background));
   color: var(--color-foreground);
 }
 
