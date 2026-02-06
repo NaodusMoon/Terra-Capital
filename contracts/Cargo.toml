@@ -1,0 +1,3 @@
+﻿[workspace]
+members = ["terra_tokenization"]
+resolver = "2"
