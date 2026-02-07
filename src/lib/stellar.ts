@@ -44,3 +44,35 @@ export function buildTerraAssets(issuerPublicKey: string) {
   return TERRA_ASSET_CODES.map((code) => ({ code, issuer: issuerPublicKey }));
 }
 
+export interface WalletBalance {
+  asset: string;
+  amount: string;
+}
+
+export async function getWalletBalances(address: string, network: StellarNetwork = "testnet") {
+  const response = await fetch(`${getHorizonUrl(network)}/accounts/${address}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`No se pudo consultar balance (${response.status}).`);
+  }
+
+  const payload = (await response.json()) as {
+    balances: Array<{
+      balance: string;
+      asset_type: string;
+      asset_code?: string;
+    }>;
+  };
+
+  return payload.balances.map((row) => ({
+    asset: row.asset_type === "native" ? "XLM" : (row.asset_code ?? "ASSET"),
+    amount: row.balance,
+  }));
+}
+

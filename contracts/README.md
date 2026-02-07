@@ -1,50 +1,55 @@
-﻿# Terra Capital Soroban Contract
+# Terra Capital Soroban Contracts
 
-Contrato base de tokenizacion para Stellar (Soroban).
+Arquitectura on-chain con dos contratos anidados por `cross-contract`:
 
-## Tecnologias utilizadas
+- `terra_tokenization`: inventario y balances de tokens por activo.
+- `terra_marketplace`: compra, reparto de fondos, comision de plataforma y llamada cross-contract a tokenizacion.
 
-- Rust (`no_std`)
-- Soroban SDK (`soroban-sdk`)
-- Stellar CLI (deploy e invocacion)
-- WASM target: `wasm32-unknown-unknown`
-- Backend off-chain complementario: Rust + Axum + Tokio (para reducir carga directa sobre Horizon/RPC)
+## Objetivo de negocio cubierto
 
-## Arquitectura relacionada
+- Terra Capital actua como intermediario y cobra comision.
+- Terra Capital no es duena de los tokens del activo.
+- El comprador compra desde su wallet y el pago se distribuye en la misma transaccion:
+  - monto neto al vendedor,
+  - comision a tesoreria,
+  - porcion opcional de comision a destino de liquidez (ej. estrategia Blend).
 
-- On-chain: contrato Soroban en `contracts/terra_tokenization`
-- Off-chain: API en `backend/` (Axum + Tokio) usada por el frontend para consultas cacheadas
-- Settlement operativo (prototipo): ventas tokenizadas -> liquidez a Blend -> liquidaciones periodicas a holders (mensual/bimestral)
+## Flujo de compra
 
-## Ejecutar proyecto completo (frontend + off-chain)
+1. Comprador invoca `terra_marketplace.buy_tokens(...)` con su wallet.
+2. Marketplace calcula total + comision.
+3. Marketplace transfiere token de pago desde comprador hacia vendedor/tesoreria.
+4. Marketplace autoriza subinvocacion y ejecuta `terra_tokenization.execute_sale(...)`.
+5. Tokenizacion descuenta inventario y acredita balance de tokens al comprador.
 
-Desde la raiz del repo:
+Todo es atomico: si falla una parte, revierte toda la operacion.
 
-```bash
-npm run dev:all
-```
-
-## Ubicacion
+## Contratos
 
 - `contracts/terra_tokenization/src/lib.rs`
+- `contracts/terra_marketplace/src/lib.rs`
 
-## Funciones incluidas
+## Funciones principales
+
+### Tokenizacion
 
 - `init(admin)`
+- `set_marketplace(marketplace)`
 - `create_asset(seller, category, title, price_per_token, total_tokens)`
-- `buy_tokens(buyer, asset_id, quantity)`
+- `execute_sale(seller, buyer, asset_id, quantity)` (solo via marketplace autorizado)
 - `get_asset(asset_id)`
 - `list_assets(from_id, limit)`
 - `get_buyer_balance(asset_id, buyer)`
 - `set_asset_active(seller, asset_id, active)`
 
-## Requisitos locales
+### Marketplace
 
-1. Instalar Rust (`cargo` y `rustup`).
-2. Instalar target WASM:
-   - `rustup target add wasm32-unknown-unknown`
-3. Instalar Stellar CLI:
-   - `cargo install --locked stellar-cli`
+- `init(admin, tokenization_contract, payment_token, treasury, fee_bps)`
+- `set_fee_config(treasury, fee_bps)`
+- `set_payment_token(payment_token)`
+- `set_liquidity_config(destination, share_bps)`
+- `preview_purchase(asset_id, quantity)`
+- `buy_tokens(buyer, asset_id, quantity)`
 
 ## Build
 
@@ -53,30 +58,27 @@ cd contracts
 cargo build --release --target wasm32-unknown-unknown
 ```
 
-WASM resultante:
+WASM:
 
 - `contracts/target/wasm32-unknown-unknown/release/terra_tokenization.wasm`
+- `contracts/target/wasm32-unknown-unknown/release/terra_marketplace.wasm`
 
-## Deploy (testnet, ejemplo)
+## Deploy sugerido (testnet)
 
-```bash
-stellar contract deploy \
-  --wasm contracts/target/wasm32-unknown-unknown/release/terra_tokenization.wasm \
-  --source <TU_CUENTA> \
-  --network testnet
-```
+1. Deploy tokenizacion.
+2. Inicializar tokenizacion.
+3. Deploy marketplace.
+4. Inicializar marketplace con:
+   - contrato tokenizacion,
+   - token de pago (asset contract),
+   - direccion tesoreria de comisiones,
+   - `fee_bps` (ej. 300 = 3%).
+5. En tokenizacion, setear `set_marketplace(<marketplace_contract_id>)`.
+6. Opcional: configurar destino de liquidez con `set_liquidity_config`.
 
-Luego inicializar:
+## Nota Blend
 
-```bash
-stellar contract invoke \
-  --id <CONTRACT_ID> \
-  --source <TU_CUENTA> \
-  --network testnet \
-  -- init \
-  --admin <TU_DIRECCION_PUBLICA>
-```
-
-## Nota
-
-Este contrato maneja inventario y balances de tokens por activo. Para transferencias de valor reales, se integra con token contracts/USDC o pasarela de pago y lógica de settlement.
+Blend no se invoca directamente en este contrato para evitar acoplamiento fuerte.
+Se deja un destino de liquidez configurable para enrutar una parte de la comision
+hacia una wallet/contrato de estrategia de liquidez (incluyendo una implementacion
+off-chain/on-chain conectada a Blend).

@@ -42,6 +42,16 @@ body {
   color: var(--color-foreground);
 }
 
+@media (max-width: 768px) {
+  body {
+    padding-bottom: 78px;
+  }
+
+  main {
+    max-width: 100vw;
+  }
+}
+
 h1,
 h2,
 h3,

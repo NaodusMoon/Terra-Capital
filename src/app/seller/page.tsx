@@ -3,7 +3,7 @@ import { SellerDashboard } from "@/features/dashboard/components/seller-dashboar
 
 export default function SellerPage() {
   return (
-    <RoleGuard role="seller">
+    <RoleGuard mode="seller">
       <SellerDashboard />
     </RoleGuard>
   );

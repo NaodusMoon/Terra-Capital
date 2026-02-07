@@ -1,0 +1,11 @@
+[package]
+name = "terra_marketplace"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+soroban-sdk = "22.0.5"

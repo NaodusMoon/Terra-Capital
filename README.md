@@ -18,8 +18,7 @@ Esto levanta frontend + backend off-chain en paralelo.
 - Tailwind CSS v4
 - Framer Motion (animaciones)
 - Lucide React (iconografia)
-- Freighter API (conexion de wallet Stellar)
-- Wallet Stellar manual (ingreso de direccion publica G...)
+- Freighter API + xBull + Albedo (conexion de wallet Stellar)
 
 ### Backend off-chain (recomendado)
 - Rust
@@ -28,15 +27,18 @@ Esto levanta frontend + backend off-chain en paralelo.
 - Reqwest (cliente HTTP)
 - Cache en memoria para reducir llamadas a Horizon/RPC
 
-### Smart contract
+### Smart contracts
 - Soroban (Stellar)
 - Rust `no_std`
+- Arquitectura dual:
+  - `terra_tokenization` (inventario/balances)
+  - `terra_marketplace` (compra, comision y settlement cross-contract)
 
 ## Arquitectura
 
 - `src/`: frontend Next.js
 - `backend/`: API off-chain en Rust para consultas Stellar con cache
-- `contracts/`: smart contract Soroban de tokenizacion
+- `contracts/`: contratos Soroban (tokenizacion + marketplace)
 
 ## Requisitos previos
 
@@ -66,6 +68,8 @@ Copia `.env.example` a `.env.local` y ajusta valores:
 
 ```env
 OFFCHAIN_BACKEND_URL=http://127.0.0.1:8080
+RESEND_API_KEY=
+RECOVERY_EMAIL_FROM="Terra Capital <no-reply@tu-dominio.com>"
 ```
 
 Si no defines `OFFCHAIN_BACKEND_URL`, el frontend hace fallback a consulta directa de Horizon.
@@ -115,7 +119,7 @@ npm run lint
 
 ## Smart contract (Soroban)
 
-Documentacion del contrato:
+Documentacion de contratos:
 - `contracts/README.md`
 
 Comandos base:
@@ -128,9 +132,9 @@ cargo build --release --target wasm32-unknown-unknown
 ## Funcionalidades principales
 
 - Landing informativa del proyecto
-- Registro e inicio de sesion por rol (buyer/seller)
+- Registro e inicio de sesion por rol (buyer/seller) con hash PBKDF2 y bloqueo temporal por intentos fallidos
 - Conexion obligatoria de wallet Stellar para operar
-- Opciones de wallet: manual Stellar o Freighter
+- Opciones de wallet: Freighter, xBull y Albedo
 - Marketplace comprador con filtros, detalle expandido, compra y stock
 - Portafolio de compras y registros de operaciones
 - Panel vendedor para publicar activos, controlar ventas y chat
@@ -139,6 +143,7 @@ cargo build --release --target wasm32-unknown-unknown
 
 ## Notas operativas
 
-- La autenticacion actual usa almacenamiento local para prototipo (`localStorage`).
+- La autenticacion usa almacenamiento local para prototipo (`localStorage`), pero ya no guarda contrasenas en texto plano.
 - El backend off-chain ya incorpora cache de red para evitar saturar nodos.
 - Si `dev:all` falla en Windows por herramientas de compilacion, verifica instalacion de Build Tools C++.
+- En este stack (Soroban/Rust), OpenZeppelin para EVM no aplica directamente; se reforzo seguridad con controles nativos de Soroban y validaciones defensivas en frontend/contrato.

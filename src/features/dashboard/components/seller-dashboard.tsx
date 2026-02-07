@@ -29,6 +29,7 @@ const categoryIcon: Record<AssetCategory, ComponentType<{ size?: number }>> = {
 
 export function SellerDashboard() {
   const { user } = useAuth();
+  const sellerVerified = user?.sellerVerificationStatus === "verified";
 
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<AssetCategory>("cultivo");
@@ -108,6 +109,10 @@ export function SellerDashboard() {
     setFormMessage("");
 
     if (!user) return;
+    if (!sellerVerified) {
+      setFormMessage("Tu modo vendedor esta bloqueado hasta completar verificacion.");
+      return;
+    }
 
     const parsedPrice = Number(pricePerToken);
     const parsedTokens = Number(totalTokens);
@@ -117,17 +122,22 @@ export function SellerDashboard() {
       return;
     }
 
-    createAsset(user, {
-      title,
-      category,
-      description,
-      location,
-      pricePerToken: parsedPrice,
-      totalTokens: parsedTokens,
-      expectedYield,
-      imageUrl: imageUrl.trim() || undefined,
-      videoUrl: videoUrl.trim() || undefined,
-    });
+    try {
+      createAsset(user, {
+        title,
+        category,
+        description,
+        location,
+        pricePerToken: parsedPrice,
+        totalTokens: parsedTokens,
+        expectedYield,
+        imageUrl: imageUrl.trim() || undefined,
+        videoUrl: videoUrl.trim() || undefined,
+      });
+    } catch (error) {
+      setFormMessage(error instanceof Error ? error.message : "No se pudo publicar el activo.");
+      return;
+    }
 
     setTitle("");
     setCategory("cultivo");
@@ -148,7 +158,12 @@ export function SellerDashboard() {
 
     if (!activeThreadId || !user) return;
 
-    const result = sendThreadMessage(activeThreadId, user, chatInput);
+    if (!sellerVerified) {
+      setChatError("Debes verificarte para usar mensajeria en modo vendedor.");
+      return;
+    }
+
+    const result = sendThreadMessage(activeThreadId, user, "seller", chatInput);
     if (!result.ok) {
       setChatError(result.message);
       return;
@@ -164,6 +179,17 @@ export function SellerDashboard() {
         <h1 className="text-3xl font-black">Centro de Publicacion del Vendedor</h1>
         <p className="mt-2 text-[var(--color-muted)]">Carga activos tokenizados, monitorea ventas y conversa con compradores.</p>
       </FadeIn>
+
+      {!sellerVerified && (
+        <section className="mt-5">
+          <Card>
+            <p className="text-sm font-semibold text-amber-600">Modo vendedor bloqueado</p>
+            <p className="mt-1 text-sm text-[var(--color-muted)]">
+              Completa tu verificacion desde <strong>Cuenta</strong> para habilitar publicaciones y ventas.
+            </p>
+          </Card>
+        </section>
+      )}
 
       <section className="mt-7 grid gap-5 md:grid-cols-4">
         <Card>
@@ -213,6 +239,7 @@ export function SellerDashboard() {
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               required
+              disabled={!sellerVerified}
             />
 
             <div className="grid gap-3 sm:grid-cols-2">
@@ -220,6 +247,7 @@ export function SellerDashboard() {
                 className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3"
                 value={category}
                 onChange={(event) => setCategory(event.target.value as AssetCategory)}
+                disabled={!sellerVerified}
               >
                 <option value="cultivo">Cultivo</option>
                 <option value="tierra">Tierra</option>
@@ -232,6 +260,7 @@ export function SellerDashboard() {
                 value={location}
                 onChange={(event) => setLocation(event.target.value)}
                 required
+                disabled={!sellerVerified}
               />
             </div>
 
@@ -241,6 +270,7 @@ export function SellerDashboard() {
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               required
+              disabled={!sellerVerified}
             />
 
             <div className="grid gap-3 sm:grid-cols-3">
@@ -251,6 +281,7 @@ export function SellerDashboard() {
                 value={pricePerToken}
                 onChange={(event) => setPricePerToken(event.target.value)}
                 required
+                disabled={!sellerVerified}
               />
               <input
                 type="number"
@@ -259,6 +290,7 @@ export function SellerDashboard() {
                 value={totalTokens}
                 onChange={(event) => setTotalTokens(event.target.value)}
                 required
+                disabled={!sellerVerified}
               />
               <input
                 className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3"
@@ -266,6 +298,7 @@ export function SellerDashboard() {
                 value={expectedYield}
                 onChange={(event) => setExpectedYield(event.target.value)}
                 required
+                disabled={!sellerVerified}
               />
             </div>
 
@@ -277,6 +310,7 @@ export function SellerDashboard() {
                   placeholder="URL de imagen"
                   value={imageUrl}
                   onChange={(event) => setImageUrl(event.target.value)}
+                  disabled={!sellerVerified}
                 />
               </label>
               <input
@@ -284,13 +318,14 @@ export function SellerDashboard() {
                 placeholder="URL de video"
                 value={videoUrl}
                 onChange={(event) => setVideoUrl(event.target.value)}
+                disabled={!sellerVerified}
               />
             </div>
 
             {formMessage && <p className="text-sm text-[var(--color-primary)]">{formMessage}</p>}
 
-            <Button type="submit" className="w-full">
-              Publicar activo
+            <Button type="submit" className="w-full" disabled={!sellerVerified}>
+              {sellerVerified ? "Publicar activo" : "Bloqueado por verificacion"}
             </Button>
           </form>
         </Card>
@@ -410,11 +445,11 @@ export function SellerDashboard() {
                 placeholder="Escribe un mensaje para tu comprador"
                 value={chatInput}
                 onChange={(event) => setChatInput(event.target.value)}
-                disabled={!activeThreadId}
+                disabled={!activeThreadId || !sellerVerified}
               />
               {chatError && <p className="text-sm text-red-500">{chatError}</p>}
-              <Button type="submit" className="w-full" disabled={!activeThreadId}>
-                Enviar mensaje
+              <Button type="submit" className="w-full" disabled={!activeThreadId || !sellerVerified}>
+                {sellerVerified ? "Enviar mensaje" : "Bloqueado por verificacion"}
               </Button>
             </form>
           </div>

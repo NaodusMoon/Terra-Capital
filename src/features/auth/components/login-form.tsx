@@ -1,58 +1,68 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useWallet } from "@/components/providers/wallet-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import type { UserRole } from "@/types/auth";
+import { PasswordField } from "@/components/ui/password-field";
 
 export function LoginForm() {
   const router = useRouter();
   const { login, user, loading } = useAuth();
-  const [role, setRole] = useState<UserRole>("buyer");
+  const { walletAddress, walletOptions, connectWallet, connecting } = useWallet();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!loading && user) {
-      router.replace(`/${user.role}`);
+      router.replace("/buyer");
     }
   }, [loading, router, user]);
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
 
-    const result = login({ email, password, role });
+    if (!walletAddress) {
+      setError("Debes conectar una wallet antes de iniciar sesion.");
+      router.replace("/");
+      return;
+    }
+
+    setSubmitting(true);
+    const result = await login({ email, password, walletAddress });
+    setSubmitting(false);
     if (!result.ok) {
       setError(result.message);
       return;
     }
 
-    router.push(`/${result.user.role}`);
+    router.push("/buyer");
   };
 
   return (
     <Card className="w-full max-w-md">
-      <h1 className="text-2xl font-bold">Iniciar sesion</h1>
-      <p className="mt-2 text-sm text-[var(--color-muted)]">Accede a tu portal de comprador o vendedor.</p>
+      <h1 className="text-2xl font-bold">Iniciar sesión</h1>
+      <p className="mt-2 text-sm text-[var(--color-muted)]">Conecta wallet y accede a tu cuenta.</p>
+
+      <div className="mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] p-3">
+        <p className="text-xs uppercase tracking-[0.12em] text-[var(--color-muted)]">Wallet requerida</p>
+        <p className="mt-1 text-sm font-semibold">{walletAddress ? `${walletAddress.slice(0, 8)}...${walletAddress.slice(-6)}` : "No conectada"}</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {walletOptions.map((option) => (
+            <Button key={option.id} type="button" variant="outline" onClick={() => connectWallet(option.id)} disabled={connecting || submitting}>
+              {option.label}
+            </Button>
+          ))}
+        </div>
+      </div>
 
       <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-        <label className="block space-y-1 text-sm">
-          <span>Rol</span>
-          <select
-            className="h-11 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3"
-            value={role}
-            onChange={(event) => setRole(event.target.value as UserRole)}
-          >
-            <option value="buyer">Comprador</option>
-            <option value="seller">Vendedor</option>
-          </select>
-        </label>
-
         <label className="block space-y-1 text-sm">
           <span>Email</span>
           <input
@@ -65,30 +75,25 @@ export function LoginForm() {
         </label>
 
         <label className="block space-y-1 text-sm">
-          <span>Contrasena</span>
-          <input
-            className="h-11 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-          />
+          <span>Contraseña</span>
+          <PasswordField value={password} onChange={(event) => setPassword(event.target.value)} required />
         </label>
 
         {error && <p className="text-sm text-red-500">{error}</p>}
 
-        <Button className="h-11 w-full" type="submit">
-          Entrar
+        <Button className="h-11 w-full" type="submit" disabled={submitting || !walletAddress}>
+          {submitting ? "Validando..." : "Entrar"}
         </Button>
       </form>
 
-      <p className="mt-4 text-sm text-[var(--color-muted)]">
-        Aun no tienes cuenta?{" "}
+      <div className="mt-4 flex items-center justify-between text-sm">
+        <Link href="/auth/forgot" className="font-semibold text-[var(--color-primary)]">
+          Olvidé mi contraseña
+        </Link>
         <Link href="/auth/register" className="font-semibold text-[var(--color-primary)]">
           Registrate
         </Link>
-      </p>
+      </div>
     </Card>
   );
 }
-

@@ -1,4 +1,4 @@
-﻿#![no_std]
+#![no_std]
 
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Map, String};
 
@@ -6,6 +6,7 @@ use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Map, Strin
 #[contracttype]
 pub enum DataKey {
     Admin,
+    Marketplace,
     Asset(u64),
     NextAssetId,
     Balance((u64, Address)),
@@ -29,6 +30,8 @@ pub struct TerraTokenization;
 
 #[contractimpl]
 impl TerraTokenization {
+    const MAX_TEXT_LEN: u32 = 120;
+
     pub fn init(env: Env, admin: Address) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
@@ -36,6 +39,22 @@ impl TerraTokenization {
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::NextAssetId, &1_u64);
+    }
+
+    pub fn set_marketplace(env: Env, marketplace: Address) {
+        let admin = env
+            .storage()
+            .instance()
+            .get::<DataKey, Address>(&DataKey::Admin)
+            .unwrap_or_else(|| panic!("not initialized"));
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::Marketplace, &marketplace);
+    }
+
+    pub fn get_marketplace(env: Env) -> Option<Address> {
+        env.storage()
+            .instance()
+            .get::<DataKey, Address>(&DataKey::Marketplace)
     }
 
     pub fn create_asset(
@@ -51,12 +70,21 @@ impl TerraTokenization {
         if price_per_token <= 0 || total_tokens <= 0 {
             panic!("invalid asset values");
         }
+        if category.len() == 0 || category.len() > Self::MAX_TEXT_LEN {
+            panic!("invalid category length");
+        }
+        if title.len() == 0 || title.len() > Self::MAX_TEXT_LEN {
+            panic!("invalid title length");
+        }
 
         let id = env
             .storage()
             .instance()
             .get::<DataKey, u64>(&DataKey::NextAssetId)
             .unwrap_or(1);
+        if id == u64::MAX {
+            panic!("asset id overflow");
+        }
 
         let asset = Asset {
             id,
@@ -70,40 +98,46 @@ impl TerraTokenization {
         };
 
         env.storage().persistent().set(&DataKey::Asset(id), &asset);
-        env.storage().instance().set(&DataKey::NextAssetId, &(id + 1));
+        let next_id = id.checked_add(1).unwrap_or_else(|| panic!("next asset id overflow"));
+        env.storage().instance().set(&DataKey::NextAssetId, &next_id);
 
         id
     }
 
     pub fn buy_tokens(env: Env, buyer: Address, asset_id: u64, quantity: i128) -> i128 {
-        buyer.require_auth();
-
-        if quantity <= 0 {
-            panic!("quantity must be > 0");
+        // Cuando existe marketplace configurado, se fuerza el flujo cross-contract
+        // para que no se puedan saltar pagos/comisiones.
+        if env.storage().instance().has(&DataKey::Marketplace) {
+            panic!("use marketplace contract");
         }
+        buyer.require_auth();
+        Self::apply_sale(env, asset_id, quantity, buyer)
+    }
 
-        let mut asset = env
+    pub fn execute_sale(
+        env: Env,
+        seller: Address,
+        buyer: Address,
+        asset_id: u64,
+        quantity: i128,
+    ) -> i128 {
+        let marketplace = env
+            .storage()
+            .instance()
+            .get::<DataKey, Address>(&DataKey::Marketplace)
+            .unwrap_or_else(|| panic!("marketplace not configured"));
+        marketplace.require_auth();
+
+        let total = Self::apply_sale(env.clone(), asset_id, quantity, buyer);
+        let asset = env
             .storage()
             .persistent()
             .get::<DataKey, Asset>(&DataKey::Asset(asset_id))
             .unwrap_or_else(|| panic!("asset not found"));
-
-        if !asset.active {
-            panic!("asset not active");
+        if asset.seller != seller {
+            panic!("seller mismatch");
         }
-
-        if asset.available_tokens < quantity {
-            panic!("insufficient available tokens");
-        }
-
-        asset.available_tokens -= quantity;
-        env.storage().persistent().set(&DataKey::Asset(asset_id), &asset);
-
-        let key = DataKey::Balance((asset_id, buyer.clone()));
-        let prev = env.storage().persistent().get::<DataKey, i128>(&key).unwrap_or(0);
-        env.storage().persistent().set(&key, &(prev + quantity));
-
-        asset.price_per_token * quantity
+        total
     }
 
     pub fn get_asset(env: Env, asset_id: u64) -> Asset {
@@ -161,5 +195,43 @@ impl TerraTokenization {
 
         asset.active = active;
         env.storage().persistent().set(&DataKey::Asset(asset_id), &asset);
+    }
+
+    fn apply_sale(env: Env, asset_id: u64, quantity: i128, buyer: Address) -> i128 {
+        if quantity <= 0 {
+            panic!("quantity must be > 0");
+        }
+
+        let mut asset = env
+            .storage()
+            .persistent()
+            .get::<DataKey, Asset>(&DataKey::Asset(asset_id))
+            .unwrap_or_else(|| panic!("asset not found"));
+
+        if !asset.active {
+            panic!("asset not active");
+        }
+
+        if asset.available_tokens < quantity {
+            panic!("insufficient available tokens");
+        }
+
+        asset.available_tokens = asset
+            .available_tokens
+            .checked_sub(quantity)
+            .unwrap_or_else(|| panic!("available token underflow"));
+        env.storage().persistent().set(&DataKey::Asset(asset_id), &asset);
+
+        let key = DataKey::Balance((asset_id, buyer.clone()));
+        let prev = env.storage().persistent().get::<DataKey, i128>(&key).unwrap_or(0);
+        let updated_balance = prev
+            .checked_add(quantity)
+            .unwrap_or_else(|| panic!("buyer balance overflow"));
+        env.storage().persistent().set(&key, &updated_balance);
+
+        asset
+            .price_per_token
+            .checked_mul(quantity)
+            .unwrap_or_else(|| panic!("cost overflow"))
     }
 }

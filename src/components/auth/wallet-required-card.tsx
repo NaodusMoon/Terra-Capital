@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 export function WalletRequiredCard() {
-  const { connectWallet, connecting, error } = useWallet();
+  const { connectWallet, connecting, error, walletOptions } = useWallet();
 
   return (
     <Card className="w-full max-w-xl text-left">
@@ -16,7 +16,7 @@ export function WalletRequiredCard() {
         </div>
         <div>
           <h2 className="text-2xl font-bold">Conecta tu wallet para continuar</h2>
-          <p className="text-sm text-[var(--color-muted)]">Para operar en Terra Capital debes conectar Freighter.</p>
+          <p className="text-sm text-[var(--color-muted)]">Para operar en Terra Capital debes conectar una wallet Stellar compatible.</p>
         </div>
       </div>
 
@@ -27,11 +27,14 @@ export function WalletRequiredCard() {
         <p className="mt-1">La direccion publica queda asociada a tu sesion para compras, ventas y trazabilidad de activos tokenizados.</p>
       </div>
 
-      <Button className="mt-5 h-11 w-full justify-center gap-2" onClick={() => connectWallet()} disabled={connecting}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/images/freighter-logo.svg" alt="Freighter" className="h-5 w-5" />
-        {connecting ? "Conectando Freighter..." : "Conectar con Freighter"}
-      </Button>
+      <div className="mt-5 grid gap-2 sm:grid-cols-3">
+        {walletOptions.map((option) => (
+          <Button key={option.id} className="h-11 w-full justify-center gap-2" onClick={() => connectWallet(option.id)} disabled={connecting}>
+            <Wallet size={15} />
+            {connecting ? "Conectando..." : option.label}
+          </Button>
+        ))}
+      </div>
 
       {error && <p className="mt-4 text-sm text-red-500">{error}</p>}
     </Card>

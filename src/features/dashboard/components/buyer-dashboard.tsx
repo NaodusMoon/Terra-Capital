@@ -71,6 +71,9 @@ export function BuyerDashboard() {
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [tradeMessage, setTradeMessage] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [confirmAccepted, setConfirmAccepted] = useState(false);
   const [portfolio, setPortfolio] = useState<ReturnType<typeof getBuyerPortfolio>>([]);
   const [threads, setThreads] = useState<ReturnType<typeof getBuyerThreads>>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -137,6 +140,14 @@ export function BuyerDashboard() {
     });
   }, [assets, categoryFilter, search, sortBy]);
 
+  const searchSuggestions = useMemo(() => {
+    const normalized = search.trim().toLowerCase();
+    if (normalized.length < 2) return [];
+    return assets
+      .filter((asset) => asset.title.toLowerCase().includes(normalized) || asset.location.toLowerCase().includes(normalized))
+      .slice(0, 5);
+  }, [assets, search]);
+
   const selectedAsset = filteredAssets.find((asset) => asset.id === selectedAssetId) || assets.find((asset) => asset.id === selectedAssetId) || null;
   const selectedGallery = selectedAsset ? getAssetGallery(selectedAsset) : [];
   const activeGalleryImage = selectedGallery[activeGalleryIndex] || selectedGallery[0] || "";
@@ -149,11 +160,27 @@ export function BuyerDashboard() {
     setActiveGalleryIndex(0);
     setQuantity(1);
     setTradeMessage("");
+    setConfirmOpen(false);
+    setConfirmText("");
+    setConfirmAccepted(false);
   };
 
   const handleBuy = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!selectedAsset) return;
+    if (selectedAsset.availableTokens <= 0) {
+      setTradeMessage("Sin disponibilidad para este activo.");
+      return;
+    }
+    setConfirmOpen(true);
+  };
+
+  const confirmBuy = () => {
     if (!selectedAsset || !user) return;
+    if (!confirmAccepted || confirmText.trim().toUpperCase() !== "CONFIRMAR") {
+      setTradeMessage("Debes aceptar la compra y escribir CONFIRMAR para continuar.");
+      return;
+    }
 
     const result = buyAsset(selectedAsset.id, user, quantity);
     if (!result.ok) {
@@ -163,6 +190,9 @@ export function BuyerDashboard() {
 
     setTradeMessage("Compra confirmada. Tu registro quedo guardado en portafolio.");
     setQuantity(1);
+    setConfirmOpen(false);
+    setConfirmText("");
+    setConfirmAccepted(false);
     syncData();
   };
 
@@ -171,7 +201,7 @@ export function BuyerDashboard() {
     setChatError("");
 
     if (!activeThreadId || !user) return;
-    const result = sendThreadMessage(activeThreadId, user, chatInput);
+    const result = sendThreadMessage(activeThreadId, user, "buyer", chatInput);
 
     if (!result.ok) {
       setChatError(result.message);
@@ -234,6 +264,24 @@ export function BuyerDashboard() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
+            {searchSuggestions.length > 0 && (
+              <div className="absolute left-0 top-12 z-20 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-2 shadow-lg">
+                {searchSuggestions.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setSearch(item.title);
+                      openAssetDetail(item.id);
+                    }}
+                    className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--color-surface-soft)]"
+                  >
+                    <p className="font-semibold">{item.title}</p>
+                    <p className="text-xs text-[var(--color-muted)]">{item.location}</p>
+                  </button>
+                ))}
+              </div>
+            )}
           </label>
 
           <label className="block">
@@ -400,6 +448,31 @@ export function BuyerDashboard() {
                 {selectedAsset.availableTokens <= 0 ? "Sin disponibilidad" : "Comprar ahora"}
               </Button>
             </form>
+
+            {confirmOpen && (
+              <div className="mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] p-3 text-sm">
+                <p className="font-semibold">Confirmacion de compra</p>
+                <p className="mt-1 text-[var(--color-muted)]">Vas a comprar <strong>{quantity.toLocaleString("es-AR")}</strong> tokens por <strong>{formatUSD(quantity * selectedAsset.pricePerToken)}</strong>.</p>
+                <label className="mt-3 flex items-center gap-2">
+                  <input type="checkbox" checked={confirmAccepted} onChange={(event) => setConfirmAccepted(event.target.checked)} />
+                  <span>Confirmo que revise el monto y deseo continuar.</span>
+                </label>
+                <input
+                  className="mt-3 h-10 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3"
+                  placeholder="Escribe CONFIRMAR"
+                  value={confirmText}
+                  onChange={(event) => setConfirmText(event.target.value)}
+                />
+                <div className="mt-3 flex gap-2">
+                  <Button type="button" variant="outline" className="flex-1" onClick={() => setConfirmOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button type="button" className="flex-1" onClick={confirmBuy}>
+                    Confirmar compra
+                  </Button>
+                </div>
+              </div>
+            )}
           </Card>
         </section>
       )}

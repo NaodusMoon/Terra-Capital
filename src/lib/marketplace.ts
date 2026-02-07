@@ -1,4 +1,5 @@
 ﻿import { MARKETPLACE_EVENT, STORAGE_KEYS } from "@/lib/constants";
+import { normalizeSafeText, toSafeHttpUrlOrUndefined } from "@/lib/security";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import type { AppUser } from "@/types/auth";
 import type { ChatMessage, ChatThread, PurchaseRecord, TokenizedAsset } from "@/types/market";
@@ -96,14 +97,40 @@ export function createAsset(
   },
 ) {
   const assets = getAssetsRaw();
+  const title = normalizeSafeText(input.title, 120);
+  const description = normalizeSafeText(input.description, 500);
+  const location = normalizeSafeText(input.location, 80);
+  const expectedYield = normalizeSafeText(input.expectedYield, 80);
+  const safeImageUrl = toSafeHttpUrlOrUndefined(input.imageUrl);
+  const safeVideoUrl = toSafeHttpUrlOrUndefined(input.videoUrl);
+  const safeGallery = (input.imageUrls ?? []).map((url) => toSafeHttpUrlOrUndefined(url)).filter(Boolean) as string[];
+  const pricePerToken = Number(input.pricePerToken);
+  const totalTokens = Math.floor(Number(input.totalTokens));
+
+  if (!title || !description || !location || !expectedYield) {
+    throw new Error("Los campos del activo contienen valores invalidos.");
+  }
+
+  if (!Number.isFinite(pricePerToken) || !Number.isFinite(totalTokens) || pricePerToken <= 0 || totalTokens <= 0) {
+    throw new Error("Precio y tokens deben ser numericos y mayores a 0.");
+  }
 
   const newAsset: TokenizedAsset = {
     id: crypto.randomUUID(),
     sellerId: seller.id,
     sellerName: seller.organization || seller.fullName,
-    availableTokens: input.totalTokens,
+    availableTokens: totalTokens,
     createdAt: new Date().toISOString(),
-    ...input,
+    title,
+    category: input.category,
+    description,
+    location,
+    pricePerToken,
+    totalTokens,
+    expectedYield,
+    imageUrl: safeImageUrl,
+    imageUrls: safeGallery.length > 0 ? safeGallery : undefined,
+    videoUrl: safeVideoUrl,
   };
 
   assets.push(newAsset);
@@ -114,7 +141,8 @@ export function createAsset(
 }
 
 export function buyAsset(assetId: string, buyer: AppUser, quantity: number) {
-  if (quantity <= 0) {
+  const normalizedQuantity = Math.floor(quantity);
+  if (!Number.isInteger(normalizedQuantity) || normalizedQuantity <= 0) {
     return { ok: false as const, message: "La cantidad debe ser mayor a 0." };
   }
 
@@ -125,11 +153,11 @@ export function buyAsset(assetId: string, buyer: AppUser, quantity: number) {
     return { ok: false as const, message: "Activo no encontrado." };
   }
 
-  if (asset.availableTokens < quantity) {
+  if (asset.availableTokens < normalizedQuantity) {
     return { ok: false as const, message: "No hay suficientes tokens disponibles." };
   }
 
-  asset.availableTokens -= quantity;
+  asset.availableTokens -= normalizedQuantity;
   writeLocalStorage(STORAGE_KEYS.assets, assets);
 
   const purchases = getPurchases();
@@ -139,9 +167,9 @@ export function buyAsset(assetId: string, buyer: AppUser, quantity: number) {
     buyerId: buyer.id,
     buyerName: buyer.fullName,
     sellerId: asset.sellerId,
-    quantity,
+    quantity: normalizedQuantity,
     pricePerToken: asset.pricePerToken,
-    totalPaid: quantity * asset.pricePerToken,
+    totalPaid: normalizedQuantity * asset.pricePerToken,
     purchasedAt: new Date().toISOString(),
   };
   purchases.push(purchase);
@@ -225,9 +253,10 @@ export function getThreadMessages(threadId: string) {
 export function sendThreadMessage(
   threadId: string,
   sender: AppUser,
+  senderRole: "buyer" | "seller",
   text: string,
 ) {
-  const messageText = text.trim();
+  const messageText = normalizeSafeText(text, 500);
   if (!messageText) {
     return { ok: false as const, message: "Escribe un mensaje." };
   }
@@ -244,7 +273,7 @@ export function sendThreadMessage(
     threadId,
     senderId: sender.id,
     senderName: sender.fullName,
-    senderRole: sender.role,
+    senderRole,
     text: messageText,
     createdAt: new Date().toISOString(),
   });
@@ -257,3 +286,4 @@ export function sendThreadMessage(
 
   return { ok: true as const };
 }
+
