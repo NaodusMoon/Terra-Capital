@@ -1,0 +1,21 @@
+name = "terra-capital-app"
+main = ".open-next/worker.js"
+compatibility_date = "2026-02-08"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+
+[vars]
+NETWORK_CACHE_TTL_SECONDS = "15"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "terra-capital-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "terra-capital-files"
+preview_bucket_name = "terra-capital-files-preview"

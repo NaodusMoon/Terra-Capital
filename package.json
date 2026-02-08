@@ -9,7 +9,12 @@
     "dev:all": "concurrently -k -n WEB,OFFCHAIN -c green,cyan \"npm run dev:web\" \"npm run dev:offchain\"",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "cf:build": "opennextjs-cloudflare build",
+    "cf:preview": "npm run cf:build && wrangler dev",
+    "cf:deploy": "npm run cf:build && wrangler deploy",
+    "cf:d1:migrate": "wrangler d1 migrations apply DB --local",
+    "cf:d1:migrate:remote": "wrangler d1 migrations apply DB --remote"
   },
   "dependencies": {
     "@albedo-link/intent": "^0.13.0",
@@ -24,6 +29,8 @@
     "vanta": "^0.5.24"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260207.0",
+    "@opennextjs/cloudflare": "^1.16.3",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -32,6 +39,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "^4.63.0"
   }
 }

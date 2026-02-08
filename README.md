@@ -1,70 +1,27 @@
-﻿# Terra Capital
+# Terra Capital
 
-Terra Capital es una plataforma legal-tecnologica para tokenizacion de activos agro (tierra, cultivos y ganaderia) sobre Stellar, con una experiencia web para compradores e inversores, y un panel operativo para vendedores y productores.
+Plataforma para tokenizacion de activos agro sobre Stellar con frontend en Next.js.
 
-## Comando rapido para correr todo
-
-```bash
-npm run dev:all
-```
-
-Esto levanta frontend + backend off-chain en paralelo.
-
-## Tecnologias del proyecto
-
-### Frontend web
-- Next.js 16 (App Router)
-- React 19 + TypeScript
-- Tailwind CSS v4
-- Framer Motion (animaciones)
-- Lucide React (iconografia)
-- Freighter API + xBull + Albedo (conexion de wallet Stellar)
-
-### Backend off-chain (recomendado)
-- Rust
-- Axum (framework HTTP)
-- Tokio (runtime async)
-- Reqwest (cliente HTTP)
-- Cache en memoria para reducir llamadas a Horizon/RPC
-
-### Smart contracts
-- Soroban (Stellar)
-- Rust `no_std`
-- Arquitectura dual:
-  - `terra_tokenization` (inventario/balances)
-  - `terra_marketplace` (compra, comision y settlement cross-contract)
-
-## Arquitectura
-
-- `src/`: frontend Next.js
-- `backend/`: API off-chain en Rust para consultas Stellar con cache
-- `contracts/`: contratos Soroban (tokenizacion + marketplace)
-
-## Requisitos previos
-
-### Obligatorios
-- Node.js 20+
-- npm 10+
-
-### Para ejecutar todo (frontend + backend) en un comando
-- Rustup + Cargo
-- Visual Studio Build Tools 2022 con workload C++ (en Windows)
-
-### Para contrato Soroban (opcional)
-- target WASM de Rust: `wasm32-unknown-unknown`
-- Stellar CLI
-
-## Instalacion de dependencias
-
-En la raiz del proyecto:
+## Ejecutar local
 
 ```bash
 npm install
+npm run dev:all
 ```
 
-## Variables de entorno
+Esto levanta:
+- Web en `http://localhost:3000`
+- Backend off-chain Rust en `http://127.0.0.1:8080`
 
-Copia `.env.example` a `.env.local` y ajusta valores:
+Si solo quieres frontend:
+
+```bash
+npm run dev
+```
+
+## Variables de entorno (local)
+
+Crear `.env.local` desde `.env.example`:
 
 ```env
 OFFCHAIN_BACKEND_URL=http://127.0.0.1:8080
@@ -72,78 +29,68 @@ RESEND_API_KEY=
 RECOVERY_EMAIL_FROM="Terra Capital <no-reply@tu-dominio.com>"
 ```
 
-Si no defines `OFFCHAIN_BACKEND_URL`, el frontend hace fallback a consulta directa de Horizon.
+## Deploy en Cloudflare (Pages/Workers runtime)
 
-## Como correr el proyecto
+Se agrego soporte con OpenNext para correr Next.js en el runtime de Cloudflare y usar:
+- `DB` (D1) para cache y auditoria
+- `FILES` (R2) para snapshots de red Stellar y auditoria de emails
 
-### Opcion 1 (recomendada): todo con un comando
-
-```bash
-npm run dev:all
-```
-
-Esto levanta:
-- Frontend web (Next.js) en `http://localhost:3000`
-- Backend off-chain (Axum) en `http://127.0.0.1:8080`
-
-### Opcion 2: solo frontend
+### 1. Crear recursos en Cloudflare
 
 ```bash
-npm run dev
+wrangler d1 create terra-capital-db
+wrangler r2 bucket create terra-capital-files
+wrangler r2 bucket create terra-capital-files-preview
 ```
 
-### Opcion 3: por separado
+### 2. Configurar `wrangler.toml`
 
-Terminal 1:
-```bash
-npm run dev:web
-```
+Editar:
+- `database_id` en `wrangler.toml`
+- nombres de bucket si usas otros
 
-Terminal 2:
-```bash
-npm run dev:offchain
-```
+### 3. Aplicar migraciones D1
 
-## Build de produccion
+Local:
 
 ```bash
-npm run build
-npm run start
+npm run cf:d1:migrate
 ```
 
-## Lint
+Remoto:
 
 ```bash
-npm run lint
+npm run cf:d1:migrate:remote
 ```
 
-## Smart contract (Soroban)
-
-Documentacion de contratos:
-- `contracts/README.md`
-
-Comandos base:
+### 4. Variables secretas en Cloudflare
 
 ```bash
-cd contracts
-cargo build --release --target wasm32-unknown-unknown
+wrangler secret put RESEND_API_KEY
+wrangler secret put RECOVERY_EMAIL_FROM
 ```
 
-## Funcionalidades principales
+Opcional:
+- `NETWORK_CACHE_TTL_SECONDS` en `[vars]` de `wrangler.toml` (default 15)
 
-- Landing informativa del proyecto
-- Registro e inicio de sesion por rol (buyer/seller) con hash PBKDF2 y bloqueo temporal por intentos fallidos
-- Conexion obligatoria de wallet Stellar para operar
-- Opciones de wallet: Freighter, xBull y Albedo
-- Marketplace comprador con filtros, detalle expandido, compra y stock
-- Portafolio de compras y registros de operaciones
-- Panel vendedor para publicar activos, controlar ventas y chat
-- Integracion Stellar con capa off-chain para menor carga en RPC/Horizon
-- Flujo post-venta modelado: envio de liquidez a Blend y reserva para payouts a holders en ciclo mensual/bimestral
+### 5. Build y deploy
 
-## Notas operativas
+Preview local Cloudflare runtime:
 
-- La autenticacion usa almacenamiento local para prototipo (`localStorage`), pero ya no guarda contrasenas en texto plano.
-- El backend off-chain ya incorpora cache de red para evitar saturar nodos.
-- Si `dev:all` falla en Windows por herramientas de compilacion, verifica instalacion de Build Tools C++.
-- En este stack (Soroban/Rust), OpenZeppelin para EVM no aplica directamente; se reforzo seguridad con controles nativos de Soroban y validaciones defensivas en frontend/contrato.
+```bash
+npm run cf:preview
+```
+
+Deploy:
+
+```bash
+npm run cf:deploy
+```
+
+## Scripts utiles
+
+- `npm run lint`
+- `npm run build`
+- `npm run cf:build`
+- `npm run cf:preview`
+- `npm run cf:deploy`

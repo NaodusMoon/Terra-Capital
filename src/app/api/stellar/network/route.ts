@@ -1,12 +1,15 @@
-﻿import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getNetworkHealth } from "@/lib/stellar";
+import { getD1Binding, getNetworkCacheTtlSeconds, getR2Binding } from "@/lib/server/cloudflare";
 
 const backendUrl = process.env.OFFCHAIN_BACKEND_URL?.trim();
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const network = request.nextUrl.searchParams.get("network") === "public" ? "public" : "testnet";
+
   if (backendUrl) {
     try {
-      const response = await fetch(`${backendUrl}/api/stellar/network?network=testnet`, {
+      const response = await fetch(`${backendUrl}/api/stellar/network?network=${network}`, {
         method: "GET",
         headers: {
           Accept: "application/json",
@@ -41,14 +44,80 @@ export async function GET() {
         }
       }
     } catch {
-      // Fallback directo a Horizon
+      // Fallback a D1/Horizon
+    }
+  }
+
+  const d1 = getD1Binding();
+  const ttlSeconds = getNetworkCacheTtlSeconds(15);
+  const cached = d1
+    ? await d1
+      .prepare("SELECT payload_json, fetched_at FROM stellar_network_cache WHERE network = ?")
+      .bind(network)
+      .first<{ payload_json: string; fetched_at: string }>()
+    : null;
+
+  if (cached?.payload_json && cached.fetched_at) {
+    const fetchedAt = Date.parse(cached.fetched_at);
+    if (Number.isFinite(fetchedAt) && Date.now() - fetchedAt <= ttlSeconds * 1000) {
+      try {
+        const payload = JSON.parse(cached.payload_json) as {
+          network: string;
+          horizonVersion: string;
+          coreVersion: string;
+          currentProtocolVersion: number;
+          historyLatestLedger: number;
+        };
+        return NextResponse.json({ ok: true, data: payload, source: "d1-cache" });
+      } catch {
+        // Si el cache está corrupto, seguimos al fetch directo.
+      }
     }
   }
 
   try {
-    const data = await getNetworkHealth("testnet");
-    return NextResponse.json({ ok: true, data, source: "horizon" });
+    const data = await getNetworkHealth(network);
+
+    if (d1) {
+      await d1
+        .prepare(`
+          INSERT INTO stellar_network_cache (network, payload_json, fetched_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(network) DO UPDATE SET payload_json = excluded.payload_json, fetched_at = excluded.fetched_at
+        `)
+        .bind(network, JSON.stringify(data), new Date().toISOString())
+        .run();
+    }
+
+    const r2 = getR2Binding();
+    if (r2) {
+      await r2.put(
+        `stellar-network/${network}/${Date.now()}.json`,
+        JSON.stringify({
+          capturedAt: new Date().toISOString(),
+          data,
+        }),
+        { httpMetadata: { contentType: "application/json" } },
+      );
+    }
+
+    return NextResponse.json({ ok: true, data, source: d1 ? "horizon+d1" : "horizon" });
   } catch (error) {
+    if (cached?.payload_json) {
+      try {
+        const stale = JSON.parse(cached.payload_json) as {
+          network: string;
+          horizonVersion: string;
+          coreVersion: string;
+          currentProtocolVersion: number;
+          historyLatestLedger: number;
+        };
+        return NextResponse.json({ ok: true, data: stale, source: "d1-stale-cache" });
+      } catch {
+        // devolvemos error normal
+      }
+    }
+
     return NextResponse.json(
       {
         ok: false,
