@@ -103,7 +103,8 @@ Importante:
 ## Deploy en Vercel
 
 - Build command: `npm run build`
-- El script detecta Vercel por variable `VERCEL` y ejecuta solo `next build` (sin OpenNext/Cloudflare).
+- El script detecta Vercel por variable `VERCEL` y ejecuta `next build --webpack` (sin OpenNext/Cloudflare).
+- Node recomendado en Vercel: `22.x`.
 
 Si usas variables/secretos, configuralos en Pages o con Wrangler:
 - `RESEND_API_KEY`

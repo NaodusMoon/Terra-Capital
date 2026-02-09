@@ -8,8 +8,8 @@ function run(command) {
 }
 
 if (isVercel) {
-  console.log("[build] Vercel detectado: ejecutando Next.js build.");
-  run("next build");
+  console.log("[build] Vercel detectado: ejecutando Next.js build con Webpack.");
+  run("next build --webpack");
   process.exit(0);
 }
 
