@@ -10,7 +10,7 @@
     "dev:web": "next dev",
     "dev:offchain": "scripts\\dev-offchain.cmd",
     "dev:all": "concurrently -k -n WEB,OFFCHAIN -c green,cyan \"npm run dev:web\" \"npm run dev:offchain\"",
-    "build": "node scripts/platform-build.mjs",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "cf:check": "node scripts/verify-cloudflare-config.mjs",
