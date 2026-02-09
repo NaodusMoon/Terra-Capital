@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getNetworkHealth } from "@/lib/stellar";
-import { getD1Binding, getNetworkCacheTtlSeconds, getR2Binding } from "@/lib/server/cloudflare";
+import { getD1Binding, getNetworkCacheTtlSeconds } from "@/lib/server/cloudflare";
 
 const backendUrl = process.env.OFFCHAIN_BACKEND_URL?.trim();
 
@@ -87,18 +87,6 @@ export async function GET(request: NextRequest) {
         `)
         .bind(network, JSON.stringify(data), new Date().toISOString())
         .run();
-    }
-
-    const r2 = getR2Binding();
-    if (r2) {
-      await r2.put(
-        `stellar-network/${network}/${Date.now()}.json`,
-        JSON.stringify({
-          capturedAt: new Date().toISOString(),
-          data,
-        }),
-        { httpMetadata: { contentType: "application/json" } },
-      );
     }
 
     return NextResponse.json({ ok: true, data, source: d1 ? "horizon+d1" : "horizon" });

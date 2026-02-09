@@ -11,19 +11,9 @@ interface D1DatabaseLike {
   prepare(query: string): D1PreparedStatement;
 }
 
-interface R2PutOptions {
-  httpMetadata?: {
-    contentType?: string;
-  };
-}
-
-interface R2BucketLike {
-  put(key: string, value: string, options?: R2PutOptions): Promise<unknown>;
-}
-
 type AppCloudflareEnv = {
   DB?: D1DatabaseLike;
-  FILES?: R2BucketLike;
+  tera_d1?: D1DatabaseLike;
   NETWORK_CACHE_TTL_SECONDS?: string;
 };
 
@@ -41,11 +31,8 @@ function readEnv(): AppCloudflareEnv {
 }
 
 export function getD1Binding() {
-  return readEnv().DB;
-}
-
-export function getR2Binding() {
-  return readEnv().FILES;
+  const env = readEnv();
+  return env.DB ?? env.tera_d1;
 }
 
 export function getNetworkCacheTtlSeconds(defaultValue = 15) {

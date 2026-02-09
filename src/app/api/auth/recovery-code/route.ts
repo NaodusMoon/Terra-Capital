@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getD1Binding, getR2Binding } from "@/lib/server/cloudflare";
+import { getD1Binding } from "@/lib/server/cloudflare";
 
 interface RequestPayload {
   email?: string;
@@ -17,22 +17,6 @@ async function writeDeliveryAudit(email: string, status: "sent" | "failed" | "de
       )
       .bind(eventId, email, "recovery_code", status, detail ?? null, nowIso)
       .run();
-  }
-
-  const r2 = getR2Binding();
-  if (r2) {
-    await r2.put(
-      `email-audit/recovery/${nowIso.replace(/[:.]/g, "-")}-${eventId}.json`,
-      JSON.stringify({
-        id: eventId,
-        email,
-        kind: "recovery_code",
-        status,
-        detail: detail ?? null,
-        createdAt: nowIso,
-      }),
-      { httpMetadata: { contentType: "application/json" } },
-    );
   }
 }
 

@@ -32,22 +32,23 @@ RECOVERY_EMAIL_FROM="Terra Capital <no-reply@tu-dominio.com>"
 ## Deploy en Cloudflare (Pages/Workers runtime)
 
 Se agrego soporte con OpenNext para correr Next.js en el runtime de Cloudflare y usar:
-- `DB` (D1) para cache y auditoria
-- `FILES` (R2) para snapshots de red Stellar y auditoria de emails
+- `tera_d1` (D1) para cache y auditoria
+- `terra_images` (Cloudflare Images) en tu entorno Pages
 
 ### 1. Crear recursos en Cloudflare
 
-```bash
-wrangler d1 create terra-capital-db
-wrangler r2 bucket create terra-capital-files
-wrangler r2 bucket create terra-capital-files-preview
-```
+Ya tienes:
+- D1 binding: `tera_d1`
+- D1 database: `terra_capital_d1_db`
+- Images binding: `terra_images`
 
 ### 2. Configurar `wrangler.toml`
 
 Editar:
 - `database_id` en `wrangler.toml`
-- nombres de bucket si usas otros
+
+Importante:
+- No dejes `REPLACE_WITH_TERA_D1_DATABASE_ID`; el script `cf:check` bloquea el deploy si sigue asi.
 
 ### 3. Aplicar migraciones D1
 
@@ -86,6 +87,17 @@ Deploy:
 ```bash
 npm run cf:deploy
 ```
+
+## Configuracion exacta en Cloudflare Pages
+
+En tu proyecto de Pages usa:
+- Build command: `npm run cf:build`
+- Deploy command: `npx wrangler deploy`
+- Root directory: `/` (raiz del repo)
+
+Si usas variables/secretos, configuralos en Pages o con Wrangler:
+- `RESEND_API_KEY`
+- `RECOVERY_EMAIL_FROM`
 
 ## Scripts utiles
 

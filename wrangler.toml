@@ -11,11 +11,6 @@ binding = "ASSETS"
 NETWORK_CACHE_TTL_SECONDS = "15"
 
 [[d1_databases]]
-binding = "DB"
-database_name = "terra-capital-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
-
-[[r2_buckets]]
-binding = "FILES"
-bucket_name = "terra-capital-files"
-preview_bucket_name = "terra-capital-files-preview"
+binding = "tera_d1"
+database_name = "terra_capital_d1_db"
+database_id = "REPLACE_WITH_TERA_D1_DATABASE_ID"
