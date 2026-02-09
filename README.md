@@ -96,8 +96,9 @@ En tu proyecto de Pages usa:
 - Root directory: `/` (raiz del repo)
 
 Importante:
-- No uses `npm run build` como Build command en Pages para el deploy de OpenNext.
-- `opennextjs-cloudflare build` ya ejecuta internamente `next build`; si lo encadenas con `postbuild` puedes generar un loop de builds y terminar en error `status 137` (proceso terminado por memoria/tiempo).
+- `npm run build` ya genera `.open-next/worker.js` (ejecuta `next build` + `opennextjs-cloudflare build --skipBuild`).
+- Si prefieres validacion extra (`cf:check`), usa `npm run cf:build`.
+- No uses `postbuild` con OpenNext porque puede generar loop de builds y terminar en error `status 137` (proceso terminado por memoria/tiempo).
 
 Si usas variables/secretos, configuralos en Pages o con Wrangler:
 - `RESEND_API_KEY`
