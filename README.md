@@ -100,6 +100,11 @@ Importante:
 - Si prefieres validacion extra (`cf:check`), usa `npm run cf:build`.
 - No uses `postbuild` con OpenNext porque puede generar loop de builds y terminar en error `status 137` (proceso terminado por memoria/tiempo).
 
+## Deploy en Vercel
+
+- Build command: `npm run build`
+- El script detecta Vercel por variable `VERCEL` y ejecuta solo `next build` (sin OpenNext/Cloudflare).
+
 Si usas variables/secretos, configuralos en Pages o con Wrangler:
 - `RESEND_API_KEY`
 - `RECOVERY_EMAIL_FROM`
