@@ -95,6 +95,10 @@ En tu proyecto de Pages usa:
 - Deploy command: `npx wrangler deploy`
 - Root directory: `/` (raiz del repo)
 
+Importante:
+- No uses `npm run build` como Build command en Pages para el deploy de OpenNext.
+- `opennextjs-cloudflare build` ya ejecuta internamente `next build`; si lo encadenas con `postbuild` puedes generar un loop de builds y terminar en error `status 137` (proceso terminado por memoria/tiempo).
+
 Si usas variables/secretos, configuralos en Pages o con Wrangler:
 - `RESEND_API_KEY`
 - `RECOVERY_EMAIL_FROM`
