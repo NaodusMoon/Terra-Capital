@@ -2,19 +2,17 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, X } from "lucide-react";
+import { ArrowLeft, MonitorSmartphone, Moon, Sun, X } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useTheme } from "@/components/providers/theme-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { PasswordField } from "@/components/ui/password-field";
 
 export function AccountSettings() {
-  const { user, updateAccount, updatePassword, submitSellerKyc, activeMode } = useAuth();
+  const { user, updateAccount, submitSellerKyc, activeMode } = useAuth();
+  const { theme, resolvedTheme, setTheme } = useTheme();
   const [fullName, setFullName] = useState(user?.fullName ?? "");
   const [organization, setOrganization] = useState(user?.organization ?? "");
-  const [stellarPublicKey, setStellarPublicKey] = useState(user?.stellarPublicKey ?? "");
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
   const [kyc, setKyc] = useState({
     legalName: user?.sellerVerificationData?.legalName ?? "",
     documentLast4: user?.sellerVerificationData?.documentLast4 ?? "",
@@ -23,36 +21,29 @@ export function AccountSettings() {
     supportUrl: user?.sellerVerificationData?.supportUrl ?? "",
   });
   const [profileMessage, setProfileMessage] = useState("");
-  const [passwordMessage, setPasswordMessage] = useState("");
   const [kycMessage, setKycMessage] = useState("");
 
   if (!user) {
     return (
       <main className="mx-auto grid min-h-[60vh] max-w-6xl place-items-center px-5 py-12 text-sm text-[var(--color-muted)]">
-        Debes iniciar sesión para editar tu cuenta.
+        Debes iniciar sesion para editar tu cuenta.
       </main>
     );
   }
 
   const handleProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const result = await updateAccount({ fullName, organization, stellarPublicKey });
+    const result = await updateAccount({
+      fullName,
+      organization,
+      stellarPublicKey: user.stellarPublicKey ?? "",
+    });
     setProfileMessage(result.ok ? "Perfil actualizado." : result.message);
   };
 
-  const handlePassword = async (event: FormEvent<HTMLFormElement>) => {
+  const handleKyc = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const result = await updatePassword(currentPassword, newPassword);
-    setPasswordMessage(result.ok ? "Contraseña actualizada." : result.message);
-    if (result.ok) {
-      setCurrentPassword("");
-      setNewPassword("");
-    }
-  };
-
-  const handleKyc = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const result = submitSellerKyc(kyc);
+    const result = await submitSellerKyc(kyc);
     setKycMessage(result.ok ? "Verificacion enviada/aprobada para modo vendedor." : result.message);
   };
 
@@ -67,8 +58,47 @@ export function AccountSettings() {
         </Link>
       </div>
 
-      <h1 className="text-3xl font-black">Configuración de la cuenta</h1>
-      <p className="mt-2 text-sm text-[var(--color-muted)]">Administra perfil, contraseña y verificación de vendedor.</p>
+      <h1 className="text-3xl font-black">Configuracion de la cuenta</h1>
+      <p className="mt-2 text-sm text-[var(--color-muted)]">Administra perfil y verificacion de vendedor.</p>
+
+      <section className="mt-5 md:hidden">
+        <Card>
+          <h2 className="text-xl font-bold">Tema</h2>
+          <p className="mt-1 text-sm text-[var(--color-muted)]">Disponible solo en telefono.</p>
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className={`h-11 gap-2 px-2 text-xs ${theme === "light" ? "border-transparent bg-[var(--color-primary)] text-[var(--color-primary-contrast)]" : ""}`}
+              onClick={() => setTheme("light")}
+            >
+              <Sun size={15} />
+              Claro
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={`h-11 gap-2 px-2 text-xs ${theme === "dark" ? "border-transparent bg-[var(--color-primary)] text-[var(--color-primary-contrast)]" : ""}`}
+              onClick={() => setTheme("dark")}
+            >
+              <Moon size={15} />
+              Oscuro
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={`h-11 gap-2 px-2 text-xs ${theme === "system" ? "border-transparent bg-[var(--color-primary)] text-[var(--color-primary-contrast)]" : ""}`}
+              onClick={() => setTheme("system")}
+            >
+              <MonitorSmartphone size={15} />
+              Sistema
+            </Button>
+          </div>
+          <p className="mt-3 text-xs text-[var(--color-muted)]">
+            Activo: {theme === "system" ? `Sistema (${resolvedTheme === "dark" ? "oscuro" : "claro"})` : theme === "dark" ? "Oscuro" : "Claro"}
+          </p>
+        </Card>
+      </section>
 
       <section className="mt-6 grid gap-5 lg:grid-cols-2">
         <Card>
@@ -76,19 +106,14 @@ export function AccountSettings() {
           <form className="mt-4 grid gap-3" onSubmit={handleProfile}>
             <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Nombre completo" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
             <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Organizacion" value={organization} onChange={(e) => setOrganization(e.target.value)} />
-            <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Wallet publica (G...)" value={stellarPublicKey} onChange={(e) => setStellarPublicKey(e.target.value)} />
+            <input
+              className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 text-[var(--color-muted)]"
+              value={user.stellarPublicKey ?? ""}
+              disabled
+              readOnly
+            />
             {profileMessage && <p className="text-sm text-[var(--color-primary)]">{profileMessage}</p>}
             <Button type="submit">Guardar perfil</Button>
-          </form>
-        </Card>
-
-        <Card>
-          <h2 className="text-xl font-bold">Cambiar contraseña</h2>
-          <form className="mt-4 grid gap-3" onSubmit={handlePassword}>
-            <PasswordField placeholder="Contraseña actual" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required />
-            <PasswordField minLength={8} placeholder="Nueva contraseña" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
-            {passwordMessage && <p className="text-sm text-[var(--color-primary)]">{passwordMessage}</p>}
-            <Button type="submit">Actualizar contraseña</Button>
           </form>
         </Card>
       </section>

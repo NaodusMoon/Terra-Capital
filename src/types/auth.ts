@@ -4,13 +4,6 @@ export type SellerVerificationStatus = "unverified" | "pending" | "verified";
 export interface AppUser {
   id: string;
   fullName: string;
-  email: string;
-  password?: string;
-  passwordHash?: string;
-  passwordSalt?: string;
-  passwordIterations?: number;
-  recoveryHash?: string;
-  recoverySalt?: string;
   organization?: string;
   stellarPublicKey?: string;
   sellerVerificationStatus: SellerVerificationStatus;
@@ -23,6 +16,7 @@ export interface AppUser {
     submittedAt: string;
   };
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface Session {

@@ -1,20 +1,18 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useWallet } from "@/components/providers/wallet-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { PasswordField } from "@/components/ui/password-field";
 
 export function LoginForm() {
   const router = useRouter();
   const { login, user, loading } = useAuth();
   const { walletAddress, walletOptions, connectWallet, connecting } = useWallet();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [needName, setNeedName] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -30,14 +28,24 @@ export function LoginForm() {
 
     if (!walletAddress) {
       setError("Debes conectar una wallet antes de iniciar sesion.");
-      router.replace("/");
+      return;
+    }
+    if (needName && !fullName.trim()) {
+      setError("Ingresa tu nombre para completar el primer acceso.");
       return;
     }
 
     setSubmitting(true);
-    const result = await login({ email, password, walletAddress });
+    const result = await login({
+      walletAddress,
+      fullName: needName ? fullName : undefined,
+    });
     setSubmitting(false);
+
     if (!result.ok) {
+      if (result.requiresName) {
+        setNeedName(true);
+      }
       setError(result.message);
       return;
     }
@@ -47,8 +55,10 @@ export function LoginForm() {
 
   return (
     <Card className="w-full max-w-md">
-      <h1 className="text-2xl font-bold">Iniciar sesión</h1>
-      <p className="mt-2 text-sm text-[var(--color-muted)]">Conecta wallet y accede a tu cuenta.</p>
+      <h1 className="text-2xl font-bold">Iniciar sesion</h1>
+      <p className="mt-2 text-sm text-[var(--color-muted)]">
+        Entra directo con tu wallet. Solo en el primer ingreso te pedimos tu nombre.
+      </p>
 
       <div className="mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] p-3">
         <p className="text-xs uppercase tracking-[0.12em] text-[var(--color-muted)]">Wallet requerida</p>
@@ -63,37 +73,24 @@ export function LoginForm() {
       </div>
 
       <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-        <label className="block space-y-1 text-sm">
-          <span>Email</span>
-          <input
-            className="h-11 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            required
-          />
-        </label>
-
-        <label className="block space-y-1 text-sm">
-          <span>Contraseña</span>
-          <PasswordField value={password} onChange={(event) => setPassword(event.target.value)} required />
-        </label>
+        {needName && (
+          <label className="block space-y-1 text-sm">
+            <span>Nombre completo</span>
+            <input
+              className="h-11 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3"
+              value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
+              required
+            />
+          </label>
+        )}
 
         {error && <p className="text-sm text-red-500">{error}</p>}
 
         <Button className="h-11 w-full" type="submit" disabled={submitting || !walletAddress}>
-          {submitting ? "Validando..." : "Entrar"}
+          {submitting ? "Validando..." : needName ? "Guardar y entrar" : "Entrar"}
         </Button>
       </form>
-
-      <div className="mt-4 flex items-center justify-between text-sm">
-        <Link href="/auth/forgot" className="font-semibold text-[var(--color-primary)]">
-          Olvidé mi contraseña
-        </Link>
-        <Link href="/auth/register" className="font-semibold text-[var(--color-primary)]">
-          Registrate
-        </Link>
-      </div>
     </Card>
   );
 }

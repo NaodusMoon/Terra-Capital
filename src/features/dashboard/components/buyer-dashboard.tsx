@@ -1,22 +1,20 @@
 ﻿"use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
-import { Beef, Filter, LandPlot, MessageCircle, Search, Sprout, TrendingUp } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Beef, Filter, LandPlot, MessageCircle, Search, Sprout, X } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FadeIn } from "@/components/ui/fade-in";
 import { StellarStatusCard } from "@/features/stellar/components/stellar-status-card";
 import { MARKETPLACE_EVENT } from "@/lib/constants";
-import { formatShortDate, formatUSD } from "@/lib/format";
+import { formatUSD } from "@/lib/format";
 import {
   buyAsset,
   getAssets,
   getBlendLiquiditySnapshot,
   getBuyerPortfolio,
-  getBuyerThreads,
-  getThreadMessages,
-  sendThreadMessage,
 } from "@/lib/marketplace";
 import type { AssetCategory, TokenizedAsset } from "@/types/market";
 
@@ -62,6 +60,7 @@ function getAssetGallery(asset: TokenizedAsset) {
 
 export function BuyerDashboard() {
   const { user } = useAuth();
+  const router = useRouter();
 
   const [assets, setAssets] = useState<TokenizedAsset[]>([]);
   const [search, setSearch] = useState("");
@@ -74,11 +73,8 @@ export function BuyerDashboard() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [confirmAccepted, setConfirmAccepted] = useState(false);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [portfolio, setPortfolio] = useState<ReturnType<typeof getBuyerPortfolio>>([]);
-  const [threads, setThreads] = useState<ReturnType<typeof getBuyerThreads>>([]);
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
-  const [chatInput, setChatInput] = useState("");
-  const [chatError, setChatError] = useState("");
 
   const syncData = useCallback(() => {
     if (!user) return;
@@ -86,13 +82,7 @@ export function BuyerDashboard() {
     const allAssets = getAssets();
     setAssets(allAssets);
     setPortfolio(getBuyerPortfolio(user.id));
-
-    const nextThreads = getBuyerThreads(user.id);
-    setThreads(nextThreads);
-    if (!activeThreadId && nextThreads.length > 0) {
-      setActiveThreadId(nextThreads[0].id);
-    }
-  }, [activeThreadId, user]);
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -151,7 +141,6 @@ export function BuyerDashboard() {
   const selectedAsset = filteredAssets.find((asset) => asset.id === selectedAssetId) || assets.find((asset) => asset.id === selectedAssetId) || null;
   const selectedGallery = selectedAsset ? getAssetGallery(selectedAsset) : [];
   const activeGalleryImage = selectedGallery[activeGalleryIndex] || selectedGallery[0] || "";
-  const activeMessages = activeThreadId ? getThreadMessages(activeThreadId) : [];
   const marketAvailableTokens = assets.reduce((sum, asset) => sum + asset.availableTokens, 0);
   const blendSnapshot = getBlendLiquiditySnapshot();
 
@@ -163,6 +152,12 @@ export function BuyerDashboard() {
     setConfirmOpen(false);
     setConfirmText("");
     setConfirmAccepted(false);
+    setMobileDetailOpen(true);
+  };
+
+  const closeAssetDetail = () => {
+    setMobileDetailOpen(false);
+    setConfirmOpen(false);
   };
 
   const handleBuy = (event: FormEvent<HTMLFormElement>) => {
@@ -196,27 +191,14 @@ export function BuyerDashboard() {
     syncData();
   };
 
-  const handleSendChat = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setChatError("");
-
-    if (!activeThreadId || !user) return;
-    const result = sendThreadMessage(activeThreadId, user, "buyer", chatInput);
-
-    if (!result.ok) {
-      setChatError(result.message);
-      return;
-    }
-
-    setChatInput("");
-    syncData();
-  };
-
   return (
-    <main className="mx-auto w-full max-w-7xl px-5 py-9">
+    <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 sm:py-9">
       <FadeIn>
         <h1 className="text-3xl font-black">Marketplace de Activos Tokenizados</h1>
         <p className="mt-2 text-[var(--color-muted)]">Explora oportunidades, filtra por categoria y compra tokens con stock actualizado.</p>
+        <Button type="button" variant="outline" className="mt-3 gap-2" onClick={() => router.push("/portfolio")}>
+          Mis tokens comprados
+        </Button>
       </FadeIn>
 
       <section className="mt-7 grid gap-5 md:grid-cols-4">
@@ -318,7 +300,7 @@ export function BuyerDashboard() {
         </div>
       </section>
 
-      <section className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <section className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {filteredAssets.map((asset) => (
           <article
             key={asset.id}
@@ -354,12 +336,117 @@ export function BuyerDashboard() {
                 <p className="font-bold">{asset.availableTokens.toLocaleString("es-AR")}</p>
               </div>
             </div>
+
+            <Button
+              type="button"
+              className="mt-3 w-full"
+              onClick={(event) => {
+                event.stopPropagation();
+                openAssetDetail(asset.id);
+              }}
+            >
+              Ver detalle
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-2 w-full gap-2"
+              onClick={(event) => {
+                event.stopPropagation();
+                router.push(`/chats?assetId=${asset.id}`);
+              }}
+            >
+              <MessageCircle size={15} /> Hablar con el vendedor
+            </Button>
           </article>
         ))}
       </section>
 
+      {selectedAsset && mobileDetailOpen && (
+        <div className="fixed inset-0 z-50 bg-black/45 p-0 md:hidden" onClick={closeAssetDetail}>
+          <div className="absolute inset-x-0 bottom-0 max-h-[88vh] overflow-y-auto rounded-t-3xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-lg font-black">{selectedAsset.title}</h2>
+              <button type="button" className="rounded-xl border border-[var(--color-border)] p-2" onClick={closeAssetDetail} aria-label="Cerrar detalle">
+                <X size={16} />
+              </button>
+            </div>
+            <p className="text-xs uppercase tracking-[0.13em] text-[var(--color-muted)]">{selectedAsset.sellerName} · {selectedAsset.location}</p>
+
+            <div className="mt-3 overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-background)]">
+              <div className="h-56 w-full bg-[var(--color-surface-soft)]">
+                {activeGalleryImage ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={activeGalleryImage} alt={selectedAsset.title} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="grid h-full place-items-center text-sm text-[var(--color-muted)]">Sin imagen</div>
+                )}
+              </div>
+              <div className="grid grid-cols-4 gap-2 border-t border-[var(--color-border)] p-2">
+                {selectedGallery.slice(0, 4).map((image, index) => (
+                  <button
+                    key={`m-${selectedAsset.id}-${index}`}
+                    type="button"
+                    onClick={() => setActiveGalleryIndex(index)}
+                    className={`h-14 overflow-hidden rounded-lg border ${
+                      index === activeGalleryIndex ? "border-[var(--color-primary)]" : "border-[var(--color-border)]"
+                    }`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={image} alt={`${selectedAsset.title} ${index + 1}`} className="h-full w-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <p className="mt-3 text-sm text-[var(--color-muted)]">{selectedAsset.description}</p>
+
+            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+              <Card>
+                <p className="text-xs text-[var(--color-muted)]">Precio token</p>
+                <p className="font-bold">{formatUSD(selectedAsset.pricePerToken)}</p>
+              </Card>
+              <Card>
+                <p className="text-xs text-[var(--color-muted)]">Stock</p>
+                <p className="font-bold">{selectedAsset.availableTokens.toLocaleString("es-AR")}</p>
+              </Card>
+            </div>
+
+            <form className="mt-3 space-y-3" onSubmit={handleBuy}>
+              <label className="block text-sm">
+                <span>Cantidad de tokens</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={selectedAsset.availableTokens}
+                  value={quantity}
+                  onChange={(event) => setQuantity(Number(event.target.value))}
+                  className="mt-1 h-11 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3"
+                  required
+                />
+              </label>
+
+              <div className="rounded-xl bg-[var(--color-surface-soft)] p-3 text-sm">
+                <p className="text-[var(--color-muted)]">Total estimado</p>
+                <p className="text-xl font-bold">{formatUSD(quantity * selectedAsset.pricePerToken)}</p>
+              </div>
+
+              <Button type="button" variant="outline" className="w-full gap-2" onClick={() => router.push(`/chats?assetId=${selectedAsset.id}`)}>
+                <MessageCircle size={15} /> Hablar con el vendedor
+              </Button>
+              <Button type="submit" className="w-full" disabled={selectedAsset.availableTokens <= 0}>
+                {selectedAsset.availableTokens <= 0 ? "Sin disponibilidad" : "Comprar ahora"}
+              </Button>
+
+              {tradeMessage && <p className="text-sm text-[var(--color-primary)]">{tradeMessage}</p>}
+            </form>
+          </div>
+        </div>
+      )}
+
       {selectedAsset && (
-        <section className="mt-8 grid gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 lg:grid-cols-[1.15fr_0.85fr]">
+        <section className="mt-8 hidden gap-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 md:grid lg:grid-cols-[1.15fr_0.85fr]">
           <div>
             <div className="flex items-start gap-3">
               <TokenPreview category={selectedAsset.category} />
@@ -417,6 +504,12 @@ export function BuyerDashboard() {
                 Ver video del activo
               </a>
             )}
+
+            <div className="mt-4">
+              <Button type="button" variant="outline" className="gap-2" onClick={() => router.push(`/chats?assetId=${selectedAsset.id}`)}>
+                <MessageCircle size={15} /> Hablar con el vendedor
+              </Button>
+            </div>
           </div>
 
           <Card>
@@ -477,108 +570,6 @@ export function BuyerDashboard() {
         </section>
       )}
 
-      <section className="mt-8 grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
-        <Card>
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold">Mis tokens comprados</h2>
-            <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.14em] text-[var(--color-muted)]">
-              <TrendingUp size={14} /> {portfolio.length} operaciones
-            </span>
-          </div>
-
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="text-xs uppercase tracking-[0.14em] text-[var(--color-muted)]">
-                <tr>
-                  <th className="py-2 pr-4">Activo</th>
-                  <th className="py-2 pr-4">Cantidad</th>
-                  <th className="py-2 pr-4">Precio unitario</th>
-                  <th className="py-2 pr-4">Total pagado</th>
-                  <th className="py-2">Fecha</th>
-                </tr>
-              </thead>
-              <tbody>
-                {portfolio.map((row) => (
-                  <tr key={row.purchase.id} className="border-t border-[var(--color-border)]">
-                    <td className="py-3 pr-4 font-semibold">{row.asset?.title}</td>
-                    <td className="py-3 pr-4">{row.purchase.quantity.toLocaleString("es-AR")}</td>
-                    <td className="py-3 pr-4">{formatUSD(row.purchase.pricePerToken)}</td>
-                    <td className="py-3 pr-4">{formatUSD(row.purchase.totalPaid)}</td>
-                    <td className="py-3">{formatShortDate(row.purchase.purchasedAt)}</td>
-                  </tr>
-                ))}
-                {portfolio.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-6 text-center text-[var(--color-muted)]">
-                      Aun no tienes compras registradas.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-
-        <Card>
-          <h2 className="flex items-center gap-2 text-xl font-bold">
-            <MessageCircle size={18} /> Chat con vendedores
-          </h2>
-
-          <div className="mt-4 grid gap-3">
-            <select
-              value={activeThreadId ?? ""}
-              onChange={(event) => setActiveThreadId(event.target.value || null)}
-              className="h-10 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3 text-sm"
-            >
-              <option value="">Selecciona una conversacion</option>
-              {threads.map((thread) => {
-                const assetTitle = assets.find((asset) => asset.id === thread.assetId)?.title || "Activo";
-                return (
-                  <option key={thread.id} value={thread.id}>
-                    {thread.sellerName} · {assetTitle}
-                  </option>
-                );
-              })}
-            </select>
-
-            <div className="h-52 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] p-3">
-              {activeThreadId && activeMessages.length > 0 ? (
-                <div className="space-y-2">
-                  {activeMessages.map((message) => (
-                    <article
-                      key={message.id}
-                      className={`max-w-[88%] rounded-xl px-3 py-2 text-sm ${
-                        message.senderRole === "buyer"
-                          ? "ml-auto bg-[var(--color-primary)] text-[var(--color-primary-contrast)]"
-                          : "bg-[var(--color-surface-soft)]"
-                      }`}
-                    >
-                      <p className="font-semibold text-xs opacity-80">{message.senderName}</p>
-                      <p>{message.text}</p>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-[var(--color-muted)]">No hay mensajes para mostrar.</p>
-              )}
-            </div>
-
-            <form className="space-y-2" onSubmit={handleSendChat}>
-              <textarea
-                className="h-24 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] p-3 text-sm"
-                placeholder="Escribe tu mensaje al vendedor"
-                value={chatInput}
-                onChange={(event) => setChatInput(event.target.value)}
-                disabled={!activeThreadId}
-              />
-              {chatError && <p className="text-sm text-red-500">{chatError}</p>}
-              <Button type="submit" className="w-full" disabled={!activeThreadId}>
-                Enviar mensaje
-              </Button>
-            </form>
-          </div>
-        </Card>
-      </section>
     </main>
   );
 }

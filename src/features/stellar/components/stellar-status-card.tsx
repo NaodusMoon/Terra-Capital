@@ -16,15 +16,57 @@ export function StellarStatusCard() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/stellar/network")
-      .then((res) => res.json())
-      .then((payload) => {
-        if (!payload.ok) {
-          throw new Error(payload.error ?? "No se pudo consultar Horizon");
+    let cancelled = false;
+
+    const loadStatus = async () => {
+      setError(null);
+      try {
+        const res = await fetch("/api/stellar/network", {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+
+        const contentType = res.headers.get("content-type") ?? "";
+        let payload: { ok: boolean; error?: string; data?: NetworkResponse } | null = null;
+
+        if (contentType.includes("application/json")) {
+          payload = (await res.json()) as { ok: boolean; error?: string; data?: NetworkResponse };
+        } else {
+          const text = await res.text();
+          if (text.trim()) {
+            try {
+              payload = JSON.parse(text) as { ok: boolean; error?: string; data?: NetworkResponse };
+            } catch {
+              throw new Error("Respuesta invalida del servidor de Stellar.");
+            }
+          }
         }
-        setData(payload.data);
-      })
-      .catch((err: Error) => setError(err.message));
+
+        if (!payload) {
+          throw new Error("No se recibio informacion del estado de Stellar.");
+        }
+        if (!res.ok || !payload.ok) {
+          throw new Error(payload.error ?? "No se pudo consultar Horizon.");
+        }
+        if (!payload.data) {
+          throw new Error("No se recibieron datos de red.");
+        }
+
+        if (!cancelled) {
+          setData(payload.data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Error al consultar Stellar.");
+        }
+      }
+    };
+
+    void loadStatus();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (

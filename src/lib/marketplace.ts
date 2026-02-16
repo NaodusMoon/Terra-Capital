@@ -194,6 +194,35 @@ export function buyAsset(assetId: string, buyer: AppUser, quantity: number) {
   return { ok: true as const, purchase };
 }
 
+export function ensureBuyerThreadForAsset(assetId: string, buyer: AppUser) {
+  const asset = getAssetsRaw().find((item) => item.id === assetId);
+  if (!asset) {
+    return { ok: false as const, message: "Activo no encontrado." };
+  }
+
+  const threads = getThreads();
+  const existingThread = threads.find((thread) => thread.assetId === asset.id && thread.buyerId === buyer.id && thread.sellerId === asset.sellerId);
+  if (existingThread) {
+    return { ok: true as const, thread: existingThread, created: false as const };
+  }
+
+  const thread: ChatThread = {
+    id: crypto.randomUUID(),
+    assetId: asset.id,
+    buyerId: buyer.id,
+    buyerName: buyer.fullName,
+    sellerId: asset.sellerId,
+    sellerName: asset.sellerName,
+    updatedAt: new Date().toISOString(),
+  };
+
+  threads.push(thread);
+  writeLocalStorage(STORAGE_KEYS.chatThreads, threads);
+  emitMarketUpdate();
+
+  return { ok: true as const, thread, created: true as const };
+}
+
 export function getBuyerPortfolio(buyerId: string) {
   const assetsMap = new Map(getAssetsRaw().map((asset) => [asset.id, asset]));
   return getPurchases()
@@ -250,14 +279,56 @@ export function getThreadMessages(threadId: string) {
     .sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
 }
 
+export function getUserThreads(userId: string) {
+  return getThreads()
+    .filter((thread) => thread.buyerId === userId || thread.sellerId === userId)
+    .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
+}
+
+export function getThreadRoleForUser(thread: ChatThread, userId: string): "buyer" | "seller" | null {
+  if (thread.buyerId === userId) return "buyer";
+  if (thread.sellerId === userId) return "seller";
+  return null;
+}
+
+export function markThreadMessagesRead(threadId: string, readerRole: "buyer" | "seller") {
+  const messages = getMessages();
+  let changed = false;
+  const now = new Date().toISOString();
+  const next = messages.map((message) => {
+    if (message.threadId !== threadId) return message;
+    if (message.senderRole === readerRole) return message;
+    if (message.status === "read" || message.status === "failed") return message;
+    changed = true;
+    return { ...message, status: "read" as const, readAt: now };
+  });
+
+  if (!changed) return false;
+  writeLocalStorage(STORAGE_KEYS.chatMessages, next);
+  emitMarketUpdate();
+  return true;
+}
+
 export function sendThreadMessage(
   threadId: string,
   sender: AppUser,
   senderRole: "buyer" | "seller",
   text: string,
+  options?: {
+    kind?: "text" | "image" | "video" | "audio" | "document";
+    attachment?: {
+      name: string;
+      mimeType: string;
+      size: number;
+      dataUrl: string;
+    };
+  },
 ) {
   const messageText = normalizeSafeText(text, 500);
-  if (!messageText) {
+  const messageKind = options?.kind ?? "text";
+  const hasAttachment = Boolean(options?.attachment);
+
+  if (!messageText && !hasAttachment) {
     return { ok: false as const, message: "Escribe un mensaje." };
   }
 
@@ -266,8 +337,12 @@ export function sendThreadMessage(
   if (!thread) {
     return { ok: false as const, message: "Conversacion no encontrada." };
   }
+  if (options?.attachment && options.attachment.size > 25 * 1024 * 1024) {
+    return { ok: false as const, message: "El archivo supera el limite de 25 MB." };
+  }
 
   const messages = getMessages();
+  const createdAt = new Date().toISOString();
   messages.push({
     id: crypto.randomUUID(),
     threadId,
@@ -275,15 +350,51 @@ export function sendThreadMessage(
     senderName: sender.fullName,
     senderRole,
     text: messageText,
-    createdAt: new Date().toISOString(),
+    status: "sent",
+    kind: messageKind,
+    attachment: options?.attachment,
+    createdAt,
   });
 
-  thread.updatedAt = new Date().toISOString();
+  thread.updatedAt = createdAt;
 
   writeLocalStorage(STORAGE_KEYS.chatMessages, messages);
   writeLocalStorage(STORAGE_KEYS.chatThreads, threads);
   emitMarketUpdate();
 
-  return { ok: true as const };
+  return { ok: true as const, status: "sent" as const };
+}
+
+export function appendFailedThreadMessage(
+  threadId: string,
+  sender: AppUser,
+  senderRole: "buyer" | "seller",
+  text: string,
+  errorMessage: string,
+) {
+  const threads = getThreads();
+  const thread = threads.find((item) => item.id === threadId);
+  if (!thread) return false;
+
+  const messages = getMessages();
+  const createdAt = new Date().toISOString();
+  messages.push({
+    id: crypto.randomUUID(),
+    threadId,
+    senderId: sender.id,
+    senderName: sender.fullName,
+    senderRole,
+    text: normalizeSafeText(text || "No se pudo enviar el mensaje.", 500),
+    status: "failed",
+    kind: "text",
+    errorMessage: normalizeSafeText(errorMessage, 140),
+    createdAt,
+  });
+
+  thread.updatedAt = createdAt;
+  writeLocalStorage(STORAGE_KEYS.chatMessages, messages);
+  writeLocalStorage(STORAGE_KEYS.chatThreads, threads);
+  emitMarketUpdate();
+  return true;
 }
 

@@ -1,5 +1,6 @@
 ﻿export const STORAGE_KEYS = {
   users: "terra_capital_users",
+  authUser: "terra_capital_auth_user",
   session: "terra_capital_session",
   activeMode: "terra_capital_active_mode",
   loginAttempts: "terra_capital_login_attempts",

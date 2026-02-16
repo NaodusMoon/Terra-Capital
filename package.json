@@ -18,18 +18,22 @@
     "cf:preview": "npm run cf:build && wrangler dev",
     "cf:deploy": "npm run cf:build && wrangler deploy",
     "cf:d1:migrate": "wrangler d1 migrations apply tera_d1 --local",
-    "cf:d1:migrate:remote": "wrangler d1 migrations apply tera_d1 --remote"
+    "cf:d1:migrate:remote": "wrangler d1 migrations apply tera_d1 --remote",
+    "db:supabase:migrate": "node scripts/apply-supabase-sql.mjs"
   },
   "dependencies": {
     "@albedo-link/intent": "^0.13.0",
     "@stellar/freighter-api": "^6.0.1",
     "clsx": "^2.1.1",
+    "emoji-picker-react": "^4.18.0",
     "framer-motion": "^12.33.0",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
     "p5": "^2.2.0",
+    "pg": "^8.18.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-webcam": "^7.2.0",
     "vanta": "^0.5.24"
   },
   "devDependencies": {
@@ -37,6 +41,7 @@
     "@opennextjs/cloudflare": "^1.16.3",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.16.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "concurrently": "^9.2.1",

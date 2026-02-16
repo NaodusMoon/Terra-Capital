@@ -27,7 +27,27 @@ Crear `.env.local` desde `.env.example`:
 OFFCHAIN_BACKEND_URL=http://127.0.0.1:8080
 RESEND_API_KEY=
 RECOVERY_EMAIL_FROM="Terra Capital <no-reply@tu-dominio.com>"
+NETWORK_CACHE_TTL_SECONDS=15
+DATABASE_URL=postgresql://postgres.<project-ref>:[YOUR-PASSWORD]@aws-0-us-west-2.pooler.supabase.com:6543/postgres?sslmode=require
 ```
+
+Si tu password tiene caracteres especiales (por ejemplo espacio o `@`), usa URL encoding dentro de `DATABASE_URL`.
+
+## Auth actual
+
+- Inicio de sesion directo con wallet.
+- Primer acceso: si la wallet no existe en DB, se solicita solo `fullName`.
+- No hay registro por email ni recuperacion de contrasena.
+
+## Base de datos Supabase
+
+Aplicar esquema inicial:
+
+```bash
+npm run db:supabase:migrate
+```
+
+Esto ejecuta `supabase/migrations/0001_app_users.sql` usando `DATABASE_URL`.
 
 ## Deploy en Cloudflare (Pages/Workers runtime)
 

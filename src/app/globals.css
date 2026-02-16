@@ -44,11 +44,21 @@ body {
 
 @media (max-width: 768px) {
   body {
-    padding-bottom: 78px;
+    padding-bottom: 94px;
   }
 
   main {
     max-width: 100vw;
+  }
+}
+
+@media (max-width: 480px) {
+  body {
+    padding-bottom: 104px;
+  }
+
+  h1 {
+    line-height: 1.15;
   }
 }
 

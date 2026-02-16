@@ -6,19 +6,20 @@ import { Moon, SunMedium } from "lucide-react";
 import { useTheme } from "@/components/providers/theme-provider";
 
 export function ThemeToggle() {
-  const { theme, toggleTheme } = useTheme();
+  const { theme, resolvedTheme, toggleTheme } = useTheme();
   const hydrated = useSyncExternalStore(
     () => () => {},
     () => true,
     () => false,
   );
+  const isDark = hydrated ? resolvedTheme === "dark" : false;
 
   return (
     <button
       type="button"
       onClick={toggleTheme}
-      aria-label={hydrated && theme === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
-      title={hydrated && theme === "dark" ? "Modo claro" : "Modo oscuro"}
+      aria-label={isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+      title={hydrated && theme === "system" ? "Siguiendo dispositivo" : isDark ? "Modo claro" : "Modo oscuro"}
       className="relative inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] transition hover:bg-[var(--color-surface-soft)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
     >
       {!hydrated ? (
@@ -33,7 +34,7 @@ export function ThemeToggle() {
             transition={{ duration: 0.24, ease: "easeOut" }}
             className="relative z-10"
           >
-            {theme === "dark" ? <SunMedium size={17} /> : <Moon size={17} />}
+            {isDark ? <SunMedium size={17} /> : <Moon size={17} />}
           </motion.span>
         </AnimatePresence>
       )}

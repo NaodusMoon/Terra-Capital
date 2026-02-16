@@ -58,9 +58,9 @@ export function LandingPage() {
               cumplimiento regulatorio y tecnologia blockchain para conectar ahorro urbano con produccion rural.
             </p>
             <div className="mt-9 flex flex-wrap gap-3">
-              <Link href="/auth/register">
+              <Link href="/auth/login">
                 <Button className="h-11 gap-2 px-6 text-base">
-                  Empezar ahora <ArrowRight size={17} />
+                  Empezar con wallet <ArrowRight size={17} />
                 </Button>
               </Link>
               <Link href="/auth/login">

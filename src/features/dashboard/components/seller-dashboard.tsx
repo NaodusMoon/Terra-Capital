@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
-import { Beef, ChartNoAxesCombined, ImagePlus, LandPlot, MessageCircleMore, Sprout, Upload } from "lucide-react";
+import { Beef, ChartNoAxesCombined, ImagePlus, LandPlot, Sprout, Upload } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -15,9 +15,6 @@ import {
   getPurchases,
   getSellerAssets,
   getSellerSalesSummary,
-  getSellerThreads,
-  getThreadMessages,
-  sendThreadMessage,
 } from "@/lib/marketplace";
 import type { AssetCategory } from "@/types/market";
 
@@ -43,23 +40,13 @@ export function SellerDashboard() {
   const [formMessage, setFormMessage] = useState("");
   const [assets, setAssets] = useState<ReturnType<typeof getSellerAssets>>([]);
   const [summary, setSummary] = useState({ soldTokens: 0, grossAmount: 0, operations: 0 });
-  const [threads, setThreads] = useState<ReturnType<typeof getSellerThreads>>([]);
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
-  const [chatInput, setChatInput] = useState("");
-  const [chatError, setChatError] = useState("");
 
   const syncData = useCallback(() => {
     if (!user) return;
 
     setAssets(getSellerAssets(user.id));
     setSummary(getSellerSalesSummary(user.id));
-
-    const nextThreads = getSellerThreads(user.id);
-    setThreads(nextThreads);
-    if (!activeThreadId && nextThreads.length > 0) {
-      setActiveThreadId(nextThreads[0].id);
-    }
-  }, [activeThreadId, user]);
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -101,7 +88,6 @@ export function SellerDashboard() {
     });
   }, [assets, user]);
 
-  const activeMessages = activeThreadId ? getThreadMessages(activeThreadId) : [];
   const blendSnapshot = getBlendLiquiditySnapshot();
 
   const handleCreateAsset = (event: FormEvent<HTMLFormElement>) => {
@@ -152,29 +138,8 @@ export function SellerDashboard() {
     syncData();
   };
 
-  const handleSendChat = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setChatError("");
-
-    if (!activeThreadId || !user) return;
-
-    if (!sellerVerified) {
-      setChatError("Debes verificarte para usar mensajeria en modo vendedor.");
-      return;
-    }
-
-    const result = sendThreadMessage(activeThreadId, user, "seller", chatInput);
-    if (!result.ok) {
-      setChatError(result.message);
-      return;
-    }
-
-    setChatInput("");
-    syncData();
-  };
-
   return (
-    <main className="mx-auto w-full max-w-7xl px-5 py-9">
+    <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 sm:py-9">
       <FadeIn>
         <h1 className="text-3xl font-black">Centro de Publicacion del Vendedor</h1>
         <p className="mt-2 text-[var(--color-muted)]">Carga activos tokenizados, monitorea ventas y conversa con compradores.</p>
@@ -360,7 +325,7 @@ export function SellerDashboard() {
         </Card>
       </section>
 
-      <section className="mt-8 grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
+      <section className="mt-8">
         <Card>
           <h2 className="text-xl font-bold">Mis activos publicados</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -392,66 +357,6 @@ export function SellerDashboard() {
                 </article>
               );
             })}
-          </div>
-        </Card>
-
-        <Card>
-          <h2 className="flex items-center gap-2 text-xl font-bold">
-            <MessageCircleMore size={18} /> Chat con compradores
-          </h2>
-
-          <div className="mt-4 grid gap-3">
-            <select
-              value={activeThreadId ?? ""}
-              onChange={(event) => setActiveThreadId(event.target.value || null)}
-              className="h-10 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3 text-sm"
-            >
-              <option value="">Selecciona una conversacion</option>
-              {threads.map((thread) => {
-                const assetTitle = assets.find((asset) => asset.id === thread.assetId)?.title || "Activo";
-                return (
-                  <option key={thread.id} value={thread.id}>
-                    {thread.buyerName} · {assetTitle}
-                  </option>
-                );
-              })}
-            </select>
-
-            <div className="h-52 overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] p-3">
-              {activeThreadId && activeMessages.length > 0 ? (
-                <div className="space-y-2">
-                  {activeMessages.map((message) => (
-                    <article
-                      key={message.id}
-                      className={`max-w-[88%] rounded-xl px-3 py-2 text-sm ${
-                        message.senderRole === "seller"
-                          ? "ml-auto bg-[var(--color-primary)] text-[var(--color-primary-contrast)]"
-                          : "bg-[var(--color-surface-soft)]"
-                      }`}
-                    >
-                      <p className="font-semibold text-xs opacity-80">{message.senderName}</p>
-                      <p>{message.text}</p>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-[var(--color-muted)]">No hay mensajes en esta conversacion.</p>
-              )}
-            </div>
-
-            <form className="space-y-2" onSubmit={handleSendChat}>
-              <textarea
-                className="h-24 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] p-3 text-sm"
-                placeholder="Escribe un mensaje para tu comprador"
-                value={chatInput}
-                onChange={(event) => setChatInput(event.target.value)}
-                disabled={!activeThreadId || !sellerVerified}
-              />
-              {chatError && <p className="text-sm text-red-500">{chatError}</p>}
-              <Button type="submit" className="w-full" disabled={!activeThreadId || !sellerVerified}>
-                {sellerVerified ? "Enviar mensaje" : "Bloqueado por verificacion"}
-              </Button>
-            </form>
           </div>
         </Card>
       </section>

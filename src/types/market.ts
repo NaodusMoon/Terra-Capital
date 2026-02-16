@@ -47,5 +47,15 @@ export interface ChatMessage {
   senderName: string;
   senderRole: "buyer" | "seller";
   text: string;
+  status: "sending" | "sent" | "read" | "failed";
+  kind?: "text" | "image" | "video" | "audio" | "document";
+  attachment?: {
+    name: string;
+    mimeType: string;
+    size: number;
+    dataUrl: string;
+  };
+  errorMessage?: string;
+  readAt?: string;
   createdAt: string;
 }
