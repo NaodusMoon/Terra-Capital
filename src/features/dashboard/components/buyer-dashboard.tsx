@@ -76,6 +76,7 @@ export function BuyerDashboard() {
   const [confirmAccepted, setConfirmAccepted] = useState(false);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [portfolio, setPortfolio] = useState<ReturnType<typeof getBuyerPortfolio>>([]);
+  const [syncError, setSyncError] = useState("");
 
   const syncData = useCallback(async () => {
     if (!user) return;
@@ -84,8 +85,9 @@ export function BuyerDashboard() {
       const allAssets = getAssets();
       setAssets(allAssets);
       setPortfolio(getBuyerPortfolio(user.id));
-    } catch {
-      // keep last known state
+      setSyncError("");
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : "No se pudo sincronizar el marketplace.");
     }
   }, [user]);
 
@@ -221,6 +223,15 @@ export function BuyerDashboard() {
         </Card>
         <StellarStatusCard />
       </section>
+
+      {syncError && (
+        <section className="mt-4">
+          <Card>
+            <p className="text-sm font-semibold text-amber-600">No se pudo actualizar datos en tiempo real</p>
+            <p className="mt-1 text-sm text-[var(--color-muted)]">{syncError}</p>
+          </Card>
+        </section>
+      )}
 
       <section className="mt-5">
         <Card>

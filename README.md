@@ -53,84 +53,14 @@ Marketplace, compras y chats ahora se guardan en PostgreSQL (no en localStorage)
 Ese flujo depende tambien de:
 - `supabase/migrations/0002_marketplace.sql`
 
-## Deploy en Cloudflare (Pages/Workers runtime)
-
-Se agrego soporte con OpenNext para correr Next.js en el runtime de Cloudflare y usar:
-- `tera_d1` (D1) para cache y auditoria
-- `terra_images` (Cloudflare Images) en tu entorno Pages
-
-### 1. Crear recursos en Cloudflare
-
-Ya tienes:
-- D1 binding: `tera_d1`
-- D1 database: `terra_capital_d1_db`
-- Images binding: `terra_images`
-
-### 2. Configurar `wrangler.toml`
-
-Editar:
-- `database_id` en `wrangler.toml`
-
-Importante:
-- No dejes `REPLACE_WITH_TERA_D1_DATABASE_ID`; el script `cf:check` bloquea el deploy si sigue asi.
-
-### 3. Aplicar migraciones D1
-
-Local:
-
-```bash
-npm run cf:d1:migrate
-```
-
-Remoto:
-
-```bash
-npm run cf:d1:migrate:remote
-```
-
-### 4. Variables secretas en Cloudflare
-
-```bash
-wrangler secret put RESEND_API_KEY
-wrangler secret put RECOVERY_EMAIL_FROM
-```
-
-Opcional:
-- `NETWORK_CACHE_TTL_SECONDS` en `[vars]` de `wrangler.toml` (default 15)
-
-### 5. Build y deploy
-
-Preview local Cloudflare runtime:
-
-```bash
-npm run cf:preview
-```
-
-Deploy:
-
-```bash
-npm run cf:deploy
-```
-
-## Configuracion exacta en Cloudflare Pages
-
-En tu proyecto de Pages usa:
-- Build command: `npm run cf:build`
-- Deploy command: `npx wrangler deploy`
-- Root directory: `/` (raiz del repo)
-
-Importante:
-- `npm run build` ya genera `.open-next/worker.js` (ejecuta `next build` + `opennextjs-cloudflare build --skipBuild`).
-- Si prefieres validacion extra (`cf:check`), usa `npm run cf:build`.
-- No uses `postbuild` con OpenNext porque puede generar loop de builds y terminar en error `status 137` (proceso terminado por memoria/tiempo).
-
 ## Deploy en Vercel
 
 - Build command: `npm run build`
-- `npm run build` ejecuta solo `next build` (sin OpenNext/Cloudflare).
+- `npm run build` ejecuta `next build`.
 - Node recomendado en Vercel: `22.x`.
 
-Si usas variables/secretos, configuralos en Pages o con Wrangler:
+Si usas variables/secretos, configuralos en Vercel:
+- `DATABASE_URL`
 - `RESEND_API_KEY`
 - `RECOVERY_EMAIL_FROM`
 
@@ -138,6 +68,4 @@ Si usas variables/secretos, configuralos en Pages o con Wrangler:
 
 - `npm run lint`
 - `npm run build`
-- `npm run cf:build`
-- `npm run cf:preview`
-- `npm run cf:deploy`
+- `npm run db:supabase:migrate`

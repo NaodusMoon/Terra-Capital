@@ -151,9 +151,7 @@ export async function createAsset(
     throw new Error(payload?.message ?? "No se pudo publicar el activo.");
   }
 
-  const assets = getAssets();
-  writeLocalStorage(STORAGE_KEYS.assets, [payload.asset, ...assets.filter((item) => item.id !== payload.asset!.id)]);
-  emitMarketUpdate();
+  await syncMarketplace(seller.id);
   return payload.asset;
 }
 

@@ -45,6 +45,7 @@ export function SellerDashboard() {
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [assets, setAssets] = useState<ReturnType<typeof getSellerAssets>>([]);
   const [summary, setSummary] = useState({ soldTokens: 0, grossAmount: 0, operations: 0 });
+  const [syncError, setSyncError] = useState("");
 
   const syncData = useCallback(async () => {
     if (!user) return;
@@ -52,8 +53,9 @@ export function SellerDashboard() {
       await syncMarketplace(user.id);
       setAssets(getSellerAssets(user.id));
       setSummary(getSellerSalesSummary(user.id));
-    } catch {
-      // keep last known state
+      setSyncError("");
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : "No se pudo sincronizar el marketplace.");
     }
   }, [user]);
 
@@ -243,6 +245,15 @@ export function SellerDashboard() {
         </Card>
         <StellarStatusCard />
       </section>
+
+      {syncError && (
+        <section className="mt-4">
+          <Card>
+            <p className="text-sm font-semibold text-amber-600">No se pudo actualizar datos en tiempo real</p>
+            <p className="mt-1 text-sm text-[var(--color-muted)]">{syncError}</p>
+          </Card>
+        </section>
+      )}
 
       <section className="mt-5">
         <Card>

@@ -1,23 +1,12 @@
 import { NextResponse } from "next/server";
-import { getD1Binding } from "@/lib/server/cloudflare";
 
 interface RequestPayload {
   email?: string;
   code?: string;
 }
 
-async function writeDeliveryAudit(email: string, status: "sent" | "failed" | "dev", detail?: string) {
-  const eventId = crypto.randomUUID();
-  const nowIso = new Date().toISOString();
-  const d1 = getD1Binding();
-  if (d1) {
-    await d1
-      .prepare(
-        "INSERT INTO email_delivery_audit (id, email, kind, status, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      )
-      .bind(eventId, email, "recovery_code", status, detail ?? null, nowIso)
-      .run();
-  }
+async function writeDeliveryAudit() {
+  // Auditoria opcional deshabilitada en este entorno.
 }
 
 export async function POST(request: Request) {
@@ -39,14 +28,14 @@ export async function POST(request: Request) {
 
   if (!resendApiKey || !from) {
     if (process.env.NODE_ENV !== "production") {
-      await writeDeliveryAudit(email, "dev", "email provider not configured");
+      await writeDeliveryAudit();
       return NextResponse.json({
         ok: true,
         message: "Codigo generado en modo desarrollo.",
         devCode: code,
       });
     }
-    await writeDeliveryAudit(email, "failed", "email provider missing in production");
+    await writeDeliveryAudit();
     return NextResponse.json(
       { ok: false, message: "Email no configurado. Define RESEND_API_KEY y RECOVERY_EMAIL_FROM." },
       { status: 500 },
@@ -69,11 +58,9 @@ export async function POST(request: Request) {
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    await writeDeliveryAudit(email, "failed", `resend status=${response.status}; body=${errorText.slice(0, 200)}`);
     return NextResponse.json({ ok: false, message: "No pudimos enviar el codigo por correo." }, { status: 502 });
   }
 
-  await writeDeliveryAudit(email, "sent");
+  await writeDeliveryAudit();
   return NextResponse.json({ ok: true, message: "Codigo enviado al correo." });
 }

@@ -142,7 +142,11 @@ export async function loginUser(input: LoginInput) {
     if (!payload.ok) {
       const maybeDbConfigIssue = payload.message.toLowerCase().includes("database_url");
       if (maybeDbConfigIssue) {
-        return loginWithLocalFallback(walletAddress, fullName);
+        return {
+          ok: false as const,
+          message: payload.message,
+          requiresName: payload.requiresName ?? false,
+        };
       }
       return {
         ok: false as const,
