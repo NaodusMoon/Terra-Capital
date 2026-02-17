@@ -8,6 +8,7 @@ const csp = [
   "frame-ancestors 'none'",
   "frame-src 'self' https://albedo.link",
   "img-src 'self' data: blob: https:",
+  "media-src 'self' blob: data:",
   "object-src 'none'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",

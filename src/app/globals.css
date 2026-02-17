@@ -106,6 +106,7 @@ body.chat-page-lock {
 }
 
 .terra-wave-canvas {
+  position: relative;
   width: 100%;
   min-height: 30px;
   border-radius: 999px;
@@ -150,6 +151,11 @@ body.chat-page-lock {
 
 .terra-wave-diagnostic--error {
   color: #ef4444;
+}
+
+.terra-wave-slider {
+  margin-top: 4px;
+  width: 100%;
 }
 
 @media (max-width: 768px) {

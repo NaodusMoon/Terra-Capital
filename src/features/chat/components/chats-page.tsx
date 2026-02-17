@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChangeEvent, CSSProperties, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, CSSProperties, FormEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import Webcam from "react-webcam";
@@ -90,6 +90,10 @@ function formatDay(iso: string) {
   return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short" }).format(new Date(iso));
 }
 
+function formatLongDay(iso: string) {
+  return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "long", year: "numeric" }).format(new Date(iso));
+}
+
 function formatAudioTime(totalSeconds: number) {
   const safe = Math.max(0, Math.floor(totalSeconds));
   const minutes = Math.floor(safe / 60).toString().padStart(2, "0");
@@ -125,6 +129,7 @@ function WaveAudioPlayer({
   const [audioReadyState, setAudioReadyState] = useState(0);
   const [audioNetworkState, setAudioNetworkState] = useState(0);
   const [lastAudioError, setLastAudioError] = useState<string | null>(null);
+  const [seekingTime, setSeekingTime] = useState<number | null>(null);
 
   const sourceKind = src.startsWith("data:") ? "data" : src.startsWith("blob:") ? "blob" : "url";
 
@@ -186,7 +191,10 @@ function WaveAudioPlayer({
       setAudioReadyState(audio.readyState);
       setAudioNetworkState(audio.networkState);
     };
-    const onEnded = () => setPlaying(false);
+    const onEnded = () => {
+      setPlaying(false);
+      setCurrentTime(0);
+    };
     const onError = () => {
       setReady(false);
       setPlaying(false);
@@ -353,6 +361,34 @@ function WaveAudioPlayer({
     }
   };
 
+  const seekToRatio = (ratio: number) => {
+    const audio = audioRef.current;
+    if (!audio || !duration) return;
+    const clamped = Math.max(0, Math.min(1, ratio));
+    const target = duration * clamped;
+    audio.currentTime = target;
+    setCurrentTime(target);
+  };
+
+  const handleCanvasSeek = (event: MouseEvent<HTMLButtonElement>) => {
+    if (!duration) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const ratio = (event.clientX - rect.left) / rect.width;
+    seekToRatio(ratio);
+  };
+
+  const handleSliderChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const next = Number(event.target.value);
+    setSeekingTime(next);
+  };
+
+  const commitSliderSeek = () => {
+    if (seekingTime === null || !duration) return;
+    seekToRatio(seekingTime / duration);
+    setSeekingTime(null);
+  };
+
   const cycleSpeed = () => {
     const next = (speedIndex + 1) % audioSpeeds.length;
     setSpeedIndex(next);
@@ -361,7 +397,9 @@ function WaveAudioPlayer({
     }
   };
 
-  const remaining = Math.max(0, duration - currentTime);
+  const referenceTime = seekingTime ?? currentTime;
+  const remaining = Math.max(0, duration - referenceTime);
+  const displayTime = duration > 0 ? formatAudioTime(remaining || duration) : "00:00";
   const diagnosticLine = [
     `src=${sourceKind}`,
     `mime=${expectedMimeType || "?"}`,
@@ -379,14 +417,28 @@ function WaveAudioPlayer({
       </button>
       <div className="terra-wave-content">
         <div className="terra-wave-canvas">
+          <button type="button" className="absolute inset-0 z-10 cursor-pointer" aria-label="Mover reproduccion" onClick={handleCanvasSeek} />
           <canvas ref={waveformCanvasRef} className="terra-wave-visual" aria-hidden />
         </div>
         <div className="terra-wave-meta">
-          <span>{duration > 0 ? `-${formatAudioTime(remaining)}` : "--:--"}</span>
+          <span>{displayTime}</span>
           <button type="button" className="terra-wave-speed" onClick={cycleSpeed} disabled={!ready}>
             {audioSpeeds[speedIndex]}x
           </button>
         </div>
+        <input
+          type="range"
+          className="terra-wave-slider"
+          min={0}
+          max={duration || 0}
+          step={0.01}
+          value={seekingTime ?? currentTime}
+          onChange={handleSliderChange}
+          onMouseUp={commitSliderSeek}
+          onTouchEnd={commitSliderSeek}
+          disabled={!ready || duration <= 0}
+          aria-label="Barra de reproduccion"
+        />
         <p className="terra-wave-diagnostic">{diagnosticLine}</p>
         {lastAudioError && <p className="terra-wave-diagnostic terra-wave-diagnostic--error">{lastAudioError}</p>}
       </div>
@@ -465,6 +517,8 @@ export function ChatsPage() {
   const webcamRef = useRef<Webcam | null>(null);
   const cameraRecorderRef = useRef<MediaRecorder | null>(null);
   const cameraChunksRef = useRef<Blob[]>([]);
+  const messagesViewportRef = useRef<HTMLDivElement | null>(null);
+  const scrollDateHintTimerRef = useRef<number | null>(null);
   const { isMobile } = useResponsive();
 
   const [threads, setThreads] = useState<ReturnType<typeof getUserThreads>>([]);
@@ -494,6 +548,7 @@ export function ChatsPage() {
   const [capturedVideoUrl, setCapturedVideoUrl] = useState<string | null>(null);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [assets, setAssets] = useState<ReturnType<typeof getAssets>>([]);
+  const [scrollDateHint, setScrollDateHint] = useState<string | null>(null);
 
   const assetsMap = useMemo(() => new Map(assets.map((asset) => [asset.id, asset.title])), [assets]);
   const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null;
@@ -501,6 +556,12 @@ export function ChatsPage() {
   const activeRole = activeThread && user ? getThreadRoleForUser(activeThread, user.id) : null;
   const senderRole = activeRole ?? (activeMode === "seller" ? "seller" : "buyer");
   const mobileThreadOpen = isMobile && Boolean(activeThread);
+
+  const scrollToLatestMessage = useCallback((smooth = false) => {
+    const viewport = messagesViewportRef.current;
+    if (!viewport) return;
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -642,6 +703,10 @@ export function ChatsPage() {
         voiceLiveAudioContextRef.current = null;
       }
       cameraRecorderRef.current?.stream.getTracks().forEach((track) => track.stop());
+      if (scrollDateHintTimerRef.current) {
+        window.clearTimeout(scrollDateHintTimerRef.current);
+        scrollDateHintTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -658,6 +723,12 @@ export function ChatsPage() {
     }
     return () => document.body.classList.remove("chat-thread-open");
   }, [mobileThreadOpen]);
+
+  useEffect(() => {
+    if (!activeThreadId) return;
+    const id = window.setTimeout(() => scrollToLatestMessage(false), 0);
+    return () => window.clearTimeout(id);
+  }, [activeThreadId, scrollToLatestMessage]);
 
   const term = search.trim().toLowerCase();
   const hasTextToSend = chatInput.trim().length > 0;
@@ -700,6 +771,15 @@ export function ChatsPage() {
     writeLocalStorage(STORAGE_KEYS.chatMessages, next);
   };
 
+  const appendLocalOptimisticMessage = (message: ChatMessage) => {
+    try {
+      const messages = readLocalStorage<ChatMessage[]>(STORAGE_KEYS.chatMessages, []);
+      writeLocalStorage(STORAGE_KEYS.chatMessages, [...messages, message]);
+    } catch {
+      // Ignorar limite de cuota local; backend sigue siendo la fuente principal.
+    }
+  };
+
   const handleRetryFailedMessage = async (message: ChatMessage) => {
     if (!user || message.status !== "failed") return;
     setRetryingMessageId(message.id);
@@ -730,6 +810,7 @@ export function ChatsPage() {
   const handleOpenThread = (threadId: string) => {
     setManuallyClosedChat(false);
     setActiveThreadId(threadId);
+    setScrollDateHint(null);
   };
 
   const handleCloseThread = () => {
@@ -738,6 +819,35 @@ export function ChatsPage() {
     setShowEmoji(false);
     setShowAttachMenu(false);
     setShowAttachCameraSubmenu(false);
+  };
+
+  const handleMessagesScroll = () => {
+    const viewport = messagesViewportRef.current;
+    if (!viewport) return;
+    const items = Array.from(viewport.querySelectorAll<HTMLElement>("[data-message-date]"));
+    if (items.length === 0) return;
+    const viewportTop = viewport.getBoundingClientRect().top;
+    let selectedDate = items[0].dataset.messageDate ?? null;
+
+    for (const element of items) {
+      const top = element.getBoundingClientRect().top - viewportTop;
+      if (top <= 36) {
+        selectedDate = element.dataset.messageDate ?? selectedDate;
+      } else {
+        break;
+      }
+    }
+
+    if (selectedDate) {
+      setScrollDateHint(selectedDate);
+      if (scrollDateHintTimerRef.current) {
+        window.clearTimeout(scrollDateHintTimerRef.current);
+      }
+      scrollDateHintTimerRef.current = window.setTimeout(() => {
+        setScrollDateHint(null);
+        scrollDateHintTimerRef.current = null;
+      }, 2000);
+    }
   };
 
   const toggleFavoriteThread = (threadId: string) => {
@@ -922,6 +1032,12 @@ export function ChatsPage() {
       if (event.data.size > 0) {
         voiceChunksRef.current.push(event.data);
       }
+      if (recorder.state === "paused") {
+        const hasPreview = rebuildVoicePreviewFromChunks();
+        if (hasPreview) {
+          setVoiceState("paused");
+        }
+      }
     };
 
     recorder.onstop = () => {
@@ -1005,6 +1121,15 @@ export function ChatsPage() {
       stopVoiceTimer();
       stopLiveVoiceVisualization();
       setVoiceState("paused");
+      setVoicePreparingPreview(true);
+      recorder.requestData();
+      window.setTimeout(() => {
+        const hasPreview = rebuildVoicePreviewFromChunks();
+        setVoicePreparingPreview(false);
+        if (!hasPreview) {
+          setChatError("Aun no hay suficiente audio para previsualizar. Continua grabando unos segundos.");
+        }
+      }, 120);
     }
   };
 
@@ -1058,7 +1183,30 @@ export function ChatsPage() {
       return;
     }
 
+    let optimisticId: string | null = null;
     try {
+      optimisticId = crypto.randomUUID();
+      const optimisticAttachmentUrl = voicePreviewUrl ?? URL.createObjectURL(blob);
+      appendLocalOptimisticMessage({
+        id: optimisticId,
+        threadId: activeThreadId,
+        senderId: user.id,
+        senderName: user.fullName,
+        senderRole,
+        text: "",
+        status: "sending",
+        kind: "audio",
+        attachment: {
+          name: `nota-voz-temp-${Date.now()}`,
+          mimeType: blob.type || "audio/webm",
+          size: blob.size,
+          dataUrl: optimisticAttachmentUrl,
+        },
+        createdAt: new Date().toISOString(),
+      });
+      setThreads((current) => [...current]);
+      scrollToLatestMessage(true);
+
       const dataUrl = await toDataUrl(blob);
       const extension = blob.type.includes("wav")
         ? "wav"
@@ -1078,6 +1226,7 @@ export function ChatsPage() {
       });
 
       if (!result.ok) {
+        if (optimisticId) removeLocalMessage(optimisticId);
         appendFailedThreadMessage(activeThreadId, user, senderRole, "", result.message, {
           kind: "audio",
           attachment: {
@@ -1091,9 +1240,11 @@ export function ChatsPage() {
         setVoiceSending(false);
         return;
       }
+      if (optimisticId) removeLocalMessage(optimisticId);
       deleteVoiceRecording();
       void syncData();
     } catch {
+      if (optimisticId) removeLocalMessage(optimisticId);
       appendFailedThreadMessage(activeThreadId, user, senderRole, "", "No se pudo procesar la nota de voz.", {
         kind: "audio",
       });
@@ -1410,12 +1561,22 @@ export function ChatsPage() {
                 </Button>
               </header>
 
-              <div className={`flex-1 overflow-y-auto px-3 py-4 sm:px-4 ${isDark ? "bg-[radial-gradient(circle_at_15%_20%,rgba(34,53,62,.45),transparent_40%),radial-gradient(circle_at_80%_75%,rgba(21,32,39,.55),transparent_40%),#0b141a]" : "bg-[radial-gradient(circle_at_15%_20%,rgba(180,210,234,.45),transparent_40%),radial-gradient(circle_at_80%_75%,rgba(210,230,244,.55),transparent_40%),#eef6fc]"}`}>
+              <div
+                ref={messagesViewportRef}
+                onScroll={handleMessagesScroll}
+                className={`relative flex-1 overflow-y-auto px-3 py-4 sm:px-4 ${isDark ? "bg-[radial-gradient(circle_at_15%_20%,rgba(34,53,62,.45),transparent_40%),radial-gradient(circle_at_80%_75%,rgba(21,32,39,.55),transparent_40%),#0b141a]" : "bg-[radial-gradient(circle_at_15%_20%,rgba(180,210,234,.45),transparent_40%),radial-gradient(circle_at_80%_75%,rgba(210,230,244,.55),transparent_40%),#eef6fc]"}`}
+              >
+                {scrollDateHint && (
+                  <div className="pointer-events-none sticky top-2 z-20 mx-auto mb-2 w-fit rounded-full bg-black/70 px-3 py-1 text-[11px] font-semibold text-white shadow-sm">
+                    {scrollDateHint}
+                  </div>
+                )}
                 <div className="space-y-2.5">
                   <AnimatePresence initial={false}>
                     {activeMessages.map((message) => (
                       <motion.div
                         key={message.id}
+                        data-message-date={formatLongDay(message.createdAt)}
                         initial={{ opacity: 0, y: 8, scale: 0.98 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: -6, scale: 0.98 }}
@@ -1507,7 +1668,7 @@ export function ChatsPage() {
                         <canvas ref={voiceLiveCanvasRef} className="h-[38px] w-full" />
                       )}
                       {voiceState === "paused" && (
-                        <p className="px-2 py-2 text-[11px] text-[var(--color-muted)]">Preview disponible al terminar la grabacion.</p>
+                        <p className="px-2 py-2 text-[11px] text-[var(--color-muted)]">Pausado. Puedes escuchar y luego reanudar.</p>
                       )}
                       {!voicePreviewBlob && voiceState === "preview" && (
                         <p className="px-2 py-2 text-[11px] text-[var(--color-muted)]">Sin audio disponible.</p>

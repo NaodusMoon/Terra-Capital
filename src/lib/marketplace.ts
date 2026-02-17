@@ -23,6 +23,12 @@ interface MarketplaceStateResponse {
   blendSnapshot?: BlendSnapshot;
 }
 
+let volatileAssets: TokenizedAsset[] = [];
+let volatilePurchases: PurchaseRecord[] = [];
+let volatileThreads: ChatThread[] = [];
+let volatileMessages: ChatMessage[] = [];
+let volatileBlendSnapshot: BlendSnapshot | null = null;
+
 function emitMarketUpdate() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(MARKETPLACE_EVENT));
@@ -45,11 +51,26 @@ function writeMarketplaceState(state: {
   messages?: ChatMessage[];
   blendSnapshot?: BlendSnapshot;
 }) {
-  if (state.assets) writeLocalStorage(STORAGE_KEYS.assets, state.assets);
-  if (state.purchases) writeLocalStorage(STORAGE_KEYS.purchases, state.purchases);
-  if (state.threads) writeLocalStorage(STORAGE_KEYS.chatThreads, state.threads);
-  if (state.messages) writeLocalStorage(STORAGE_KEYS.chatMessages, state.messages);
-  if (state.blendSnapshot) writeLocalStorage(STORAGE_KEYS.blendSnapshot, state.blendSnapshot);
+  if (state.assets) {
+    volatileAssets = state.assets;
+    try { writeLocalStorage(STORAGE_KEYS.assets, state.assets); } catch {}
+  }
+  if (state.purchases) {
+    volatilePurchases = state.purchases;
+    try { writeLocalStorage(STORAGE_KEYS.purchases, state.purchases); } catch {}
+  }
+  if (state.threads) {
+    volatileThreads = state.threads;
+    try { writeLocalStorage(STORAGE_KEYS.chatThreads, state.threads); } catch {}
+  }
+  if (state.messages) {
+    volatileMessages = state.messages;
+    try { writeLocalStorage(STORAGE_KEYS.chatMessages, state.messages); } catch {}
+  }
+  if (state.blendSnapshot) {
+    volatileBlendSnapshot = state.blendSnapshot;
+    try { writeLocalStorage(STORAGE_KEYS.blendSnapshot, state.blendSnapshot); } catch {}
+  }
   emitMarketUpdate();
 }
 
@@ -78,20 +99,32 @@ export async function syncMarketplace(userId?: string, options?: { includeChat?:
 }
 
 export function getAssets() {
-  const assets = readLocalStorage<TokenizedAsset[]>(STORAGE_KEYS.assets, []);
+  const assets = volatileAssets.length > 0 ? volatileAssets : readLocalStorage<TokenizedAsset[]>(STORAGE_KEYS.assets, []);
+  if (volatileAssets.length === 0 && assets.length > 0) {
+    volatileAssets = assets;
+  }
   return [...assets].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
 }
 
 export function getPurchases() {
-  return readLocalStorage<PurchaseRecord[]>(STORAGE_KEYS.purchases, []);
+  if (volatilePurchases.length > 0) return volatilePurchases;
+  const purchases = readLocalStorage<PurchaseRecord[]>(STORAGE_KEYS.purchases, []);
+  if (purchases.length > 0) volatilePurchases = purchases;
+  return purchases;
 }
 
 export function getThreads() {
-  return readLocalStorage<ChatThread[]>(STORAGE_KEYS.chatThreads, []);
+  if (volatileThreads.length > 0) return volatileThreads;
+  const threads = readLocalStorage<ChatThread[]>(STORAGE_KEYS.chatThreads, []);
+  if (threads.length > 0) volatileThreads = threads;
+  return threads;
 }
 
 export function getMessages() {
-  return readLocalStorage<ChatMessage[]>(STORAGE_KEYS.chatMessages, []);
+  if (volatileMessages.length > 0) return volatileMessages;
+  const messages = readLocalStorage<ChatMessage[]>(STORAGE_KEYS.chatMessages, []);
+  if (messages.length > 0) volatileMessages = messages;
+  return messages;
 }
 
 export async function createAsset(
@@ -314,7 +347,7 @@ export function getSellerSalesSummary(sellerId: string) {
 }
 
 export function getBlendLiquiditySnapshot() {
-  const snapshot = readLocalStorage<BlendSnapshot | null>(STORAGE_KEYS.blendSnapshot, null);
+  const snapshot = volatileBlendSnapshot ?? readLocalStorage<BlendSnapshot | null>(STORAGE_KEYS.blendSnapshot, null);
   if (snapshot) return snapshot;
 
   const purchases = getPurchases();
@@ -378,7 +411,8 @@ export async function markThreadMessagesRead(threadId: string, readerRole: "buye
     if (message.status === "read" || message.status === "failed") return message;
     return { ...message, status: "read" as const, readAt: now };
   });
-  writeLocalStorage(STORAGE_KEYS.chatMessages, next);
+  volatileMessages = next;
+  try { writeLocalStorage(STORAGE_KEYS.chatMessages, next); } catch {}
   emitMarketUpdate();
   return true;
 }
@@ -431,15 +465,21 @@ export async function sendThreadMessage(
 
   const receivedMessage = payload.message;
 
-  const messages = getMessages();
-  messages.push(receivedMessage);
-  writeLocalStorage(STORAGE_KEYS.chatMessages, messages);
+  try {
+    const messages = getMessages();
+    messages.push(receivedMessage);
+    volatileMessages = messages;
+    writeLocalStorage(STORAGE_KEYS.chatMessages, messages);
 
-  const threads = getThreads();
-  const thread = threads.find((item) => item.id === threadId);
-  if (thread) {
-    thread.updatedAt = receivedMessage.createdAt;
-    writeLocalStorage(STORAGE_KEYS.chatThreads, threads);
+    const threads = getThreads();
+    const thread = threads.find((item) => item.id === threadId);
+    if (thread) {
+      thread.updatedAt = receivedMessage.createdAt;
+      volatileThreads = threads;
+      writeLocalStorage(STORAGE_KEYS.chatThreads, threads);
+    }
+  } catch {
+    // Si localStorage alcanza cuota (adjuntos pesados), no romper envio ya persistido en backend.
   }
 
   emitMarketUpdate();
@@ -483,8 +523,10 @@ export function appendFailedThreadMessage(
   });
 
   thread.updatedAt = createdAt;
-  writeLocalStorage(STORAGE_KEYS.chatMessages, messages);
-  writeLocalStorage(STORAGE_KEYS.chatThreads, threads);
+  volatileMessages = messages;
+  volatileThreads = threads;
+  try { writeLocalStorage(STORAGE_KEYS.chatMessages, messages); } catch {}
+  try { writeLocalStorage(STORAGE_KEYS.chatThreads, threads); } catch {}
   emitMarketUpdate();
   return true;
 }
