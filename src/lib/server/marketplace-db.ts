@@ -153,8 +153,9 @@ function mapMessageRow(row: DbMessageRow): ChatMessage {
   };
 }
 
-export async function getMarketplaceState(userId?: string) {
+export async function getMarketplaceState(userId?: string, options?: { includeChat?: boolean }) {
   const pool = getPostgresPool();
+  const includeChat = options?.includeChat ?? false;
   const assetsResult = await pool.query<DbAssetRow>(
     `SELECT id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, created_at
      FROM marketplace_assets
@@ -171,7 +172,7 @@ export async function getMarketplaceState(userId?: string) {
     )
     : { rows: [] as DbPurchaseRow[] };
 
-  const threadsResult = userId
+  const threadsResult = userId && includeChat
     ? await pool.query<DbThreadRow>(
       `SELECT id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at
        FROM marketplace_threads
@@ -255,6 +256,92 @@ export async function createMarketplaceAsset(input: {
     ],
   );
   return mapAssetRow(result.rows[0]);
+}
+
+export async function updateMarketplaceAsset(input: {
+  assetId: string;
+  sellerId: string;
+  sellerName: string;
+  title: string;
+  category: TokenizedAsset["category"];
+  description: string;
+  location: string;
+  pricePerToken: number;
+  totalTokens: number;
+  expectedYield: string;
+  imageUrl?: string;
+  imageUrls?: string[];
+  videoUrl?: string;
+}) {
+  const pool = getPostgresPool();
+  const result = await pool.query<DbAssetRow>(
+    `UPDATE marketplace_assets
+     SET
+       title = $1,
+       category = $2,
+       description = $3,
+       location = $4,
+       price_per_token = $5,
+       total_tokens = $6,
+       available_tokens = GREATEST(0, LEAST($6, available_tokens + ($6 - total_tokens))),
+       expected_yield = $7,
+       seller_name = $8,
+       image_url = $9,
+       image_urls = $10::jsonb,
+       video_url = $11,
+       updated_at = timezone('utc', now())
+     WHERE id = $12 AND seller_id = $13
+     RETURNING id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, created_at`,
+    [
+      input.title,
+      input.category,
+      input.description,
+      input.location,
+      input.pricePerToken,
+      input.totalTokens,
+      input.expectedYield,
+      input.sellerName,
+      input.imageUrl ?? null,
+      JSON.stringify(input.imageUrls ?? []),
+      input.videoUrl ?? null,
+      input.assetId,
+      input.sellerId,
+    ],
+  );
+
+  if (!result.rows[0]) {
+    return { ok: false as const, message: "Activo no encontrado o no autorizado." };
+  }
+
+  return { ok: true as const, asset: mapAssetRow(result.rows[0]) };
+}
+
+export async function deleteMarketplaceAsset(input: {
+  assetId: string;
+  sellerId: string;
+}) {
+  const pool = getPostgresPool();
+  const purchasesResult = await pool.query<{ total: string | number }>(
+    `SELECT COUNT(*) AS total
+     FROM marketplace_purchases
+     WHERE asset_id = $1`,
+    [input.assetId],
+  );
+  const purchasesCount = toNumber(purchasesResult.rows[0]?.total ?? 0);
+  if (purchasesCount > 0) {
+    return { ok: false as const, message: "No puedes eliminar un activo con compras registradas." };
+  }
+
+  const deleted = await pool.query<{ id: string }>(
+    `DELETE FROM marketplace_assets
+     WHERE id = $1 AND seller_id = $2
+     RETURNING id`,
+    [input.assetId, input.sellerId],
+  );
+  if (!deleted.rows[0]) {
+    return { ok: false as const, message: "Activo no encontrado o no autorizado." };
+  }
+  return { ok: true as const };
 }
 
 export async function buyMarketplaceAsset(input: {

@@ -197,7 +197,7 @@ export function ChatsPage() {
         }
       }
 
-      await syncMarketplace(user.id);
+      await syncMarketplace(user.id, { includeChat: true });
       setAssets(getAssets());
       const nextThreads = getUserThreads(user.id);
       setThreads(nextThreads);

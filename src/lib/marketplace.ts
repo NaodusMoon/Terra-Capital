@@ -11,6 +11,8 @@ interface BlendSnapshot {
   cycle: string;
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 interface MarketplaceStateResponse {
   ok: boolean;
   message?: string;
@@ -51,8 +53,15 @@ function writeMarketplaceState(state: {
   emitMarketUpdate();
 }
 
-export async function syncMarketplace(userId?: string) {
-  const query = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+export async function syncMarketplace(userId?: string, options?: { includeChat?: boolean }) {
+  const params = new URLSearchParams();
+  if (userId && UUID_REGEX.test(userId)) {
+    params.set("userId", userId);
+  }
+  if (options?.includeChat) {
+    params.set("includeChat", "1");
+  }
+  const query = params.toString() ? `?${params.toString()}` : "";
   const response = await fetch(`/api/marketplace${query}`);
   const payload = await parseResponse<MarketplaceStateResponse>(response);
   if (!payload || !payload.ok) {
@@ -146,6 +155,87 @@ export async function createAsset(
   writeLocalStorage(STORAGE_KEYS.assets, [payload.asset, ...assets.filter((item) => item.id !== payload.asset!.id)]);
   emitMarketUpdate();
   return payload.asset;
+}
+
+export async function updateAsset(
+  seller: AppUser,
+  assetId: string,
+  input: {
+    title: string;
+    category: TokenizedAsset["category"];
+    description: string;
+    location: string;
+    pricePerToken: number;
+    totalTokens: number;
+    expectedYield: string;
+    imageUrl?: string;
+    imageUrls?: string[];
+    videoUrl?: string;
+  },
+) {
+  const title = normalizeSafeText(input.title, 120);
+  const description = normalizeSafeText(input.description, 500);
+  const location = normalizeSafeText(input.location, 80);
+  const expectedYield = normalizeSafeText(input.expectedYield, 80);
+  const safeImageUrl = toSafeHttpUrlOrUndefined(input.imageUrl);
+  const safeVideoUrl = toSafeHttpUrlOrUndefined(input.videoUrl);
+  const safeGallery = (input.imageUrls ?? []).map((url) => toSafeHttpUrlOrUndefined(url)).filter(Boolean) as string[];
+  const pricePerToken = Number(input.pricePerToken);
+  const totalTokens = Math.floor(Number(input.totalTokens));
+
+  if (!title || !description || !location || !expectedYield) {
+    throw new Error("Los campos del activo contienen valores invalidos.");
+  }
+  if (!Number.isFinite(pricePerToken) || !Number.isFinite(totalTokens) || pricePerToken <= 0 || totalTokens <= 0) {
+    throw new Error("Precio y tokens deben ser numericos y mayores a 0.");
+  }
+
+  const response = await fetch("/api/marketplace", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "updateAsset",
+      assetId,
+      sellerId: seller.id,
+      sellerName: seller.organization || seller.fullName,
+      title,
+      category: input.category,
+      description,
+      location,
+      pricePerToken,
+      totalTokens,
+      expectedYield,
+      imageUrl: safeImageUrl,
+      imageUrls: safeGallery,
+      videoUrl: safeVideoUrl,
+    }),
+  });
+
+  const payload = await parseResponse<{ ok: boolean; asset?: TokenizedAsset; message?: string }>(response);
+  if (!payload || !payload.ok || !payload.asset) {
+    throw new Error(payload?.message ?? "No se pudo editar el activo.");
+  }
+
+  await syncMarketplace(seller.id);
+  return payload.asset;
+}
+
+export async function deleteAsset(seller: AppUser, assetId: string) {
+  const response = await fetch("/api/marketplace", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "deleteAsset",
+      assetId,
+      sellerId: seller.id,
+    }),
+  });
+  const payload = await parseResponse<{ ok: boolean; message?: string }>(response);
+  if (!payload || !payload.ok) {
+    return { ok: false as const, message: payload?.message ?? "No se pudo eliminar el activo." };
+  }
+  await syncMarketplace(seller.id);
+  return { ok: true as const };
 }
 
 export async function buyAsset(assetId: string, buyer: AppUser, quantity: number) {

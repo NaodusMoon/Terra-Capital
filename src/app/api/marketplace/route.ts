@@ -3,14 +3,18 @@ import { normalizeSafeText, toSafeHttpUrlOrUndefined } from "@/lib/security";
 import {
   buyMarketplaceAsset,
   createMarketplaceAsset,
+  deleteMarketplaceAsset,
   ensureMarketplaceThreadForBuyer,
   getMarketplaceState,
   markMarketplaceMessagesRead,
   sendMarketplaceMessage,
+  updateMarketplaceAsset,
 } from "@/lib/server/marketplace-db";
 import type { TokenizedAsset } from "@/types/market";
 
 export const runtime = "nodejs";
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isAssetCategory(value: unknown): value is TokenizedAsset["category"] {
   return value === "cultivo" || value === "tierra" || value === "ganaderia";
@@ -33,10 +37,12 @@ function parseStringArray(raw: unknown) {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const userId = searchParams.get("userId")?.trim() || undefined;
+  const rawUserId = searchParams.get("userId")?.trim() || "";
+  const userId = UUID_REGEX.test(rawUserId) ? rawUserId : undefined;
+  const includeChat = searchParams.get("includeChat") === "1";
 
   try {
-    const state = await getMarketplaceState(userId);
+    const state = await getMarketplaceState(userId, { includeChat });
     return NextResponse.json({ ok: true, ...state });
   } catch (error) {
     return NextResponse.json(
@@ -68,6 +74,27 @@ type CommandPayload =
     buyerId?: string;
     buyerName?: string;
     quantity?: unknown;
+  }
+  | {
+    action: "updateAsset";
+    assetId?: string;
+    sellerId?: string;
+    sellerName?: string;
+    title?: string;
+    category?: unknown;
+    description?: string;
+    location?: string;
+    pricePerToken?: unknown;
+    totalTokens?: unknown;
+    expectedYield?: string;
+    imageUrl?: string;
+    imageUrls?: unknown;
+    videoUrl?: string;
+  }
+  | {
+    action: "deleteAsset";
+    assetId?: string;
+    sellerId?: string;
   }
   | {
     action: "ensureThread";
@@ -163,6 +190,62 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json({ ok: true, purchase: result.purchase, thread: result.thread });
+    }
+
+    if (payload.action === "updateAsset") {
+      const assetId = payload.assetId?.trim() ?? "";
+      const sellerId = payload.sellerId?.trim() ?? "";
+      const sellerName = normalizeSafeText(payload.sellerName ?? "", 120);
+      const title = normalizeSafeText(payload.title ?? "", 120);
+      const category = payload.category;
+      const description = normalizeSafeText(payload.description ?? "", 500);
+      const location = normalizeSafeText(payload.location ?? "", 80);
+      const expectedYield = normalizeSafeText(payload.expectedYield ?? "", 80);
+      const pricePerToken = parsePrice(payload.pricePerToken);
+      const totalTokens = parseQuantity(payload.totalTokens);
+      const imageUrl = toSafeHttpUrlOrUndefined(payload.imageUrl);
+      const videoUrl = toSafeHttpUrlOrUndefined(payload.videoUrl);
+      const imageUrls = parseStringArray(payload.imageUrls).map((url) => toSafeHttpUrlOrUndefined(url)).filter(Boolean) as string[];
+
+      if (!assetId || !sellerId || !sellerName || !title || !description || !location || !expectedYield || !isAssetCategory(category)) {
+        return NextResponse.json({ ok: false, message: "Campos invalidos para editar activo." }, { status: 400 });
+      }
+      if (!Number.isFinite(pricePerToken) || !Number.isFinite(totalTokens) || pricePerToken <= 0 || totalTokens <= 0) {
+        return NextResponse.json({ ok: false, message: "Precio y tokens deben ser numericos y mayores a 0." }, { status: 400 });
+      }
+
+      const result = await updateMarketplaceAsset({
+        assetId,
+        sellerId,
+        sellerName,
+        title,
+        category,
+        description,
+        location,
+        pricePerToken,
+        totalTokens,
+        expectedYield,
+        imageUrl,
+        imageUrls,
+        videoUrl,
+      });
+      if (!result.ok) {
+        return NextResponse.json({ ok: false, message: result.message }, { status: 400 });
+      }
+      return NextResponse.json({ ok: true, asset: result.asset });
+    }
+
+    if (payload.action === "deleteAsset") {
+      const assetId = payload.assetId?.trim() ?? "";
+      const sellerId = payload.sellerId?.trim() ?? "";
+      if (!assetId || !sellerId) {
+        return NextResponse.json({ ok: false, message: "Datos invalidos para eliminar activo." }, { status: 400 });
+      }
+      const result = await deleteMarketplaceAsset({ assetId, sellerId });
+      if (!result.ok) {
+        return NextResponse.json({ ok: false, message: result.message }, { status: 400 });
+      }
+      return NextResponse.json({ ok: true });
     }
 
     if (payload.action === "ensureThread") {

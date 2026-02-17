@@ -11,11 +11,13 @@ import { MARKETPLACE_EVENT } from "@/lib/constants";
 import { formatShortDate, formatUSD } from "@/lib/format";
 import {
   createAsset,
+  deleteAsset,
   getBlendLiquiditySnapshot,
   getPurchases,
   getSellerAssets,
   getSellerSalesSummary,
   syncMarketplace,
+  updateAsset,
 } from "@/lib/marketplace";
 import type { AssetCategory } from "@/types/market";
 
@@ -37,8 +39,10 @@ export function SellerDashboard() {
   const [totalTokens, setTotalTokens] = useState("");
   const [expectedYield, setExpectedYield] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [imageGalleryUrlsText, setImageGalleryUrlsText] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [formMessage, setFormMessage] = useState("");
+  const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [assets, setAssets] = useState<ReturnType<typeof getSellerAssets>>([]);
   const [summary, setSummary] = useState({ soldTokens: 0, grossAmount: 0, operations: 0 });
 
@@ -114,7 +118,11 @@ export function SellerDashboard() {
     }
 
     try {
-      await createAsset(user, {
+      const parsedImageUrls = imageGalleryUrlsText
+        .split(/\r?\n/)
+        .map((row) => row.trim())
+        .filter(Boolean);
+      const payload = {
         title,
         category,
         description,
@@ -123,10 +131,16 @@ export function SellerDashboard() {
         totalTokens: parsedTokens,
         expectedYield,
         imageUrl: imageUrl.trim() || undefined,
+        imageUrls: parsedImageUrls.length > 0 ? parsedImageUrls : undefined,
         videoUrl: videoUrl.trim() || undefined,
-      });
+      };
+      if (editingAssetId) {
+        await updateAsset(user, editingAssetId, payload);
+      } else {
+        await createAsset(user, payload);
+      }
     } catch (error) {
-      setFormMessage(error instanceof Error ? error.message : "No se pudo publicar el activo.");
+      setFormMessage(error instanceof Error ? error.message : "No se pudo guardar el activo.");
       return;
     }
 
@@ -138,8 +152,61 @@ export function SellerDashboard() {
     setTotalTokens("");
     setExpectedYield("");
     setImageUrl("");
+    setImageGalleryUrlsText("");
     setVideoUrl("");
-    setFormMessage("Activo publicado en el marketplace.");
+    setEditingAssetId(null);
+    setFormMessage(editingAssetId ? "Activo actualizado correctamente." : "Activo publicado en el marketplace.");
+    await syncData();
+  };
+
+  const handleEditAsset = (assetId: string) => {
+    const asset = assets.find((row) => row.id === assetId);
+    if (!asset) return;
+    setEditingAssetId(asset.id);
+    setTitle(asset.title);
+    setCategory(asset.category);
+    setDescription(asset.description);
+    setLocation(asset.location);
+    setPricePerToken(String(asset.pricePerToken));
+    setTotalTokens(String(asset.totalTokens));
+    setExpectedYield(asset.expectedYield);
+    setImageUrl(asset.imageUrl ?? "");
+    setImageGalleryUrlsText((asset.imageUrls ?? []).join("\n"));
+    setVideoUrl(asset.videoUrl ?? "");
+    setFormMessage("Editando activo. Guarda los cambios cuando termines.");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingAssetId(null);
+    setTitle("");
+    setCategory("cultivo");
+    setDescription("");
+    setLocation("");
+    setPricePerToken("");
+    setTotalTokens("");
+    setExpectedYield("");
+    setImageUrl("");
+    setImageGalleryUrlsText("");
+    setVideoUrl("");
+    setFormMessage("");
+  };
+
+  const handleDeleteAsset = async (assetId: string) => {
+    if (!user) return;
+    const confirmed = window.confirm("Esta accion eliminara el activo. Deseas continuar?");
+    if (!confirmed) return;
+
+    const result = await deleteAsset(user, assetId);
+    if (!result.ok) {
+      setFormMessage(result.message);
+      return;
+    }
+
+    if (editingAssetId === assetId) {
+      handleCancelEdit();
+    }
+    setFormMessage("Activo eliminado correctamente.");
     await syncData();
   };
 
@@ -199,7 +266,7 @@ export function SellerDashboard() {
       <section className="mt-7 grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
         <Card>
           <h2 className="flex items-center gap-2 text-xl font-bold">
-            <Upload size={18} /> Publicar nuevo activo
+            <Upload size={18} /> {editingAssetId ? "Editar activo" : "Publicar nuevo activo"}
           </h2>
 
           <form className="mt-4 grid gap-3" onSubmit={handleCreateAsset}>
@@ -292,11 +359,26 @@ export function SellerDashboard() {
               />
             </div>
 
+            <textarea
+              className="h-24 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] p-3 text-sm"
+              placeholder={"URLs de galeria (una por linea)\nhttps://...\nhttps://..."}
+              value={imageGalleryUrlsText}
+              onChange={(event) => setImageGalleryUrlsText(event.target.value)}
+              disabled={!sellerVerified}
+            />
+
             {formMessage && <p className="text-sm text-[var(--color-primary)]">{formMessage}</p>}
 
-            <Button type="submit" className="w-full" disabled={!sellerVerified}>
-              {sellerVerified ? "Publicar activo" : "Bloqueado por verificacion"}
-            </Button>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button type="submit" className="w-full" disabled={!sellerVerified}>
+                {sellerVerified ? (editingAssetId ? "Guardar cambios" : "Publicar activo") : "Bloqueado por verificacion"}
+              </Button>
+              {editingAssetId && (
+                <Button type="button" variant="outline" className="w-full" onClick={handleCancelEdit}>
+                  Cancelar edicion
+                </Button>
+              )}
+            </div>
           </form>
         </Card>
 
@@ -358,6 +440,14 @@ export function SellerDashboard() {
                       </a>
                     )}
                     <p className="text-xs text-[var(--color-muted)]">Creado: {formatShortDate(asset.createdAt)}</p>
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <Button type="button" variant="outline" className="w-full" onClick={() => handleEditAsset(asset.id)}>
+                        Editar
+                      </Button>
+                      <Button type="button" variant="ghost" className="w-full text-red-500 hover:bg-red-500/10" onClick={() => { void handleDeleteAsset(asset.id); }}>
+                        Eliminar
+                      </Button>
+                    </div>
                   </div>
                 </article>
               );
