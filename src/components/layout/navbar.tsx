@@ -43,7 +43,7 @@ export function Navbar() {
     <>
       {!loading && !!user && (
         <>
-          <div className="fixed left-1/2 top-3 z-50 -translate-x-1/2 md:hidden">
+          <div className="chat-mobile-topbar fixed left-1/2 top-3 z-50 -translate-x-1/2 md:hidden">
             <div className="flex items-center gap-2 rounded-2xl border border-[var(--color-border)] bg-[color:color-mix(in_oklab,var(--color-surface)_95%,transparent)] p-1 shadow-lg backdrop-blur">
               <ModeToggle
                 mode={activeMode}
@@ -165,7 +165,7 @@ export function Navbar() {
       </header>
 
       {!loading && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--color-border)] bg-[color:color-mix(in_oklab,var(--color-surface)_94%,transparent)] px-2 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 backdrop-blur md:hidden">
+        <div className="chat-mobile-bottombar fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--color-border)] bg-[color:color-mix(in_oklab,var(--color-surface)_94%,transparent)] px-2 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 backdrop-blur md:hidden">
           <div className={`mx-auto grid w-full max-w-md gap-2 ${user ? "grid-cols-5" : "grid-cols-2"}`}>
             {!user && (
               <>

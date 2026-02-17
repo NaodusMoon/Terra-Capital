@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import Webcam from "react-webcam";
 import { AnimatePresence, motion } from "framer-motion";
-import WaveSurfer from "wavesurfer.js";
 import {
   AlertCircle,
   ArrowLeft,
@@ -76,6 +75,82 @@ function dataUrlToFile(dataUrl: string, filename: string) {
   return new File([bytes], filename, { type: mimeType });
 }
 
+function encodeWavFromAudioBuffer(buffer: AudioBuffer) {
+  const channels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const length = buffer.length * channels * 2;
+  const wav = new ArrayBuffer(44 + length);
+  const view = new DataView(wav);
+
+  const writeString = (offset: number, value: string) => {
+    for (let index = 0; index < value.length; index += 1) {
+      view.setUint8(offset + index, value.charCodeAt(index));
+    }
+  };
+
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + length, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * channels * 2, true);
+  view.setUint16(32, channels * 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, "data");
+  view.setUint32(40, length, true);
+
+  let offset = 44;
+  for (let sampleIndex = 0; sampleIndex < buffer.length; sampleIndex += 1) {
+    for (let channel = 0; channel < channels; channel += 1) {
+      const value = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[sampleIndex]));
+      view.setInt16(offset, value < 0 ? value * 0x8000 : value * 0x7fff, true);
+      offset += 2;
+    }
+  }
+
+  return new Blob([wav], { type: "audio/wav" });
+}
+
+async function mergeAudioSegmentsAsWav(segments: Blob[]) {
+  if (segments.length === 0) return null;
+
+  const audioContext = new AudioContext();
+  try {
+    let decoded: AudioBuffer[];
+    try {
+      decoded = await Promise.all(
+        segments.map(async (segment) => {
+          const arrayBuffer = await segment.arrayBuffer();
+          return audioContext.decodeAudioData(arrayBuffer.slice(0));
+        }),
+      );
+    } catch {
+      return new Blob(segments, { type: segments[0].type || "audio/webm" });
+    }
+    const channelCount = Math.max(...decoded.map((buffer) => buffer.numberOfChannels));
+    const sampleRate = decoded[0].sampleRate;
+    const totalLength = decoded.reduce((sum, buffer) => sum + buffer.length, 0);
+    const merged = audioContext.createBuffer(channelCount, totalLength, sampleRate);
+
+    let cursor = 0;
+    for (const chunk of decoded) {
+      for (let channel = 0; channel < channelCount; channel += 1) {
+        const target = merged.getChannelData(channel);
+        const source = chunk.getChannelData(Math.min(channel, chunk.numberOfChannels - 1));
+        target.set(source, cursor);
+      }
+      cursor += chunk.length;
+    }
+
+    return encodeWavFromAudioBuffer(merged);
+  } finally {
+    await audioContext.close();
+  }
+}
+
 function getAttachmentKind(file: File): "image" | "video" | "audio" | "document" {
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
@@ -112,8 +187,7 @@ function WaveAudioPlayer({
   src: string;
   compact?: boolean;
 }) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const waveRef = useRef<WaveSurfer | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -121,58 +195,84 @@ function WaveAudioPlayer({
   const [speedIndex, setSpeedIndex] = useState(0);
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const wave = WaveSurfer.create({
-      container,
-      waveColor: "#8fbaa6",
-      progressColor: "#4b9940",
-      cursorColor: "transparent",
-      height: compact ? 30 : 36,
-      barWidth: 3,
-      barGap: 2,
-      barRadius: 4,
-      normalize: true,
-      dragToSeek: true,
-      hideScrollbar: true,
-    });
-    wave.load(src);
-    wave.on("ready", () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const onLoaded = () => {
       setReady(true);
-      setDuration(wave.getDuration());
-    });
-    wave.on("play", () => setPlaying(true));
-    wave.on("pause", () => setPlaying(false));
-    wave.on("finish", () => setPlaying(false));
-    wave.on("timeupdate", (time) => setCurrentTime(time));
-    waveRef.current = wave;
+      setDuration(audio.duration || 0);
+      setCurrentTime(audio.currentTime || 0);
+    };
+    const onPlay = () => setPlaying(true);
+    const onPause = () => setPlaying(false);
+    const onTimeUpdate = () => setCurrentTime(audio.currentTime || 0);
+    const onEnded = () => setPlaying(false);
+    const onError = () => {
+      setReady(false);
+      setPlaying(false);
+    };
+
+    audio.addEventListener("loadedmetadata", onLoaded);
+    audio.addEventListener("play", onPlay);
+    audio.addEventListener("pause", onPause);
+    audio.addEventListener("timeupdate", onTimeUpdate);
+    audio.addEventListener("ended", onEnded);
+    audio.addEventListener("error", onError);
+    audio.preload = "metadata";
+    audio.src = src;
+    audio.load();
+    if (audio.readyState >= 1 && Number.isFinite(audio.duration)) {
+      onLoaded();
+    }
 
     return () => {
-      wave.destroy();
-      if (waveRef.current === wave) waveRef.current = null;
+      audio.pause();
+      audio.removeEventListener("loadedmetadata", onLoaded);
+      audio.removeEventListener("play", onPlay);
+      audio.removeEventListener("pause", onPause);
+      audio.removeEventListener("timeupdate", onTimeUpdate);
+      audio.removeEventListener("ended", onEnded);
+      audio.removeEventListener("error", onError);
     };
-  }, [compact, src]);
+  }, [src]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = audioSpeeds[speedIndex];
+    }
+  }, [speedIndex]);
 
   const togglePlay = () => {
-    if (!ready || !waveRef.current) return;
-    waveRef.current.playPause();
+    const audio = audioRef.current;
+    if (!audio || !ready) return;
+    if (audio.paused) {
+      void audio.play();
+    } else {
+      audio.pause();
+    }
   };
 
   const cycleSpeed = () => {
     const next = (speedIndex + 1) % audioSpeeds.length;
     setSpeedIndex(next);
-    waveRef.current?.setPlaybackRate(audioSpeeds[next]);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = audioSpeeds[next];
+    }
   };
 
   const remaining = Math.max(0, duration - currentTime);
+  const progress = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
 
   return (
     <div className={`terra-wave-player ${compact ? "terra-wave-player--compact" : ""}`}>
+      <audio ref={audioRef} className="hidden" />
       <button type="button" className="terra-wave-btn" onClick={togglePlay} disabled={!ready}>
         {playing ? <Pause size={14} /> : <Play size={14} />}
       </button>
       <div className="terra-wave-content">
-        <div ref={containerRef} className="terra-wave-canvas" />
+        <div className="terra-wave-canvas">
+          <span className="terra-wave-progress" style={{ width: `${progress}%` }} />
+        </div>
         <div className="terra-wave-meta">
           <span>{duration > 0 ? `-${formatAudioTime(remaining)}` : "--:--"}</span>
           <button type="button" className="terra-wave-speed" onClick={cycleSpeed} disabled={!ready}>
@@ -241,6 +341,8 @@ export function ChatsPage() {
   const photoVideoInputRef = useRef<HTMLInputElement | null>(null);
   const docsInputRef = useRef<HTMLInputElement | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
+  const voiceSegmentsRef = useRef<Blob[]>([]);
+  const voiceStopReasonRef = useRef<"pause" | "finish" | "delete" | null>(null);
   const voiceStreamRef = useRef<MediaStream | null>(null);
   const voiceTimerRef = useRef<number | null>(null);
   const voiceRecorderRef = useRef<MediaRecorder | null>(null);
@@ -286,6 +388,7 @@ export function ChatsPage() {
   const activeMessages = activeThreadId ? getThreadMessages(activeThreadId) : [];
   const activeRole = activeThread && user ? getThreadRoleForUser(activeThread, user.id) : null;
   const senderRole = activeRole ?? (activeMode === "seller" ? "seller" : "buyer");
+  const mobileThreadOpen = isMobile && Boolean(activeThread);
 
   useEffect(() => {
     if (!user) return;
@@ -442,6 +545,15 @@ export function ChatsPage() {
     document.body.classList.add("chat-page-lock");
     return () => document.body.classList.remove("chat-page-lock");
   }, []);
+
+  useEffect(() => {
+    if (mobileThreadOpen) {
+      document.body.classList.add("chat-thread-open");
+    } else {
+      document.body.classList.remove("chat-thread-open");
+    }
+    return () => document.body.classList.remove("chat-thread-open");
+  }, [mobileThreadOpen]);
 
   const term = search.trim().toLowerCase();
   const hasTextToSend = chatInput.trim().length > 0;
@@ -666,23 +778,75 @@ export function ChatsPage() {
     voiceStreamRef.current = null;
   };
 
-  const refreshVoicePreviewFromChunks = () => {
-    if (voiceChunksRef.current.length === 0) return;
-    const mimeType = voiceRecorderRef.current?.mimeType || "audio/webm";
-    const blob = new Blob(voiceChunksRef.current, { type: mimeType });
-    if (blob.size === 0) return;
-    voicePreviewBlobRef.current = blob;
-    setVoicePreviewBlob(blob);
+  const rebuildVoicePreview = async () => {
+    const merged = await mergeAudioSegmentsAsWav(voiceSegmentsRef.current);
+    if (!merged || merged.size === 0) return false;
+    voicePreviewBlobRef.current = merged;
+    setVoicePreviewBlob(merged);
     setVoicePreviewUrl((current) => {
       if (current) URL.revokeObjectURL(current);
-      return URL.createObjectURL(blob);
+      return URL.createObjectURL(merged);
     });
+    return true;
+  };
+
+  const createVoiceRecorder = (stream: MediaStream) => {
+    const preferredTypes = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4", "audio/webm"];
+    const selectedMimeType = preferredTypes.find((entry) => MediaRecorder.isTypeSupported(entry)) ?? "";
+    const recorder = selectedMimeType ? new MediaRecorder(stream, { mimeType: selectedMimeType }) : new MediaRecorder(stream);
+    voiceChunksRef.current = [];
+
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        voiceChunksRef.current.push(event.data);
+      }
+    };
+
+    recorder.onstop = () => {
+      const segmentType = recorder.mimeType || "audio/webm";
+      if (voiceChunksRef.current.length > 0) {
+        const segment = new Blob(voiceChunksRef.current, { type: segmentType });
+        if (segment.size > 0) {
+          voiceSegmentsRef.current.push(segment);
+        }
+      }
+      voiceChunksRef.current = [];
+
+      const reason = voiceStopReasonRef.current;
+      voiceStopReasonRef.current = null;
+
+      void (async () => {
+        const hasPreview = await rebuildVoicePreview();
+        if (reason === "delete") {
+          setVoiceState("idle");
+          setRecordingDuration(0);
+          return;
+        }
+        if (reason === "pause") {
+          stopVoiceTimer();
+          stopLiveVoiceVisualization();
+          setVoiceState(hasPreview ? "paused" : "idle");
+          return;
+        }
+        stopVoiceRuntime();
+        if (hasPreview) {
+          setVoiceState("preview");
+        } else {
+          setVoiceState("idle");
+          setRecordingDuration(0);
+        }
+      })();
+    };
+
+    voiceRecorderRef.current = recorder;
+    recorder.start(250);
   };
 
   const stopVoiceRuntime = () => {
     stopVoiceTimer();
     stopVoiceTracks();
     stopLiveVoiceVisualization();
+    voiceRecorderRef.current = null;
   };
 
   const startVoiceRecording = async () => {
@@ -708,36 +872,10 @@ export function ChatsPage() {
         },
       });
       voiceStreamRef.current = stream;
-      const preferredTypes = ["audio/ogg;codecs=opus", "audio/webm;codecs=opus", "audio/mp4", "audio/webm"];
-      const selectedMimeType = preferredTypes.find((entry) => MediaRecorder.isTypeSupported(entry)) ?? "";
-      const recorder = selectedMimeType ? new MediaRecorder(stream, { mimeType: selectedMimeType }) : new MediaRecorder(stream);
-      voiceChunksRef.current = [];
+      voiceSegmentsRef.current = [];
       clearVoicePreview();
       setRecordingDuration(0);
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          voiceChunksRef.current.push(event.data);
-          refreshVoicePreviewFromChunks();
-        }
-        if (recorder.state === "paused") {
-          refreshVoicePreviewFromChunks();
-        }
-      };
-
-      recorder.onstop = () => {
-        refreshVoicePreviewFromChunks();
-        stopVoiceRuntime();
-        if (voicePreviewBlobRef.current && voicePreviewBlobRef.current.size > 0) {
-          setVoiceState("preview");
-        } else {
-          setVoiceState("idle");
-          setRecordingDuration(0);
-        }
-      };
-
-      voiceRecorderRef.current = recorder;
-      recorder.start(200);
+      createVoiceRecorder(stream);
       startLiveVoiceVisualization(stream);
       setVoiceState("recording");
       voiceTimerRef.current = window.setInterval(() => {
@@ -766,34 +904,27 @@ export function ChatsPage() {
     const recorder = voiceRecorderRef.current;
     if (!recorder) return;
     if (recorder.state === "recording") {
-      recorder.pause();
-      recorder.requestData();
-      stopVoiceTimer();
-      stopLiveVoiceVisualization();
-      setVoiceState("paused");
+      voiceStopReasonRef.current = "pause";
+      recorder.stop();
     }
   };
 
   const resumeVoiceRecording = () => {
-    const recorder = voiceRecorderRef.current;
-    if (!recorder) return;
-    if (recorder.state === "paused") {
-      recorder.resume();
-      setVoiceState("recording");
-      if (voiceStreamRef.current) {
-        startLiveVoiceVisualization(voiceStreamRef.current);
-      }
-      voiceTimerRef.current = window.setInterval(() => {
-        setRecordingDuration((prev) => prev + 1);
-      }, 1000);
-    }
+    const stream = voiceStreamRef.current;
+    if (!stream) return;
+    createVoiceRecorder(stream);
+    setVoiceState("recording");
+    startLiveVoiceVisualization(stream);
+    voiceTimerRef.current = window.setInterval(() => {
+      setRecordingDuration((prev) => prev + 1);
+    }, 1000);
   };
 
   const finalizeVoiceRecording = () => {
     const recorder = voiceRecorderRef.current;
     if (!recorder) return;
-    recorder.requestData();
     if (recorder.state !== "inactive") {
+      voiceStopReasonRef.current = "finish";
       recorder.stop();
     }
   };
@@ -801,12 +932,13 @@ export function ChatsPage() {
   const deleteVoiceRecording = () => {
     const recorder = voiceRecorderRef.current;
     if (recorder && recorder.state !== "inactive") {
-      recorder.onstop = null;
+      voiceStopReasonRef.current = "delete";
       recorder.stop();
     }
     stopVoiceRuntime();
     voiceRecorderRef.current = null;
     voiceChunksRef.current = [];
+    voiceSegmentsRef.current = [];
     clearVoicePreview();
     setRecordingDuration(0);
     setVoiceState("idle");
@@ -823,7 +955,13 @@ export function ChatsPage() {
 
     try {
       const dataUrl = await toDataUrl(blob);
-      const extension = blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "m4a" : "webm";
+      const extension = blob.type.includes("wav")
+        ? "wav"
+        : blob.type.includes("ogg")
+          ? "ogg"
+          : blob.type.includes("mp4")
+            ? "m4a"
+            : "webm";
       const result = await sendThreadMessage(activeThreadId, user, senderRole, "", {
         kind: "audio",
         attachment: {
@@ -1029,8 +1167,8 @@ export function ChatsPage() {
   const sendIconSize = isMobile ? 20 : 16;
 
   return (
-    <main className="mx-auto w-full max-w-[1500px] overflow-hidden px-0 pb-0 pt-0 sm:px-5 sm:pb-4 sm:pt-6">
-      <section className="grid h-[calc(100dvh-152px)] gap-0 overflow-hidden rounded-none border border-[var(--color-border)] sm:rounded-2xl md:h-[calc(100dvh-64px)] lg:h-[82vh] lg:grid-cols-[420px_1fr]">
+    <main className={`mx-auto w-full overflow-hidden px-0 pb-0 pt-0 ${mobileThreadOpen ? "max-w-none" : "max-w-[1500px] sm:px-5 sm:pb-4 sm:pt-6"}`}>
+      <section className={`grid gap-0 overflow-hidden ${mobileThreadOpen ? "h-dvh border-0 rounded-none" : "h-[calc(100dvh-152px)] rounded-none border border-[var(--color-border)] sm:rounded-2xl md:h-[calc(100dvh-64px)] lg:h-[82vh]"} lg:grid-cols-[420px_1fr]`}>
         <aside className={`${activeThread ? "hidden lg:block" : "block"} ${asideBg} border-[var(--color-border)] lg:border-r`}>
           <div className="flex items-center justify-between px-5 pb-3 pt-4">
             <div>
@@ -1134,21 +1272,23 @@ export function ChatsPage() {
             <>
               <header className={`flex items-center justify-between border-b px-4 py-3 ${headerBg}`}>
                 <div className="flex min-w-0 items-center gap-3">
-                  <button
-                    type="button"
-                    className={`grid h-10 w-10 place-items-center rounded-full lg:hidden ${isDark ? "hover:bg-[#1f2c34]" : "hover:bg-[#e8f3fc]"}`}
-                    onClick={handleCloseThread}
-                    aria-label="Volver a chats"
-                  >
-                    <ArrowLeft size={19} />
-                  </button>
                   <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${isDark ? "bg-[#1f2c34]" : "bg-white text-[#23415a]"}`}>
                     <MessageCircle size={16} />
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate text-xl font-bold lg:text-2xl">
-                      {activeThread.buyerId === user.id ? activeThread.sellerName : activeThread.buyerName}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className={`grid h-8 w-8 place-items-center rounded-full lg:hidden ${isDark ? "hover:bg-[#1f2c34]" : "hover:bg-[#e8f3fc]"}`}
+                        onClick={handleCloseThread}
+                        aria-label="Volver a chats"
+                      >
+                        <ArrowLeft size={17} />
+                      </button>
+                      <p className="truncate text-xl font-bold lg:text-2xl">
+                        {activeThread.buyerId === user.id ? activeThread.sellerName : activeThread.buyerName}
+                      </p>
+                    </div>
                     <p className={`truncate text-xs ${isDark ? "text-[#aebac1]" : "text-[#5f7487]"}`}>{assetsMap.get(activeThread.assetId) ?? "Activo tokenizado"}</p>
                   </div>
                 </div>

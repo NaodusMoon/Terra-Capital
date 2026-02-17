@@ -130,7 +130,8 @@ body.chat-page-lock {
 }
 
 @media (max-width: 768px) {
-  body.chat-page-lock .fixed.bottom-0 {
+  body.chat-thread-open .chat-mobile-topbar,
+  body.chat-thread-open .chat-mobile-bottombar {
     display: none;
   }
 }
