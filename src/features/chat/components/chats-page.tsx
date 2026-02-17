@@ -13,7 +13,6 @@ import {
   ArrowUp,
   Check,
   CheckCheck,
-  Clock3,
   FileText,
   ImageIcon,
   MessageCircle,
@@ -51,6 +50,7 @@ import type { ChatMessage } from "@/types/market";
 
 const quickFilters = ["Todos", "No leidos", "Favoritos"];
 type VoiceRecordState = "idle" | "recording" | "paused" | "preview";
+const audioSpeeds = [1, 1.5, 2] as const;
 
 function toDataUrl(file: Blob) {
   return new Promise<string>((resolve, reject) => {
@@ -91,11 +91,97 @@ function formatDay(iso: string) {
   return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "short" }).format(new Date(iso));
 }
 
+function formatAudioTime(totalSeconds: number) {
+  const safe = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(safe / 60).toString().padStart(2, "0");
+  const seconds = (safe % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
 function StatusIcon({ message }: { message: ChatMessage }) {
   if (message.status === "failed") return <AlertCircle size={13} className="text-red-400" />;
   if (message.status === "read") return <CheckCheck size={13} className="text-sky-400" />;
-  if (message.status === "sent") return <Check size={13} className="opacity-70" />;
-  return <Clock3 size={13} className="opacity-60" />;
+  if (message.status === "sent") return <CheckCheck size={13} className="opacity-70" />;
+  return <Check size={13} className="opacity-60" />;
+}
+
+function WaveAudioPlayer({
+  src,
+  compact = false,
+}: {
+  src: string;
+  compact?: boolean;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const waveRef = useRef<WaveSurfer | null>(null);
+  const [ready, setReady] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [speedIndex, setSpeedIndex] = useState(0);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const wave = WaveSurfer.create({
+      container,
+      waveColor: "#8fbaa6",
+      progressColor: "#4b9940",
+      cursorColor: "transparent",
+      height: compact ? 30 : 36,
+      barWidth: 3,
+      barGap: 2,
+      barRadius: 4,
+      normalize: true,
+      dragToSeek: true,
+      hideScrollbar: true,
+    });
+    wave.load(src);
+    wave.on("ready", () => {
+      setReady(true);
+      setDuration(wave.getDuration());
+    });
+    wave.on("play", () => setPlaying(true));
+    wave.on("pause", () => setPlaying(false));
+    wave.on("finish", () => setPlaying(false));
+    wave.on("timeupdate", (time) => setCurrentTime(time));
+    waveRef.current = wave;
+
+    return () => {
+      wave.destroy();
+      if (waveRef.current === wave) waveRef.current = null;
+    };
+  }, [compact, src]);
+
+  const togglePlay = () => {
+    if (!ready || !waveRef.current) return;
+    waveRef.current.playPause();
+  };
+
+  const cycleSpeed = () => {
+    const next = (speedIndex + 1) % audioSpeeds.length;
+    setSpeedIndex(next);
+    waveRef.current?.setPlaybackRate(audioSpeeds[next]);
+  };
+
+  const remaining = Math.max(0, duration - currentTime);
+
+  return (
+    <div className={`terra-wave-player ${compact ? "terra-wave-player--compact" : ""}`}>
+      <button type="button" className="terra-wave-btn" onClick={togglePlay} disabled={!ready}>
+        {playing ? <Pause size={14} /> : <Play size={14} />}
+      </button>
+      <div className="terra-wave-content">
+        <div ref={containerRef} className="terra-wave-canvas" />
+        <div className="terra-wave-meta">
+          <span>{duration > 0 ? `-${formatAudioTime(remaining)}` : "--:--"}</span>
+          <button type="button" className="terra-wave-speed" onClick={cycleSpeed} disabled={!ready}>
+            {audioSpeeds[speedIndex]}x
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function MessageBody({ message }: { message: ChatMessage }) {
@@ -125,10 +211,8 @@ function MessageBody({ message }: { message: ChatMessage }) {
 
   if (message.kind === "audio") {
     return (
-      <div className="space-y-2">
-        <audio controls className="w-full">
-          <source src={attachment.dataUrl} type={attachment.mimeType} />
-        </audio>
+      <div className="space-y-2 min-w-[220px] sm:min-w-[240px]">
+        <WaveAudioPlayer src={attachment.dataUrl} compact />
         {message.text && <p>{message.text}</p>}
       </div>
     );
@@ -166,8 +250,6 @@ export function ChatsPage() {
   const voiceLiveAudioContextRef = useRef<AudioContext | null>(null);
   const voiceLiveAnalyserRef = useRef<AnalyserNode | null>(null);
   const voiceLiveSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const voicePreviewWaveformRef = useRef<HTMLDivElement | null>(null);
-  const voicePreviewWaveSurferRef = useRef<WaveSurfer | null>(null);
   const webcamRef = useRef<Webcam | null>(null);
   const cameraRecorderRef = useRef<MediaRecorder | null>(null);
   const cameraChunksRef = useRef<Blob[]>([]);
@@ -181,6 +263,8 @@ export function ChatsPage() {
   const [voiceState, setVoiceState] = useState<VoiceRecordState>("idle");
   const [voicePreviewBlob, setVoicePreviewBlob] = useState<Blob | null>(null);
   const [voicePreviewUrl, setVoicePreviewUrl] = useState<string | null>(null);
+  const [retryMessageId, setRetryMessageId] = useState<string | null>(null);
+  const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("Todos");
   const [manuallyClosedChat, setManuallyClosedChat] = useState(false);
@@ -338,8 +422,6 @@ export function ChatsPage() {
         void voiceLiveAudioContextRef.current.close();
         voiceLiveAudioContextRef.current = null;
       }
-      voicePreviewWaveSurferRef.current?.destroy();
-      voicePreviewWaveSurferRef.current = null;
       cameraRecorderRef.current?.stream.getTracks().forEach((track) => track.stop());
     };
   }, []);
@@ -357,36 +439,9 @@ export function ChatsPage() {
   }, [voicePreviewUrl]);
 
   useEffect(() => {
-    const container = voicePreviewWaveformRef.current;
-    if (!container || !voicePreviewUrl) {
-      voicePreviewWaveSurferRef.current?.destroy();
-      voicePreviewWaveSurferRef.current = null;
-      return;
-    }
-
-    const wave = WaveSurfer.create({
-      container,
-      waveColor: isDark ? "#2c8d7a" : "#88c6b6",
-      progressColor: isDark ? "#7ce3c9" : "#1f8c72",
-      cursorWidth: 0,
-      height: 40,
-      barWidth: 3,
-      barGap: 2,
-      barRadius: 4,
-      normalize: true,
-      interact: false,
-    });
-
-    wave.load(voicePreviewUrl);
-    voicePreviewWaveSurferRef.current = wave;
-
-    return () => {
-      wave.destroy();
-      if (voicePreviewWaveSurferRef.current === wave) {
-        voicePreviewWaveSurferRef.current = null;
-      }
-    };
-  }, [isDark, voicePreviewUrl]);
+    document.body.classList.add("chat-page-lock");
+    return () => document.body.classList.remove("chat-page-lock");
+  }, []);
 
   const term = search.trim().toLowerCase();
   const hasTextToSend = chatInput.trim().length > 0;
@@ -411,7 +466,7 @@ export function ChatsPage() {
 
     const result = await sendThreadMessage(activeThreadId, user, senderRole, chatInput, { kind: "text" });
     if (!result.ok) {
-      appendFailedThreadMessage(activeThreadId, user, senderRole, chatInput, result.message);
+      appendFailedThreadMessage(activeThreadId, user, senderRole, chatInput, result.message, { kind: "text" });
       setChatError(result.message);
       void syncData();
       return;
@@ -420,6 +475,40 @@ export function ChatsPage() {
     setChatInput("");
     setShowEmoji(false);
     void syncData();
+  };
+
+  const removeLocalMessage = (messageId: string) => {
+    const messages = readLocalStorage<ChatMessage[]>(STORAGE_KEYS.chatMessages, []);
+    const next = messages.filter((message) => message.id !== messageId);
+    if (next.length === messages.length) return;
+    writeLocalStorage(STORAGE_KEYS.chatMessages, next);
+  };
+
+  const handleRetryFailedMessage = async (message: ChatMessage) => {
+    if (!user || message.status !== "failed") return;
+    setRetryingMessageId(message.id);
+    setChatError("");
+    try {
+      const result = await sendThreadMessage(
+        message.threadId,
+        user,
+        message.senderRole,
+        message.text,
+        {
+          kind: message.kind ?? "text",
+          attachment: message.attachment,
+        },
+      );
+      if (!result.ok) {
+        setChatError(result.message);
+        return;
+      }
+      removeLocalMessage(message.id);
+      setRetryMessageId(null);
+      await syncData();
+    } finally {
+      setRetryingMessageId(null);
+    }
   };
 
   const handleOpenThread = (threadId: string) => {
@@ -460,7 +549,15 @@ export function ChatsPage() {
       },
     });
     if (!result.ok) {
-      appendFailedThreadMessage(activeThreadId, user, senderRole, chatInput, result.message);
+      appendFailedThreadMessage(activeThreadId, user, senderRole, chatInput, result.message, {
+        kind,
+        attachment: {
+          name: file.name,
+          mimeType: file.type || "application/octet-stream",
+          size: file.size,
+          dataUrl,
+        },
+      });
       throw new Error(result.message);
     }
     setChatInput("");
@@ -611,7 +708,7 @@ export function ChatsPage() {
         },
       });
       voiceStreamRef.current = stream;
-      const preferredTypes = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm"];
+      const preferredTypes = ["audio/ogg;codecs=opus", "audio/webm;codecs=opus", "audio/mp4", "audio/webm"];
       const selectedMimeType = preferredTypes.find((entry) => MediaRecorder.isTypeSupported(entry)) ?? "";
       const recorder = selectedMimeType ? new MediaRecorder(stream, { mimeType: selectedMimeType }) : new MediaRecorder(stream);
       voiceChunksRef.current = [];
@@ -621,6 +718,7 @@ export function ChatsPage() {
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           voiceChunksRef.current.push(event.data);
+          refreshVoicePreviewFromChunks();
         }
         if (recorder.state === "paused") {
           refreshVoicePreviewFromChunks();
@@ -725,10 +823,11 @@ export function ChatsPage() {
 
     try {
       const dataUrl = await toDataUrl(blob);
+      const extension = blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "m4a" : "webm";
       const result = await sendThreadMessage(activeThreadId, user, senderRole, "", {
         kind: "audio",
         attachment: {
-          name: `nota-voz-${Date.now()}.webm`,
+          name: `nota-voz-${Date.now()}.${extension}`,
           mimeType: blob.type || "audio/webm",
           size: blob.size,
           dataUrl,
@@ -736,14 +835,24 @@ export function ChatsPage() {
       });
 
       if (!result.ok) {
-        appendFailedThreadMessage(activeThreadId, user, senderRole, "", result.message);
+        appendFailedThreadMessage(activeThreadId, user, senderRole, "", result.message, {
+          kind: "audio",
+          attachment: {
+            name: `nota-voz-${Date.now()}.${extension}`,
+            mimeType: blob.type || "audio/webm",
+            size: blob.size,
+            dataUrl,
+          },
+        });
         setChatError(result.message);
         return;
       }
       deleteVoiceRecording();
       void syncData();
     } catch {
-      appendFailedThreadMessage(activeThreadId, user, senderRole, "", "No se pudo procesar la nota de voz.");
+      appendFailedThreadMessage(activeThreadId, user, senderRole, "", "No se pudo procesar la nota de voz.", {
+        kind: "audio",
+      });
       setChatError("No se pudo enviar la nota de voz.");
     }
   };
@@ -916,10 +1025,12 @@ export function ChatsPage() {
     "--epr-text-color": "var(--color-foreground)",
   } as CSSProperties;
   const emojiPickerWidth = isMobile ? 300 : 340;
+  const actionIconSize = isMobile ? 21 : 17;
+  const sendIconSize = isMobile ? 20 : 16;
 
   return (
-    <main className="mx-auto w-full max-w-[1500px] px-0 pb-[88px] pt-0 sm:px-5 sm:pb-4 sm:pt-6">
-      <section className="grid min-h-[calc(100dvh-152px)] gap-0 overflow-hidden rounded-none border border-[var(--color-border)] sm:rounded-2xl md:min-h-[calc(100dvh-64px)] lg:min-h-[82vh] lg:grid-cols-[420px_1fr]">
+    <main className="mx-auto w-full max-w-[1500px] overflow-hidden px-0 pb-0 pt-0 sm:px-5 sm:pb-4 sm:pt-6">
+      <section className="grid h-[calc(100dvh-152px)] gap-0 overflow-hidden rounded-none border border-[var(--color-border)] sm:rounded-2xl md:h-[calc(100dvh-64px)] lg:h-[82vh] lg:grid-cols-[420px_1fr]">
         <aside className={`${activeThread ? "hidden lg:block" : "block"} ${asideBg} border-[var(--color-border)] lg:border-r`}>
           <div className="flex items-center justify-between px-5 pb-3 pt-4">
             <div>
@@ -1018,7 +1129,7 @@ export function ChatsPage() {
           </div>
         </aside>
 
-        <section className={`relative ${activeThread ? "flex" : "hidden lg:flex"} min-h-[calc(100dvh-152px)] flex-col ${panelBg} md:min-h-[calc(100dvh-64px)] lg:min-h-[82vh]`}>
+        <section className={`relative ${activeThread ? "flex" : "hidden lg:flex"} h-full flex-col overflow-hidden ${panelBg}`}>
           {activeThread ? (
             <>
               <header className={`flex items-center justify-between border-b px-4 py-3 ${headerBg}`}>
@@ -1064,7 +1175,16 @@ export function ChatsPage() {
                         className={`flex ${message.senderId === user.id ? "justify-end" : "justify-start"}`}
                       >
                         <article
-                          className={`inline-block w-fit max-w-[82%] rounded-2xl px-3 py-2 text-sm shadow-sm sm:max-w-[78%] ${message.senderId === user.id ? bubbleOut : bubbleIn}`}
+                          className={`inline-block rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                            message.kind === "audio"
+                              ? "w-full max-w-[78%] min-w-[220px] sm:max-w-[68%]"
+                              : "w-fit max-w-[82%] sm:max-w-[78%]"
+                          } ${message.senderId === user.id ? bubbleOut : bubbleIn}`}
+                          onClick={() => {
+                            if (message.status === "failed" && message.senderId === user.id) {
+                              setRetryMessageId((current) => (current === message.id ? null : message.id));
+                            }
+                          }}
                         >
                           <MessageBody message={message} />
                           <div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-75">
@@ -1072,7 +1192,23 @@ export function ChatsPage() {
                             {message.senderId === user.id && <StatusIcon message={message} />}
                           </div>
                           {message.status === "failed" && message.errorMessage && (
-                            <p className="mt-1 text-[11px] text-red-400">{message.errorMessage}</p>
+                            <>
+                              <p className="mt-1 text-[11px] text-red-400">{message.errorMessage}</p>
+                              <p className="mt-1 text-[10px] text-red-300/90">Toca este mensaje para reintentar envio.</p>
+                            </>
+                          )}
+                          {message.status === "failed" && retryMessageId === message.id && (
+                            <button
+                              type="button"
+                              className="mt-2 rounded-lg border border-red-400 px-2 py-1 text-[11px] font-semibold text-red-300 hover:bg-red-500/10"
+                              disabled={retryingMessageId === message.id}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleRetryFailedMessage(message);
+                              }}
+                            >
+                              {retryingMessageId === message.id ? "Reintentando..." : "Reintentar envio"}
+                            </button>
                           )}
                         </article>
                       </motion.div>
@@ -1120,17 +1256,14 @@ export function ChatsPage() {
                       {voiceState === "recording" && (
                         <canvas ref={voiceLiveCanvasRef} className="h-[38px] w-full" />
                       )}
-                      {(voiceState === "preview" || (voiceState === "paused" && voicePreviewUrl)) && (
-                        <div ref={voicePreviewWaveformRef} className="h-[40px] w-full" />
-                      )}
                       {!voicePreviewBlob && voiceState === "preview" && (
                         <p className="px-2 py-2 text-[11px] text-[var(--color-muted)]">Sin audio disponible.</p>
                       )}
                     </div>
                     {(voiceState === "paused" || voiceState === "preview") && voicePreviewUrl && (
-                      <audio controls className="mt-2 w-full">
-                        <source src={voicePreviewUrl} type={voicePreviewBlob?.type || "audio/webm"} />
-                      </audio>
+                      <div className="mt-2">
+                        <WaveAudioPlayer src={voicePreviewUrl} />
+                      </div>
                     )}
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       {voiceState === "recording" && (
@@ -1168,7 +1301,7 @@ export function ChatsPage() {
                   </div>
                 )}
 
-                <form className="relative flex items-end gap-2" onSubmit={handleSendText}>
+                <form className="relative flex items-center gap-2" onSubmit={handleSendText}>
   <input ref={photoVideoInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleFilePick} />
   <input ref={docsInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt" className="hidden" onChange={handleFilePick} />
 
@@ -1176,7 +1309,7 @@ export function ChatsPage() {
                     <Button
                       type="button"
                       variant="outline"
-                      className={`h-10 w-10 rounded-xl px-0 sm:h-12 sm:w-12 sm:rounded-2xl ${iconBtn}`}
+                      className={`h-11 w-11 rounded-xl px-0 sm:h-12 sm:w-12 sm:rounded-2xl ${iconBtn}`}
                       onClick={() => {
                         setShowAttachMenu(false);
                         setShowAttachCameraSubmenu(false);
@@ -1184,13 +1317,13 @@ export function ChatsPage() {
                       }}
       disabled={!activeThreadId}
     >
-      <Smile size={17} />
+      <Smile size={actionIconSize} />
     </Button>
   </motion.div>
 
   <div className="relative flex-1">
     <textarea
-      className={`max-h-24 min-h-10 min-w-0 w-full rounded-2xl border p-2.5 text-sm sm:max-h-28 sm:min-h-12 sm:rounded-3xl sm:p-3 ${inputBg}`}
+      className={`max-h-24 min-h-11 min-w-0 w-full rounded-2xl border p-2.5 text-sm sm:max-h-28 sm:min-h-12 sm:rounded-3xl sm:p-3 ${inputBg}`}
       placeholder={activeThreadId ? "Escribe un mensaje" : "Selecciona una conversacion"}
       value={chatInput}
       onChange={(event) => setChatInput(event.target.value)}
@@ -1203,7 +1336,7 @@ export function ChatsPage() {
       <Button
         type="button"
         variant="outline"
-        className={`h-10 w-10 rounded-xl px-0 sm:h-12 sm:w-12 sm:rounded-2xl ${iconBtn}`}
+        className={`h-11 w-11 rounded-xl px-0 sm:h-12 sm:w-12 sm:rounded-2xl ${iconBtn}`}
         onClick={() => {
           setShowAttachCameraSubmenu(false);
           setShowEmoji(false);
@@ -1211,7 +1344,7 @@ export function ChatsPage() {
         }}
         disabled={!activeThreadId}
       >
-        <Plus size={18} />
+        <Plus size={actionIconSize + 1} />
       </Button>
     </motion.div>
   </div>
@@ -1263,8 +1396,8 @@ export function ChatsPage() {
   <AnimatePresence mode="wait" initial={false}>
     {hasTextToSend ? (
       <motion.div key="send" whileHover={{ y: -1 }} whileTap={{ scale: 0.92 }} initial={{ opacity: 0, scale: 0.86 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.86 }} transition={{ duration: 0.15 }}>
-        <Button type="submit" className="h-10 w-10 rounded-xl bg-[#63c35c] px-0 text-[#08260d] hover:bg-[#7ed877] sm:h-12 sm:w-12 sm:rounded-2xl" disabled={!activeThreadId}>
-          <ArrowUp size={16} />
+        <Button type="submit" className="h-11 w-11 rounded-xl bg-[#63c35c] px-0 text-[#08260d] hover:bg-[#7ed877] sm:h-12 sm:w-12 sm:rounded-2xl" disabled={!activeThreadId}>
+          <ArrowUp size={sendIconSize} />
         </Button>
       </motion.div>
     ) : voiceState === "idle" ? (
@@ -1280,15 +1413,15 @@ export function ChatsPage() {
         <Button
           type="button"
           variant="outline"
-          className={`h-10 w-10 rounded-xl px-0 sm:h-12 sm:w-12 sm:rounded-2xl ${iconBtn}`}
+          className={`h-11 w-11 rounded-xl px-0 sm:h-12 sm:w-12 sm:rounded-2xl ${iconBtn}`}
           onClick={() => { void startVoiceRecording(); }}
           disabled={!activeThreadId}
         >
-          <Mic size={17} />
+          <Mic size={actionIconSize} />
         </Button>
       </motion.div>
     ) : (
-      <div className="h-10 w-10 sm:h-12 sm:w-12" />
+      <div className="h-11 w-11 sm:h-12 sm:w-12" />
     )}
   </AnimatePresence>
 </form>

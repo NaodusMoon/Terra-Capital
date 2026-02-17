@@ -452,6 +452,15 @@ export function appendFailedThreadMessage(
   senderRole: "buyer" | "seller",
   text: string,
   errorMessage: string,
+  options?: {
+    kind?: "text" | "image" | "video" | "audio" | "document";
+    attachment?: {
+      name: string;
+      mimeType: string;
+      size: number;
+      dataUrl: string;
+    };
+  },
 ) {
   const threads = getThreads();
   const thread = threads.find((item) => item.id === threadId);
@@ -467,7 +476,8 @@ export function appendFailedThreadMessage(
     senderRole,
     text: normalizeSafeText(text || "No se pudo enviar el mensaje.", 500),
     status: "failed",
-    kind: "text",
+    kind: options?.kind ?? "text",
+    attachment: options?.attachment,
     errorMessage: normalizeSafeText(errorMessage, 140),
     createdAt,
   });

@@ -1,4 +1,4 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 
 :root {
   --color-background: #f3f6f1;
@@ -70,3 +70,67 @@ h4 {
   letter-spacing: -0.01em;
 }
 
+body.chat-page-lock {
+  overflow: hidden;
+  padding-bottom: 0 !important;
+}
+
+.terra-wave-player {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.85rem;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+}
+
+.terra-wave-player--compact {
+  padding: 7px;
+}
+
+.terra-wave-btn {
+  height: 32px;
+  width: 32px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-soft);
+  color: var(--color-primary);
+  display: grid;
+  place-items: center;
+}
+
+.terra-wave-content {
+  min-width: 0;
+  flex: 1;
+}
+
+.terra-wave-canvas {
+  width: 100%;
+  min-height: 30px;
+}
+
+.terra-wave-meta {
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--color-muted);
+}
+
+.terra-wave-speed {
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-soft);
+  color: var(--color-foreground);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+}
+
+@media (max-width: 768px) {
+  body.chat-page-lock .fixed.bottom-0 {
+    display: none;
+  }
+}
