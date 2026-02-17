@@ -12,6 +12,7 @@ import {
   setPendingWallet,
   setUserWallet,
   WALLET_OPTIONS,
+  type ConnectableWalletProviderId,
   type StoredWallet,
   type WalletProviderId,
 } from "@/lib/wallet";
@@ -25,7 +26,7 @@ interface WalletContextValue {
   loadingBalances: boolean;
   balances: WalletBalance[];
   error: string | null;
-  connectWallet: (provider: WalletProviderId) => Promise<boolean>;
+  connectWallet: (provider: ConnectableWalletProviderId) => Promise<boolean>;
   disconnectWallet: () => void;
 }
 
@@ -80,7 +81,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       balances: walletAddress ? balances : [],
       loadingBalances: false,
       error,
-      connectWallet: async (provider: WalletProviderId) => {
+      connectWallet: async (provider: ConnectableWalletProviderId) => {
         setError(null);
         setConnecting(true);
         const result = await connectWalletByProvider(provider);

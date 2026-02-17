@@ -12,6 +12,7 @@ import { ModeToggle } from "@/components/layout/mode-toggle";
 import { NotificationsBell } from "@/components/layout/notifications-bell";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { getWalletProviderLabel } from "@/lib/wallet";
 
 function formatBalance(amount: string) {
   const parsed = Number(amount);
@@ -111,7 +112,7 @@ export function Navbar() {
                 <div className="relative">
                   <Button variant="outline" className="gap-2" onClick={() => setWalletOpen((prev) => !prev)}>
                     <Wallet size={14} />
-                    <span className="hidden sm:inline">{walletProvider ? `${walletProvider.toUpperCase()} ${shortWallet}` : shortWallet}</span>
+                    <span className="hidden sm:inline">{walletProvider ? `${getWalletProviderLabel(walletProvider)} ${shortWallet}` : shortWallet}</span>
                     <ChevronDown size={14} />
                   </Button>
                   {walletOpen && (

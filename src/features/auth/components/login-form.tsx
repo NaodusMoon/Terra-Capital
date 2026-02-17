@@ -6,11 +6,14 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { useWallet } from "@/components/providers/wallet-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { isValidStellarPublicKey } from "@/lib/security";
+import { setPendingWallet } from "@/lib/wallet";
 
 export function LoginForm() {
   const router = useRouter();
   const { login, user, loading } = useAuth();
-  const { walletAddress, walletOptions, connectWallet, connecting } = useWallet();
+  const { walletAddress, walletOptions, connectWallet, connecting, error: walletError } = useWallet();
+  const [manualWalletAddress, setManualWalletAddress] = useState("");
   const [fullName, setFullName] = useState("");
   const [needName, setNeedName] = useState(false);
   const [error, setError] = useState("");
@@ -25,9 +28,15 @@ export function LoginForm() {
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
+    const fallbackAddress = manualWalletAddress.trim().toUpperCase();
+    const selectedWalletAddress = walletAddress ?? fallbackAddress;
 
-    if (!walletAddress) {
-      setError("Debes conectar una wallet antes de iniciar sesion.");
+    if (!selectedWalletAddress) {
+      setError("Conecta una wallet o pega tu direccion publica Stellar.");
+      return;
+    }
+    if (!isValidStellarPublicKey(selectedWalletAddress)) {
+      setError("La direccion publica no es valida (debe empezar con G...).");
       return;
     }
     if (needName && !fullName.trim()) {
@@ -35,9 +44,13 @@ export function LoginForm() {
       return;
     }
 
+    if (!walletAddress) {
+      setPendingWallet({ address: selectedWalletAddress, provider: "manual" });
+    }
+
     setSubmitting(true);
     const result = await login({
-      walletAddress,
+      walletAddress: selectedWalletAddress,
       fullName: needName ? fullName : undefined,
     });
     setSubmitting(false);
@@ -70,6 +83,27 @@ export function LoginForm() {
             </Button>
           ))}
         </div>
+        {walletError && <p className="mt-3 text-sm text-red-500">{walletError}</p>}
+        {!walletAddress && (
+          <p className="mt-2 text-xs text-[var(--color-muted)]">
+            En movil, algunas wallets requieren app propia o navegador compatible. Si una opcion no abre nada, prueba otra wallet.
+          </p>
+        )}
+        {!walletAddress && (
+          <label className="mt-3 block space-y-1 text-sm">
+            <span className="text-xs uppercase tracking-[0.12em] text-[var(--color-muted)]">O usar direccion publica</span>
+            <input
+              className="h-11 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3"
+              value={manualWalletAddress}
+              onChange={(event) => setManualWalletAddress(event.target.value)}
+              placeholder="G..."
+              inputMode="text"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+          </label>
+        )}
       </div>
 
       <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
@@ -87,7 +121,7 @@ export function LoginForm() {
 
         {error && <p className="text-sm text-red-500">{error}</p>}
 
-        <Button className="h-11 w-full" type="submit" disabled={submitting || !walletAddress}>
+        <Button className="h-11 w-full" type="submit" disabled={submitting || (!walletAddress && !manualWalletAddress.trim())}>
           {submitting ? "Validando..." : needName ? "Guardar y entrar" : "Entrar"}
         </Button>
       </form>

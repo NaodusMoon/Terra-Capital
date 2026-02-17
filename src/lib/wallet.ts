@@ -4,7 +4,8 @@ import { STORAGE_KEYS } from "@/lib/constants";
 import { isValidStellarPublicKey } from "@/lib/security";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 
-export type WalletProviderId = "freighter" | "xbull" | "albedo";
+export type WalletProviderId = "freighter" | "xbull" | "albedo" | "manual";
+export type ConnectableWalletProviderId = Exclude<WalletProviderId, "manual">;
 
 export interface StoredWallet {
   address: string;
@@ -24,11 +25,26 @@ declare global {
   }
 }
 
-export const WALLET_OPTIONS: Array<{ id: WalletProviderId; label: string }> = [
+export const WALLET_OPTIONS: Array<{ id: ConnectableWalletProviderId; label: string }> = [
   { id: "freighter", label: "Freighter" },
   { id: "xbull", label: "xBull" },
   { id: "albedo", label: "Albedo" },
 ];
+
+const providerLabelMap: Record<WalletProviderId, string> = {
+  freighter: "Freighter",
+  xbull: "xBull",
+  albedo: "Albedo",
+  manual: "Movil/Manual",
+};
+
+function isWalletProviderId(value: unknown): value is WalletProviderId {
+  return value === "freighter" || value === "xbull" || value === "albedo" || value === "manual";
+}
+
+export function getWalletProviderLabel(provider: WalletProviderId) {
+  return providerLabelMap[provider];
+}
 
 function normalizeAddress(raw: string) {
   return raw.trim();
@@ -59,7 +75,7 @@ export function getWalletMap() {
     if (!isValidStellarPublicKey(address)) continue;
     normalized[userId] = {
       address,
-      provider: value.provider,
+      provider: isWalletProviderId(value.provider) ? value.provider : "manual",
     };
   }
 
@@ -204,7 +220,7 @@ async function connectAlbedoWallet() {
   }
 }
 
-export async function connectWalletByProvider(provider: WalletProviderId) {
+export async function connectWalletByProvider(provider: ConnectableWalletProviderId) {
   if (provider === "freighter") return connectFreighterWallet();
   if (provider === "xbull") return connectXBullWallet();
   return connectAlbedoWallet();
