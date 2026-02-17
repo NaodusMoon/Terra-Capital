@@ -5,9 +5,11 @@ import { ChangeEvent, CSSProperties, FormEvent, useCallback, useEffect, useMemo,
 import { useRouter, useSearchParams } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import Webcam from "react-webcam";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertCircle,
   ArrowLeft,
+  ArrowUp,
   Check,
   CheckCheck,
   Clock3,
@@ -17,8 +19,8 @@ import {
   Mic,
   Plus,
   Search,
-  Send,
   Smile,
+  Star,
   Square,
   Camera,
   X,
@@ -27,7 +29,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { useTheme } from "@/components/providers/theme-provider";
 import { useWallet } from "@/components/providers/wallet-provider";
 import { Button } from "@/components/ui/button";
-import { MARKETPLACE_EVENT } from "@/lib/constants";
+import { MARKETPLACE_EVENT, STORAGE_KEYS } from "@/lib/constants";
 import {
   appendFailedThreadMessage,
   ensureBuyerThreadForAsset,
@@ -38,9 +40,10 @@ import {
   markThreadMessagesRead,
   sendThreadMessage,
 } from "@/lib/marketplace";
+import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import type { ChatMessage } from "@/types/market";
 
-const quickFilters = ["Todos", "No leidos", "Favoritos", "Grupos"];
+const quickFilters = ["Todos", "No leidos", "Favoritos"];
 
 function toDataUrl(file: Blob) {
   return new Promise<string>((resolve, reject) => {
@@ -133,9 +136,13 @@ export function ChatsPage() {
   const docsInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
+  const voiceStreamRef = useRef<MediaStream | null>(null);
+  const voiceTimerRef = useRef<number | null>(null);
+  const cancelVoiceRef = useRef(false);
   const webcamRef = useRef<Webcam | null>(null);
   const cameraRecorderRef = useRef<MediaRecorder | null>(null);
   const cameraChunksRef = useRef<Blob[]>([]);
+  const mediaPermissionCheckedRef = useRef(false);
 
   const [threads, setThreads] = useState<ReturnType<typeof getUserThreads>>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -145,8 +152,10 @@ export function ChatsPage() {
   const [recording, setRecording] = useState(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("Todos");
+  const [manuallyClosedChat, setManuallyClosedChat] = useState(false);
+  const [favoriteThreadIds, setFavoriteThreadIds] = useState<string[]>([]);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
-  const [showCameraMenu, setShowCameraMenu] = useState(false);
+  const [showAttachCameraSubmenu, setShowAttachCameraSubmenu] = useState(false);
   const [showCameraModal, setShowCameraModal] = useState(false);
   const [cameraMode, setCameraMode] = useState<"photo" | "video">("photo");
   const [cameraRecording, setCameraRecording] = useState(false);
@@ -154,12 +163,22 @@ export function ChatsPage() {
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [capturedVideoBlob, setCapturedVideoBlob] = useState<Blob | null>(null);
   const [capturedVideoUrl, setCapturedVideoUrl] = useState<string | null>(null);
+  const [recordingDuration, setRecordingDuration] = useState(0);
 
   const assetsMap = useMemo(() => new Map(getAssets().map((asset) => [asset.id, asset.title])), []);
   const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null;
   const activeMessages = activeThreadId ? getThreadMessages(activeThreadId) : [];
   const activeRole = activeThread && user ? getThreadRoleForUser(activeThread, user.id) : null;
   const senderRole = activeRole ?? (activeMode === "seller" ? "seller" : "buyer");
+
+  useEffect(() => {
+    if (!user) return;
+    const boot = window.setTimeout(() => {
+      const map = readLocalStorage<Record<string, string[]>>(STORAGE_KEYS.chatFavorites, {});
+      setFavoriteThreadIds(Array.isArray(map[user.id]) ? map[user.id] : []);
+    }, 0);
+    return () => window.clearTimeout(boot);
+  }, [user]);
 
   const syncData = useCallback(() => {
     if (!user) return;
@@ -182,13 +201,17 @@ export function ChatsPage() {
       setActiveThreadId(null);
       return;
     }
+    if (preferredThreadId && nextThreads.some((thread) => thread.id === preferredThreadId)) {
+      setManuallyClosedChat(false);
+    }
 
     setActiveThreadId((current) => {
       if (preferredThreadId && nextThreads.some((thread) => thread.id === preferredThreadId)) return preferredThreadId;
       if (current && nextThreads.some((thread) => thread.id === current)) return current;
-      return nextThreads[0].id;
+      if (manuallyClosedChat) return null;
+      return current ?? null;
     });
-  }, [assetIdParam, user]);
+  }, [assetIdParam, manuallyClosedChat, user]);
 
   useEffect(() => {
     if (loading || !walletReady) return;
@@ -204,21 +227,47 @@ export function ChatsPage() {
   useEffect(() => {
     if (!user) return;
 
-    const boot = window.setTimeout(() => syncData(), 0);
+    let interval: number | null = null;
+    let boot: number | null = null;
+
+    const runSync = () => {
+      if (document.visibilityState !== "visible") return;
+      syncData();
+    };
+
+    const startSync = () => {
+      runSync();
+      if (interval) window.clearInterval(interval);
+      interval = window.setInterval(runSync, 2500);
+    };
+
+    if (document.visibilityState === "visible") {
+      boot = window.setTimeout(startSync, 0);
+    }
+
     const marketListener = () => syncData();
+    const visibilityListener = () => {
+      if (document.visibilityState === "visible") {
+        startSync();
+      } else if (interval) {
+        window.clearInterval(interval);
+        interval = null;
+      }
+    };
     const storageListener = (event: StorageEvent) => {
       if (!event.key || event.key.startsWith("terra_capital_")) syncData();
     };
 
     window.addEventListener(MARKETPLACE_EVENT, marketListener);
     window.addEventListener("storage", storageListener);
-    const interval = window.setInterval(syncData, 2000);
+    document.addEventListener("visibilitychange", visibilityListener);
 
     return () => {
-      window.clearTimeout(boot);
+      if (boot) window.clearTimeout(boot);
       window.removeEventListener(MARKETPLACE_EVENT, marketListener);
       window.removeEventListener("storage", storageListener);
-      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", visibilityListener);
+      if (interval) window.clearInterval(interval);
     };
   }, [syncData, user]);
 
@@ -228,14 +277,51 @@ export function ChatsPage() {
   }, [activeRole, activeThreadId, activeMessages.length]);
 
   useEffect(() => {
+    if (!activeThreadId) return;
+    if (mediaPermissionCheckedRef.current) return;
+    if (!window.isSecureContext) return;
+    if (!navigator.mediaDevices?.getUserMedia) return;
+
+    const askForMediaPermissions = async () => {
+      mediaPermissionCheckedRef.current = true;
+
+      try {
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioStream.getTracks().forEach((track) => track.stop());
+      } catch {
+        // ignore
+      }
+
+      try {
+        const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        videoStream.getTracks().forEach((track) => track.stop());
+      } catch {
+        // ignore
+      }
+    };
+
+    const timer = window.setTimeout(() => {
+      void askForMediaPermissions();
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [activeThreadId]);
+
+  useEffect(() => {
     return () => {
-      mediaRecorderRef.current?.stream.getTracks().forEach((track) => track.stop());
+      if (voiceTimerRef.current) {
+        window.clearInterval(voiceTimerRef.current);
+        voiceTimerRef.current = null;
+      }
+      voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+      voiceStreamRef.current = null;
       cameraRecorderRef.current?.stream.getTracks().forEach((track) => track.stop());
       if (capturedVideoUrl) URL.revokeObjectURL(capturedVideoUrl);
     };
   }, [capturedVideoUrl]);
 
   const term = search.trim().toLowerCase();
+  const hasTextToSend = chatInput.trim().length > 0;
   const visibleThreads = threads.filter((thread) => {
     const counterpart = thread.buyerId === user?.id ? thread.sellerName : thread.buyerName;
     const assetTitle = assetsMap.get(thread.assetId) ?? "";
@@ -243,6 +329,9 @@ export function ChatsPage() {
     if (!termMatch) return false;
     if (filter === "No leidos") {
       return getThreadMessages(thread.id).some((message) => message.senderRole !== senderRole && message.status !== "read");
+    }
+    if (filter === "Favoritos") {
+      return favoriteThreadIds.includes(thread.id);
     }
     return true;
   });
@@ -263,6 +352,30 @@ export function ChatsPage() {
     setChatInput("");
     setShowEmoji(false);
     syncData();
+  };
+
+  const handleOpenThread = (threadId: string) => {
+    setManuallyClosedChat(false);
+    setActiveThreadId(threadId);
+  };
+
+  const handleCloseThread = () => {
+    setManuallyClosedChat(true);
+    setActiveThreadId(null);
+    setShowEmoji(false);
+    setShowAttachMenu(false);
+    setShowAttachCameraSubmenu(false);
+  };
+
+  const toggleFavoriteThread = (threadId: string) => {
+    if (!user) return;
+    const next = favoriteThreadIds.includes(threadId)
+      ? favoriteThreadIds.filter((id) => id !== threadId)
+      : [...favoriteThreadIds, threadId];
+    setFavoriteThreadIds(next);
+    const map = readLocalStorage<Record<string, string[]>>(STORAGE_KEYS.chatFavorites, {});
+    map[user.id] = next;
+    writeLocalStorage(STORAGE_KEYS.chatFavorites, map);
   };
 
   const sendFileMessage = async (file: File) => {
@@ -298,14 +411,18 @@ export function ChatsPage() {
     }
   };
 
-  const handleVoiceToggle = async () => {
-    if (!activeThreadId || !user) return;
-    setChatError("");
-
-    if (recording) {
-      mediaRecorderRef.current?.stop();
-      return;
+  const stopVoiceRuntime = () => {
+    if (voiceTimerRef.current) {
+      window.clearInterval(voiceTimerRef.current);
+      voiceTimerRef.current = null;
     }
+    voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+    voiceStreamRef.current = null;
+  };
+
+  const startVoiceRecording = async () => {
+    if (!activeThreadId || !user || hasTextToSend || recording) return;
+    setChatError("");
 
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setChatError("Tu navegador no soporta notas de voz.");
@@ -318,11 +435,20 @@ export function ChatsPage() {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      voiceStreamRef.current = stream;
       const preferredTypes = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm"];
       const selectedMimeType = preferredTypes.find((entry) => MediaRecorder.isTypeSupported(entry)) ?? "";
       const recorder = selectedMimeType ? new MediaRecorder(stream, { mimeType: selectedMimeType }) : new MediaRecorder(stream);
       voiceChunksRef.current = [];
+      cancelVoiceRef.current = false;
+      setRecordingDuration(0);
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) voiceChunksRef.current.push(event.data);
@@ -330,14 +456,16 @@ export function ChatsPage() {
 
       recorder.onstop = async () => {
         const blob = new Blob(voiceChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        const wasCancelled = cancelVoiceRef.current;
         voiceChunksRef.current = [];
-        stream.getTracks().forEach((track) => track.stop());
+        stopVoiceRuntime();
         setRecording(false);
+        setRecordingDuration(0);
 
-        if (!activeThreadId || !user) return;
+        if (wasCancelled || blob.size === 0 || !activeThreadId || !user) return;
         try {
           const dataUrl = await toDataUrl(blob);
-          const result = sendThreadMessage(activeThreadId, user, senderRole, chatInput, {
+          const result = sendThreadMessage(activeThreadId, user, senderRole, "", {
             kind: "audio",
             attachment: {
               name: `nota-voz-${Date.now()}.webm`,
@@ -348,23 +476,25 @@ export function ChatsPage() {
           });
 
           if (!result.ok) {
-            appendFailedThreadMessage(activeThreadId, user, senderRole, chatInput, result.message);
+            appendFailedThreadMessage(activeThreadId, user, senderRole, "", result.message);
             setChatError(result.message);
             return;
           }
-
-          setChatInput("");
           syncData();
         } catch {
-          appendFailedThreadMessage(activeThreadId, user, senderRole, chatInput, "No se pudo procesar la nota de voz.");
+          appendFailedThreadMessage(activeThreadId, user, senderRole, "", "No se pudo procesar la nota de voz.");
           setChatError("No se pudo enviar la nota de voz.");
         }
       };
 
       mediaRecorderRef.current = recorder;
-      recorder.start();
+      recorder.start(200);
       setRecording(true);
+      voiceTimerRef.current = window.setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
     } catch (error) {
+      stopVoiceRuntime();
       const mediaError = error as DOMException | undefined;
       if (mediaError?.name === "NotAllowedError") {
         setChatError("Permiso de microfono denegado o bloqueado. Activalo en permisos del navegador.");
@@ -374,8 +504,31 @@ export function ChatsPage() {
         setChatError("No se detecto ningun microfono en este dispositivo.");
         return;
       }
+      if (mediaError?.name === "NotReadableError") {
+        setChatError("El microfono esta en uso por otra aplicacion. Cierra esa app e intenta de nuevo.");
+        return;
+      }
       setChatError("No se pudo acceder al microfono.");
     }
+  };
+
+  const stopVoiceRecording = (cancel: boolean) => {
+    cancelVoiceRef.current = cancel;
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+    if (recorder.state !== "inactive") {
+      recorder.stop();
+    } else {
+      stopVoiceRuntime();
+      setRecording(false);
+      setRecordingDuration(0);
+    }
+  };
+
+  const formatRecordingDuration = (totalSeconds: number) => {
+    const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
+    const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+    return `${minutes}:${seconds}`;
   };
 
   const handleEmojiPick = (emoji: EmojiClickData) => {
@@ -401,17 +554,43 @@ export function ChatsPage() {
     setCapturedVideoUrl(null);
   };
 
-  const openCameraModal = (mode: "photo" | "video") => {
+  const openCameraModal = async (mode: "photo" | "video") => {
     setShowAttachMenu(false);
-    setShowCameraMenu(false);
+    setShowAttachCameraSubmenu(false);
     setShowEmoji(false);
     setCameraMode(mode);
-    setShowCameraModal(true);
     setCameraError("");
     setCapturedPhoto(null);
     setCapturedVideoBlob(null);
     if (capturedVideoUrl) URL.revokeObjectURL(capturedVideoUrl);
     setCapturedVideoUrl(null);
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("Tu navegador no soporta acceso a camara.");
+      return;
+    }
+
+    if (!window.isSecureContext) {
+      setCameraError("Para usar la camara, abre la app en HTTPS o localhost.");
+      return;
+    }
+
+    try {
+      const preflight = await navigator.mediaDevices.getUserMedia({ video: true, audio: mode === "video" });
+      preflight.getTracks().forEach((track) => track.stop());
+      setShowCameraModal(true);
+    } catch (error) {
+      const mediaError = error as DOMException | undefined;
+      if (mediaError?.name === "NotAllowedError") {
+        setCameraError("Permiso de camara denegado o bloqueado. Activalo en permisos del navegador.");
+      } else if (mediaError?.name === "NotFoundError") {
+        setCameraError("No se detecto camara en este dispositivo.");
+      } else if (mediaError?.name === "NotReadableError") {
+        setCameraError("La camara esta en uso por otra aplicacion.");
+      } else {
+        setCameraError("No se pudo iniciar la camara.");
+      }
+    }
   };
 
   const handleTakePhoto = () => {
@@ -495,47 +674,44 @@ export function ChatsPage() {
     );
   }
 
-  const asideBg = isDark ? "bg-[#111b21] text-[#d1d7db]" : "bg-[#e8f0f6] text-[#1d2733]";
-  const headerBg = isDark ? "bg-[#202c33] border-[#2b3942]" : "bg-[#d7e6f3] border-[#bdd4e6]";
-  const panelBg = isDark ? "bg-[#0b141a] text-[#e9edef]" : "bg-[#f5fbff] text-[#1c2730]";
-  const bubbleIn = isDark ? "bg-[#202c33] text-[#e9edef]" : "bg-[#ddebf7] text-[#22313d]";
-  const bubbleOut = isDark ? "bg-[#005c4b] text-[#dff7f0]" : "bg-[#b9f5df] text-[#123c30]";
-  const iconBtn = isDark
-    ? "border-[#2a3942] bg-[#111b21] text-[#d1d7db] hover:bg-[#1f2c34]"
-    : "border-[#bdd4e6] bg-white text-[#1d2733] hover:bg-[#eef6fc]";
-  const inputBg = isDark
-    ? "border-[#2a3942] bg-[#111b21] text-[#e9edef] placeholder:text-[#8696a0]"
-    : "border-[#bdd4e6] bg-white text-[#22313d] placeholder:text-[#6f8294]";
+  const asideBg = "bg-[var(--color-surface)] text-[var(--color-foreground)]";
+  const headerBg = "bg-[var(--color-surface-soft)] border-[var(--color-border)]";
+  const panelBg = "bg-[var(--color-background)] text-[var(--color-foreground)]";
+  const bubbleIn = "bg-[var(--color-surface-soft)] text-[var(--color-foreground)]";
+  const bubbleOut = "bg-[var(--color-primary)] text-[var(--color-primary-contrast)]";
+  const iconBtn = "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-foreground)] hover:bg-[var(--color-surface-soft)]";
+  const inputBg = "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted)]";
   const emojiPickerStyle = {
-    "--epr-bg-color": isDark ? "#111b21" : "#ffffff",
-    "--epr-category-label-bg-color": isDark ? "#111b21" : "#ffffff",
-    "--epr-hover-bg-color": isDark ? "#1f2c34" : "#eef6fc",
-    "--epr-search-input-bg-color": isDark ? "#202c33" : "#f2f8fd",
-    "--epr-search-input-text-color": isDark ? "#d1d7db" : "#1d2733",
+    "--epr-bg-color": "var(--color-surface)",
+    "--epr-category-label-bg-color": "var(--color-surface)",
+    "--epr-hover-bg-color": "var(--color-surface-soft)",
+    "--epr-search-input-bg-color": "var(--color-surface-soft)",
+    "--epr-search-input-text-color": "var(--color-foreground)",
     "--epr-search-border-color": "transparent",
     "--epr-picker-border-color": "transparent",
     "--epr-scrollbar-track-color": "transparent",
-    "--epr-scrollbar-thumb-color": isDark ? "#41535f" : "#aec4d7",
-    "--epr-text-color": isDark ? "#d1d7db" : "#1d2733",
+    "--epr-scrollbar-thumb-color": "var(--color-border)",
+    "--epr-text-color": "var(--color-foreground)",
   } as CSSProperties;
+  const emojiPickerWidth = typeof window === "undefined" ? 320 : Math.min(340, window.innerWidth - 24);
 
   return (
-    <main className="mx-auto w-full max-w-[1500px] px-3 pb-4 pt-4 sm:px-5 sm:pt-6">
-      <section className={`grid min-h-[82vh] gap-0 overflow-hidden rounded-2xl border ${isDark ? "border-[#23323b]" : "border-[#bfd6e8]"} lg:grid-cols-[420px_1fr]`}>
-        <aside className={`border-r ${isDark ? "border-[#23323b]" : "border-[#bfd6e8]"} ${asideBg}`}>
+    <main className="mx-auto w-full max-w-[1500px] px-0 pb-[88px] pt-0 sm:px-5 sm:pb-4 sm:pt-6">
+      <section className="grid min-h-[calc(100dvh-152px)] gap-0 overflow-hidden rounded-none border border-[var(--color-border)] sm:rounded-2xl md:min-h-[calc(100dvh-64px)] lg:min-h-[82vh] lg:grid-cols-[420px_1fr]">
+        <aside className={`${activeThread ? "hidden lg:block" : "block"} ${asideBg} border-[var(--color-border)] lg:border-r`}>
           <div className="flex items-center justify-between px-5 pb-3 pt-4">
             <div>
-              <p className={`text-3xl font-black tracking-tight ${isDark ? "text-white" : "text-[#102136]"}`}>Terra Chat</p>
-              <p className={`text-xs ${isDark ? "text-[#8696a0]" : "text-[#607788]"}`}>Mensajeria de operaciones</p>
+              <p className="text-3xl font-black tracking-tight text-[var(--color-foreground)]">Chat</p>
+              <p className="text-xs text-[var(--color-muted)]">Terra Chat</p>
             </div>
           </div>
 
           <div className="px-4 pb-3">
             <label className="relative block">
-              <Search size={18} className={`pointer-events-none absolute left-3 top-3 ${isDark ? "text-[#8696a0]" : "text-[#698195]"}`} />
+              <Search size={18} className="pointer-events-none absolute left-3 top-3 text-[var(--color-muted)]" />
               <input
-                className={`h-12 w-full rounded-full border pl-11 pr-3 text-[22px] text-sm ${isDark ? "border-[#2a3942] bg-[#202c33] text-white placeholder:text-[#8696a0]" : "border-[#bfd6e8] bg-white text-[#1c2730] placeholder:text-[#6f8294]"}`}
-                placeholder="Buscar chat o iniciar uno nuevo"
+                className="h-12 w-full rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] pl-11 pr-3 text-sm text-[var(--color-foreground)] placeholder:text-[var(--color-muted)]"
+                placeholder="Buscar chat"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
@@ -546,11 +722,7 @@ export function ChatsPage() {
                   key={entry}
                   type="button"
                   onClick={() => setFilter(entry)}
-                  className={`rounded-full border px-4 py-2 text-sm font-semibold ${
-                    filter === entry
-                      ? isDark ? "border-[#00a884] bg-[#09362f] text-[#7ce3c9]" : "border-[#1f8c72] bg-[#d1f3e8] text-[#116a55]"
-                      : isDark ? "border-[#2a3942] bg-transparent text-[#aebac1]" : "border-[#bfd6e8] bg-white text-[#5d7387]"
-                  }`}
+                  className={`rounded-full border px-4 py-2 text-sm font-semibold ${filter === entry ? "border-transparent bg-[var(--color-primary)] text-[var(--color-primary-contrast)]" : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-muted)]"}`}
                 >
                   {entry}
                 </button>
@@ -558,183 +730,301 @@ export function ChatsPage() {
             </div>
           </div>
 
-          <div className="max-h-[calc(82vh-175px)] overflow-y-auto pb-2">
-            {visibleThreads.map((thread) => {
+          <div className="max-h-[calc(100dvh-308px)] overflow-y-auto pb-2 md:max-h-[calc(100dvh-230px)] lg:max-h-[calc(82vh-175px)]">
+            <AnimatePresence initial={false}>
+              {visibleThreads.map((thread, index) => {
               const counterpart = thread.buyerId === user.id ? thread.sellerName : thread.buyerName;
               const subtitle = assetsMap.get(thread.assetId) ?? "Activo";
               const latest = getThreadMessages(thread.id).at(-1);
               const preview = latest ? `${latest.senderId === user.id ? "Tu: " : ""}${latest.text || (latest.kind ?? "Adjunto")}` : "Sin mensajes";
               const isActive = thread.id === activeThreadId;
+              const isFavorite = favoriteThreadIds.includes(thread.id);
 
               return (
-                <button
+                <motion.div
                   key={thread.id}
-                  type="button"
-                  onClick={() => setActiveThreadId(thread.id)}
-                  className={`flex w-full items-start gap-3 border-b px-4 py-3 text-left ${
-                    isDark
-                      ? `${isActive ? "bg-[#2a3942]" : "hover:bg-[#182229]"} border-[#1f2c34]`
-                      : `${isActive ? "bg-[#d8e9f8]" : "hover:bg-[#edf6fd]"} border-[#d6e5f1]`
-                  }`}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2, delay: Math.min(index * 0.025, 0.2) }}
                 >
-                  <div className={`grid h-12 w-12 shrink-0 place-items-center rounded-full ${isDark ? "bg-[#2a3942] text-white" : "bg-white text-[#23415a]"}`}>
-                    <MessageCircle size={18} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className={`truncate text-lg font-semibold ${isDark ? "text-white" : "text-[#12263a]"}`}>{counterpart}</p>
-                      <p className={`text-xs ${isDark ? "text-[#8696a0]" : "text-[#688096]"}`}>{latest ? formatDay(latest.createdAt) : formatDay(thread.updatedAt)}</p>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenThread(thread.id)}
+                    className={`flex w-full items-start gap-3 border-b border-[var(--color-border)] px-4 py-3 text-left transition-colors ${isActive ? "bg-[var(--color-surface-soft)]" : "hover:bg-[var(--color-surface-soft)]/70"}`}
+                  >
+                    <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-[var(--color-surface-soft)] text-[var(--color-foreground)]">
+                      <MessageCircle size={18} />
                     </div>
-                    <p className={`truncate text-xs uppercase tracking-[0.12em] ${isDark ? "text-[#00a884]" : "text-[#1b8168]"}`}>{subtitle}</p>
-                    <p className={`truncate text-sm ${isDark ? "text-[#aebac1]" : "text-[#5f7487]"}`}>{preview}</p>
-                  </div>
-                </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-lg font-semibold text-[var(--color-foreground)]">{counterpart}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs text-[var(--color-muted)]">{latest ? formatDay(latest.createdAt) : formatDay(thread.updatedAt)}</p>
+                          <motion.span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              toggleFavoriteThread(thread.id);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                toggleFavoriteThread(thread.id);
+                              }
+                            }}
+                            aria-label={isFavorite ? "Quitar de favoritos" : "Agregar a favoritos"}
+                            className="grid h-7 w-7 place-items-center rounded-full transition-colors hover:bg-[var(--color-surface-soft)]"
+                            whileTap={{ scale: 0.84 }}
+                            animate={{ scale: isFavorite ? [1, 1.24, 1] : [1, 0.9, 1], rotate: isFavorite ? [0, -8, 8, 0] : [0, -4, 0] }}
+                            transition={{ duration: 0.28, ease: "easeOut" }}
+                          >
+                            <Star size={15} className={isFavorite ? "fill-[#facc15] text-[#facc15]" : "text-[var(--color-muted)]"} />
+                          </motion.span>
+                        </div>
+                      </div>
+                      <p className="truncate text-xs uppercase tracking-[0.12em] text-[var(--color-primary)]">{subtitle}</p>
+                      <p className="truncate text-sm text-[var(--color-muted)]">{preview}</p>
+                    </div>
+                  </button>
+                </motion.div>
               );
-            })}
+              })}
+            </AnimatePresence>
           </div>
         </aside>
 
-        <section className={`relative flex min-h-[82vh] flex-col ${panelBg}`}>
+        <section className={`relative ${activeThread ? "flex" : "hidden lg:flex"} min-h-[calc(100dvh-152px)] flex-col ${panelBg} md:min-h-[calc(100dvh-64px)] lg:min-h-[82vh]`}>
           {activeThread ? (
             <>
               <header className={`flex items-center justify-between border-b px-4 py-3 ${headerBg}`}>
-                <div className="min-w-0">
-                  <p className="truncate text-2xl font-bold">
-                    {activeThread.buyerId === user.id ? activeThread.sellerName : activeThread.buyerName}
-                  </p>
-                  <p className={`truncate text-xs ${isDark ? "text-[#aebac1]" : "text-[#5f7487]"}`}>{assetsMap.get(activeThread.assetId) ?? "Activo tokenizado"}</p>
+                <div className="flex min-w-0 items-center gap-3">
+                  <button
+                    type="button"
+                    className={`grid h-10 w-10 place-items-center rounded-full lg:hidden ${isDark ? "hover:bg-[#1f2c34]" : "hover:bg-[#e8f3fc]"}`}
+                    onClick={handleCloseThread}
+                    aria-label="Volver a chats"
+                  >
+                    <ArrowLeft size={19} />
+                  </button>
+                  <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${isDark ? "bg-[#1f2c34]" : "bg-white text-[#23415a]"}`}>
+                    <MessageCircle size={16} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-xl font-bold lg:text-2xl">
+                      {activeThread.buyerId === user.id ? activeThread.sellerName : activeThread.buyerName}
+                    </p>
+                    <p className={`truncate text-xs ${isDark ? "text-[#aebac1]" : "text-[#5f7487]"}`}>{assetsMap.get(activeThread.assetId) ?? "Activo tokenizado"}</p>
+                  </div>
                 </div>
                 <Button
                   type="button"
                   variant="outline"
-                  className={`h-11 rounded-xl px-3 text-sm font-semibold ${iconBtn}`}
-                  onClick={() => setActiveThreadId(null)}
+                  className={`hidden h-11 rounded-xl px-3 text-sm font-semibold lg:inline-flex ${iconBtn}`}
+                  onClick={handleCloseThread}
                 >
                   <X size={16} className="mr-2" /> Cerrar chat
                 </Button>
               </header>
 
-              <div className={`flex-1 overflow-y-auto px-4 py-4 ${isDark ? "bg-[radial-gradient(circle_at_15%_20%,rgba(34,53,62,.45),transparent_40%),radial-gradient(circle_at_80%_75%,rgba(21,32,39,.55),transparent_40%),#0b141a]" : "bg-[radial-gradient(circle_at_15%_20%,rgba(180,210,234,.45),transparent_40%),radial-gradient(circle_at_80%_75%,rgba(210,230,244,.55),transparent_40%),#eef6fc]"}`}>
-                <div className="space-y-3">
-                  {activeMessages.map((message) => (
-                    <article
-                      key={message.id}
-                      className={`max-w-[88%] rounded-2xl px-3 py-2 text-sm shadow-sm ${message.senderId === user.id ? `ml-auto ${bubbleOut}` : bubbleIn}`}
-                    >
-                      <MessageBody message={message} />
-                      <div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-75">
-                        <span>{formatTime(message.createdAt)}</span>
-                        {message.senderId === user.id && <StatusIcon message={message} />}
-                      </div>
-                      {message.status === "failed" && message.errorMessage && (
-                        <p className="mt-1 text-[11px] text-red-400">{message.errorMessage}</p>
-                      )}
-                    </article>
-                  ))}
+              <div className={`flex-1 overflow-y-auto px-3 py-4 sm:px-4 ${isDark ? "bg-[radial-gradient(circle_at_15%_20%,rgba(34,53,62,.45),transparent_40%),radial-gradient(circle_at_80%_75%,rgba(21,32,39,.55),transparent_40%),#0b141a]" : "bg-[radial-gradient(circle_at_15%_20%,rgba(180,210,234,.45),transparent_40%),radial-gradient(circle_at_80%_75%,rgba(210,230,244,.55),transparent_40%),#eef6fc]"}`}>
+                <div className="space-y-2.5">
+                  <AnimatePresence initial={false}>
+                    {activeMessages.map((message) => (
+                      <motion.div
+                        key={message.id}
+                        initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                        transition={{ duration: 0.16 }}
+                        className={`flex ${message.senderId === user.id ? "justify-end" : "justify-start"}`}
+                      >
+                        <article
+                          className={`inline-block w-fit max-w-[82%] rounded-2xl px-3 py-2 text-sm shadow-sm sm:max-w-[78%] ${message.senderId === user.id ? bubbleOut : bubbleIn}`}
+                        >
+                          <MessageBody message={message} />
+                          <div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-75">
+                            <span>{formatTime(message.createdAt)}</span>
+                            {message.senderId === user.id && <StatusIcon message={message} />}
+                          </div>
+                          {message.status === "failed" && message.errorMessage && (
+                            <p className="mt-1 text-[11px] text-red-400">{message.errorMessage}</p>
+                          )}
+                        </article>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
                 </div>
               </div>
 
-              <footer className={`border-t p-2 ${headerBg}`}>
-                {showEmoji && (
-                  <div className="mb-2 flex justify-start">
-                    <div className="overflow-hidden rounded-2xl shadow-lg">
-                      <EmojiPicker
-                        onEmojiClick={handleEmojiPick}
-                        lazyLoadEmojis
-                        searchDisabled={false}
-                        width={340}
-                        height={390}
-                        previewConfig={{ showPreview: false }}
-                        skinTonesDisabled={false}
-                        autoFocusSearch={false}
-                        theme={isDark ? Theme.DARK : Theme.LIGHT}
-                        style={emojiPickerStyle}
-                      />
-                    </div>
+              <footer className={`relative border-t p-2 pb-[max(env(safe-area-inset-bottom),10px)] sm:p-2 ${headerBg}`}>
+                <AnimatePresence>
+                  {showEmoji && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                      transition={{ duration: 0.18 }}
+                      className="absolute bottom-full left-2 z-20 mb-2 flex justify-start"
+                    >
+                      <div className="overflow-hidden rounded-2xl shadow-lg">
+                        <EmojiPicker
+                          onEmojiClick={handleEmojiPick}
+                          lazyLoadEmojis
+                          searchDisabled={false}
+                          width={emojiPickerWidth}
+                          height={390}
+                          previewConfig={{ showPreview: false }}
+                          skinTonesDisabled={false}
+                          autoFocusSearch={false}
+                          theme={isDark ? Theme.DARK : Theme.LIGHT}
+                          style={emojiPickerStyle}
+                        />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {recording && (
+                  <div className={`mb-2 flex items-center justify-between rounded-xl border px-3 py-2 text-xs ${iconBtn}`}>
+                    <span className="font-semibold text-red-400">Grabando {formatRecordingDuration(recordingDuration)}</span>
+                    <button
+                      type="button"
+                      className="rounded-lg px-2 py-1 text-xs font-semibold hover:bg-red-500/15"
+                      onClick={() => stopVoiceRecording(true)}
+                    >
+                      Cancelar
+                    </button>
                   </div>
                 )}
 
                 <form className="relative flex items-end gap-2" onSubmit={handleSendText}>
-                  <input ref={photoVideoInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleFilePick} />
-                  <input ref={docsInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt" className="hidden" onChange={handleFilePick} />
+  <input ref={photoVideoInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleFilePick} />
+  <input ref={docsInputRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt" className="hidden" onChange={handleFilePick} />
 
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={`h-12 w-12 rounded-2xl px-0 ${iconBtn}`}
-                    onClick={() => {
-                      setShowCameraMenu(false);
-                      setShowAttachMenu((prev) => !prev);
-                    }}
-                    disabled={!activeThreadId}
-                  >
-                    <Plus size={19} />
-                  </Button>
-                  {showAttachMenu && (
-                    <div className={`absolute bottom-14 left-0 z-20 w-56 rounded-2xl border p-2 shadow-xl ${isDark ? "border-[#2a3942] bg-[#111b21]" : "border-[#bfd6e8] bg-white"}`}>
-                      <button type="button" className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm ${isDark ? "hover:bg-[#1f2c34]" : "hover:bg-[#eef6fc]"}`} onClick={() => { setShowAttachMenu(false); photoVideoInputRef.current?.click(); }}>
-                        <ImageIcon size={16} /> Fotos y videos
-                      </button>
-                      <button type="button" className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm ${isDark ? "hover:bg-[#1f2c34]" : "hover:bg-[#eef6fc]"}`} onClick={() => { setShowAttachMenu(false); docsInputRef.current?.click(); }}>
-                        <FileText size={16} /> Documentos
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="relative">
+  <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.92 }}>
                     <Button
                       type="button"
                       variant="outline"
-                      className={`h-12 w-12 rounded-2xl px-0 ${iconBtn}`}
+                      className={`h-10 w-10 rounded-xl px-0 sm:h-12 sm:w-12 sm:rounded-2xl ${iconBtn}`}
                       onClick={() => {
-                        setShowEmoji(false);
-                        setShowCameraMenu((prev) => !prev);
+                        setShowAttachMenu(false);
+                        setShowAttachCameraSubmenu(false);
+                        setShowEmoji((prev) => !prev);
                       }}
-                      disabled={!activeThreadId}
-                    >
-                      <Camera size={18} />
-                    </Button>
-                    {showCameraMenu && (
-                      <div className={`absolute bottom-14 left-0 z-20 w-44 rounded-2xl border p-2 shadow-xl ${isDark ? "border-[#2a3942] bg-[#111b21]" : "border-[#bfd6e8] bg-white"}`}>
-                        <button type="button" className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm ${isDark ? "hover:bg-[#1f2c34]" : "hover:bg-[#eef6fc]"}`} onClick={() => openCameraModal("photo")}>
-                          <Camera size={16} /> Tomar foto
-                        </button>
-                        <button type="button" className={`mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm ${isDark ? "hover:bg-[#1f2c34]" : "hover:bg-[#eef6fc]"}`} onClick={() => openCameraModal("video")}>
-                          <Camera size={16} /> Grabar video
-                        </button>
-                      </div>
-                    )}
-                  </div>
+      disabled={!activeThreadId}
+    >
+      <Smile size={17} />
+    </Button>
+  </motion.div>
 
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={`h-12 w-12 rounded-2xl px-0 ${iconBtn}`}
-                    onClick={() => {
-                      setShowAttachMenu(false);
-                      setShowCameraMenu(false);
-                      setShowEmoji((prev) => !prev);
-                    }}
-                    disabled={!activeThreadId}
-                  >
-                    <Smile size={19} />
-                  </Button>
+  <div className="relative flex-1">
+    <textarea
+      className={`max-h-24 min-h-10 min-w-0 w-full rounded-2xl border p-2.5 text-sm sm:max-h-28 sm:min-h-12 sm:rounded-3xl sm:p-3 ${inputBg}`}
+      placeholder={activeThreadId ? "Escribe un mensaje" : "Selecciona una conversacion"}
+      value={chatInput}
+      onChange={(event) => setChatInput(event.target.value)}
+      disabled={!activeThreadId}
+    />
+  </div>
 
-                  <textarea
-                    className={`max-h-28 min-h-12 flex-1 rounded-3xl border p-3 text-sm ${inputBg}`}
-                    placeholder={activeThreadId ? "Escribe un mensaje" : "Selecciona una conversacion"}
-                    value={chatInput}
-                    onChange={(event) => setChatInput(event.target.value)}
-                    disabled={!activeThreadId}
-                  />
+  <div className="relative flex items-end gap-2">
+    <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.92 }}>
+      <Button
+        type="button"
+        variant="outline"
+        className={`h-10 w-10 rounded-xl px-0 sm:h-12 sm:w-12 sm:rounded-2xl ${iconBtn}`}
+        onClick={() => {
+          setShowAttachCameraSubmenu(false);
+          setShowEmoji(false);
+          setShowAttachMenu((prev) => !prev);
+        }}
+        disabled={!activeThreadId}
+      >
+        <Plus size={18} />
+      </Button>
+    </motion.div>
+  </div>
 
-                  <Button type="button" variant="outline" className={`h-12 w-12 rounded-2xl px-0 ${recording ? "border-red-400 text-red-400" : ""} ${iconBtn}`} onClick={handleVoiceToggle} disabled={!activeThreadId}>
-                    {recording ? <Square size={18} /> : <Mic size={19} />}
-                  </Button>
-                  <Button type="submit" className="h-12 w-12 rounded-2xl bg-[#63c35c] px-0 text-[#08260d] hover:bg-[#7ed877]" disabled={!activeThreadId}>
-                    <Send size={17} />
-                  </Button>
-                </form>
+  <AnimatePresence>
+    {showAttachMenu && (
+      <motion.div
+        initial={{ opacity: 0, y: 8, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 8, scale: 0.98 }}
+        transition={{ duration: 0.16 }}
+        className={`absolute bottom-12 right-12 z-20 w-60 rounded-2xl border p-2 shadow-xl sm:bottom-14 ${isDark ? "border-[#2a3942] bg-[#111b21]" : "border-[#bfd6e8] bg-white"}`}
+      >
+        <motion.button type="button" whileHover={{ x: 2 }} whileTap={{ scale: 0.98 }} className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm ${isDark ? "hover:bg-[#1f2c34]" : "hover:bg-[#eef6fc]"}`} onClick={() => { setShowAttachMenu(false); photoVideoInputRef.current?.click(); }}>
+          <ImageIcon size={16} /> Fotos y videos
+        </motion.button>
+        <motion.button type="button" whileHover={{ x: 2 }} whileTap={{ scale: 0.98 }} className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm ${isDark ? "hover:bg-[#1f2c34]" : "hover:bg-[#eef6fc]"}`} onClick={() => { setShowAttachMenu(false); docsInputRef.current?.click(); }}>
+          <FileText size={16} /> Documentos
+        </motion.button>
+
+        <div>
+          <motion.button
+            type="button"
+            whileHover={{ x: 2 }}
+            whileTap={{ scale: 0.98 }}
+            className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm ${isDark ? "hover:bg-[#1f2c34]" : "hover:bg-[#eef6fc]"}`}
+            onClick={() => setShowAttachCameraSubmenu((prev) => !prev)}
+          >
+            <span className="flex items-center gap-2"><Camera size={16} /> Camara</span>
+            <span className="text-xs opacity-70">{showAttachCameraSubmenu ? "^" : "v"}</span>
+          </motion.button>
+          <AnimatePresence>
+            {showAttachCameraSubmenu && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.18 }} className="overflow-hidden">
+                <motion.button type="button" whileHover={{ x: 2 }} whileTap={{ scale: 0.98 }} className={`mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm ${isDark ? "hover:bg-[#1f2c34]" : "hover:bg-[#eef6fc]"}`} onClick={() => openCameraModal("photo")}>
+                  <Camera size={16} /> Tomar foto
+                </motion.button>
+                <motion.button type="button" whileHover={{ x: 2 }} whileTap={{ scale: 0.98 }} className={`mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm ${isDark ? "hover:bg-[#1f2c34]" : "hover:bg-[#eef6fc]"}`} onClick={() => openCameraModal("video")}>
+                  <Camera size={16} /> Grabar video
+                </motion.button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </motion.div>
+    )}
+  </AnimatePresence>
+
+  <AnimatePresence mode="wait" initial={false}>
+    {hasTextToSend ? (
+      <motion.div key="send" whileHover={{ y: -1 }} whileTap={{ scale: 0.92 }} initial={{ opacity: 0, scale: 0.86 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.86 }} transition={{ duration: 0.15 }}>
+        <Button type="submit" className="h-10 w-10 rounded-xl bg-[#63c35c] px-0 text-[#08260d] hover:bg-[#7ed877] sm:h-12 sm:w-12 sm:rounded-2xl" disabled={!activeThreadId}>
+          <ArrowUp size={16} />
+        </Button>
+      </motion.div>
+    ) : (
+      <motion.div
+        key="mic"
+        whileHover={{ y: -1 }}
+        whileTap={{ scale: 0.92 }}
+        initial={{ opacity: 0, scale: 0.86 }}
+        animate={recording ? { opacity: 1, scale: [1, 1.06, 1] } : { opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.86 }}
+        transition={recording ? { duration: 0.9, repeat: Infinity, ease: "easeInOut" } : { duration: 0.2 }}
+      >
+        <Button
+          type="button"
+          variant="outline"
+          className={`h-10 w-10 rounded-xl px-0 sm:h-12 sm:w-12 sm:rounded-2xl ${recording ? "border-red-400 text-red-400" : ""} ${iconBtn}`}
+          onPointerDown={() => { void startVoiceRecording(); }}
+          onPointerUp={() => stopVoiceRecording(false)}
+          onPointerLeave={() => { if (recording) stopVoiceRecording(false); }}
+          onPointerCancel={() => stopVoiceRecording(true)}
+          disabled={!activeThreadId}
+        >
+          {recording ? <Square size={17} /> : <Mic size={17} />}
+        </Button>
+      </motion.div>
+    )}
+  </AnimatePresence>
+</form>
                 {chatError && <p className="mt-2 text-xs text-red-500">{chatError}</p>}
               </footer>
 
@@ -836,4 +1126,5 @@ export function ChatsPage() {
     </main>
   );
 }
+
 

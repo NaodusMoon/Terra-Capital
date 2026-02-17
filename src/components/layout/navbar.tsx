@@ -9,6 +9,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { useWallet } from "@/components/providers/wallet-provider";
 import { LogoBadge } from "@/components/layout/logo-badge";
 import { ModeToggle } from "@/components/layout/mode-toggle";
+import { NotificationsBell } from "@/components/layout/notifications-bell";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 
@@ -42,7 +43,7 @@ export function Navbar() {
       {!loading && !!user && (
         <>
           <div className="fixed left-1/2 top-3 z-50 -translate-x-1/2 md:hidden">
-            <div className="rounded-2xl border border-[var(--color-border)] bg-[color:color-mix(in_oklab,var(--color-surface)_95%,transparent)] p-1 shadow-lg backdrop-blur">
+            <div className="flex items-center gap-2 rounded-2xl border border-[var(--color-border)] bg-[color:color-mix(in_oklab,var(--color-surface)_95%,transparent)] p-1 shadow-lg backdrop-blur">
               <ModeToggle
                 mode={activeMode}
                 compact
@@ -53,6 +54,7 @@ export function Navbar() {
                   router.push(mode === "seller" ? "/seller" : "/buyer");
                 }}
               />
+              <NotificationsBell mobile />
             </div>
           </div>
           <div className="h-16 md:hidden" />
@@ -154,6 +156,7 @@ export function Navbar() {
                   <LogOut size={15} />
                   Salir
                 </Button>
+                <NotificationsBell />
               </>
             )}
           </div>

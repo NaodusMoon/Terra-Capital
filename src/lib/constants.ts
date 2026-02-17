@@ -12,6 +12,8 @@
   purchases: "terra_capital_purchases",
   chatThreads: "terra_capital_chat_threads",
   chatMessages: "terra_capital_chat_messages",
+  chatFavorites: "terra_capital_chat_favorites",
+  notificationsLastSeen: "terra_capital_notifications_last_seen",
 } as const;
 
 export const TERRA_ASSET_CODES = ["TRLAND", "TRCROP", "TRLIVE"] as const;
