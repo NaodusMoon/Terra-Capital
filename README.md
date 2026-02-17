@@ -49,6 +49,10 @@ npm run db:supabase:migrate
 
 Esto ejecuta `supabase/migrations/0001_app_users.sql` usando `DATABASE_URL`.
 
+Marketplace, compras y chats ahora se guardan en PostgreSQL (no en localStorage).
+Ese flujo depende tambien de:
+- `supabase/migrations/0002_marketplace.sql`
+
 ## Deploy en Cloudflare (Pages/Workers runtime)
 
 Se agrego soporte con OpenNext para correr Next.js en el runtime de Cloudflare y usar:
