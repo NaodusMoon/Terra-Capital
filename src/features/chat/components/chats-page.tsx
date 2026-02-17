@@ -75,82 +75,6 @@ function dataUrlToFile(dataUrl: string, filename: string) {
   return new File([bytes], filename, { type: mimeType });
 }
 
-function encodeWavFromAudioBuffer(buffer: AudioBuffer) {
-  const channels = buffer.numberOfChannels;
-  const sampleRate = buffer.sampleRate;
-  const length = buffer.length * channels * 2;
-  const wav = new ArrayBuffer(44 + length);
-  const view = new DataView(wav);
-
-  const writeString = (offset: number, value: string) => {
-    for (let index = 0; index < value.length; index += 1) {
-      view.setUint8(offset + index, value.charCodeAt(index));
-    }
-  };
-
-  writeString(0, "RIFF");
-  view.setUint32(4, 36 + length, true);
-  writeString(8, "WAVE");
-  writeString(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, channels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * channels * 2, true);
-  view.setUint16(32, channels * 2, true);
-  view.setUint16(34, 16, true);
-  writeString(36, "data");
-  view.setUint32(40, length, true);
-
-  let offset = 44;
-  for (let sampleIndex = 0; sampleIndex < buffer.length; sampleIndex += 1) {
-    for (let channel = 0; channel < channels; channel += 1) {
-      const value = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[sampleIndex]));
-      view.setInt16(offset, value < 0 ? value * 0x8000 : value * 0x7fff, true);
-      offset += 2;
-    }
-  }
-
-  return new Blob([wav], { type: "audio/wav" });
-}
-
-async function mergeAudioSegmentsAsWav(segments: Blob[]) {
-  if (segments.length === 0) return null;
-
-  const audioContext = new AudioContext();
-  try {
-    let decoded: AudioBuffer[];
-    try {
-      decoded = await Promise.all(
-        segments.map(async (segment) => {
-          const arrayBuffer = await segment.arrayBuffer();
-          return audioContext.decodeAudioData(arrayBuffer.slice(0));
-        }),
-      );
-    } catch {
-      return new Blob(segments, { type: segments[0].type || "audio/webm" });
-    }
-    const channelCount = Math.max(...decoded.map((buffer) => buffer.numberOfChannels));
-    const sampleRate = decoded[0].sampleRate;
-    const totalLength = decoded.reduce((sum, buffer) => sum + buffer.length, 0);
-    const merged = audioContext.createBuffer(channelCount, totalLength, sampleRate);
-
-    let cursor = 0;
-    for (const chunk of decoded) {
-      for (let channel = 0; channel < channelCount; channel += 1) {
-        const target = merged.getChannelData(channel);
-        const source = chunk.getChannelData(Math.min(channel, chunk.numberOfChannels - 1));
-        target.set(source, cursor);
-      }
-      cursor += chunk.length;
-    }
-
-    return encodeWavFromAudioBuffer(merged);
-  } finally {
-    await audioContext.close();
-  }
-}
-
 function getAttachmentKind(file: File): "image" | "video" | "audio" | "document" {
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
@@ -183,43 +107,113 @@ function StatusIcon({ message }: { message: ChatMessage }) {
 function WaveAudioPlayer({
   src,
   compact = false,
+  expectedMimeType,
 }: {
   src: string;
   compact?: boolean;
+  expectedMimeType?: string;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const waveformCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [speedIndex, setSpeedIndex] = useState(0);
+  const [waveform, setWaveform] = useState<number[]>([]);
+  const [playableSrc, setPlayableSrc] = useState(src);
+  const [audioReadyState, setAudioReadyState] = useState(0);
+  const [audioNetworkState, setAudioNetworkState] = useState(0);
+  const [lastAudioError, setLastAudioError] = useState<string | null>(null);
+
+  const sourceKind = src.startsWith("data:") ? "data" : src.startsWith("blob:") ? "blob" : "url";
+
+  useEffect(() => {
+    if (!src.startsWith("data:")) {
+      setPlayableSrc(src);
+      return;
+    }
+
+    try {
+      const [meta, base64] = src.split(",");
+      if (!meta || !base64) {
+        setPlayableSrc(src);
+        return;
+      }
+      const mimeMatch = meta.match(/data:(.*?);base64/);
+      const mimeType = mimeMatch?.[1] ?? "application/octet-stream";
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      const objectUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+      setPlayableSrc(objectUrl);
+      return () => URL.revokeObjectURL(objectUrl);
+    } catch {
+      setPlayableSrc(src);
+      return;
+    }
+  }, [src]);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
+    setReady(false);
+    setPlaying(false);
+    setDuration(0);
+    setCurrentTime(0);
+    setLastAudioError(null);
+    setAudioReadyState(audio.readyState);
+    setAudioNetworkState(audio.networkState);
+
     const onLoaded = () => {
       setReady(true);
       setDuration(audio.duration || 0);
       setCurrentTime(audio.currentTime || 0);
+      setAudioReadyState(audio.readyState);
+      setAudioNetworkState(audio.networkState);
+    };
+    const onCanPlay = () => {
+      setAudioReadyState(audio.readyState);
+      setAudioNetworkState(audio.networkState);
     };
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
-    const onTimeUpdate = () => setCurrentTime(audio.currentTime || 0);
+    const onTimeUpdate = () => {
+      setCurrentTime(audio.currentTime || 0);
+      setAudioReadyState(audio.readyState);
+      setAudioNetworkState(audio.networkState);
+    };
     const onEnded = () => setPlaying(false);
     const onError = () => {
       setReady(false);
       setPlaying(false);
+      const code = audio.error?.code;
+      const codeLabel = code === 1
+        ? "MEDIA_ERR_ABORTED"
+        : code === 2
+          ? "MEDIA_ERR_NETWORK"
+          : code === 3
+            ? "MEDIA_ERR_DECODE"
+            : code === 4
+              ? "MEDIA_ERR_SRC_NOT_SUPPORTED"
+              : "UNKNOWN";
+      setLastAudioError(`error=${codeLabel} (${code ?? "-"})`);
+      setAudioReadyState(audio.readyState);
+      setAudioNetworkState(audio.networkState);
     };
 
     audio.addEventListener("loadedmetadata", onLoaded);
+    audio.addEventListener("canplay", onCanPlay);
     audio.addEventListener("play", onPlay);
     audio.addEventListener("pause", onPause);
     audio.addEventListener("timeupdate", onTimeUpdate);
     audio.addEventListener("ended", onEnded);
     audio.addEventListener("error", onError);
     audio.preload = "metadata";
-    audio.src = src;
+    audio.src = playableSrc;
     audio.load();
     if (audio.readyState >= 1 && Number.isFinite(audio.duration)) {
       onLoaded();
@@ -228,13 +222,14 @@ function WaveAudioPlayer({
     return () => {
       audio.pause();
       audio.removeEventListener("loadedmetadata", onLoaded);
+      audio.removeEventListener("canplay", onCanPlay);
       audio.removeEventListener("play", onPlay);
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("timeupdate", onTimeUpdate);
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("error", onError);
     };
-  }, [src]);
+  }, [playableSrc]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -242,11 +237,117 @@ function WaveAudioPlayer({
     }
   }, [speedIndex]);
 
+  useEffect(() => {
+    let cancelled = false;
+    let context: AudioContext | null = null;
+
+    const buildWaveform = async () => {
+      try {
+        const response = await fetch(playableSrc);
+        const buffer = await response.arrayBuffer();
+        context = new AudioContext();
+        const decoded = await context.decodeAudioData(buffer.slice(0));
+        if (cancelled) return;
+        const channel = decoded.getChannelData(0);
+        const bars = 56;
+        const chunkSize = Math.max(1, Math.floor(channel.length / bars));
+        const samples: number[] = [];
+        for (let bar = 0; bar < bars; bar += 1) {
+          const start = bar * chunkSize;
+          const end = Math.min(channel.length, start + chunkSize);
+          let peak = 0;
+          for (let index = start; index < end; index += 1) {
+            const value = Math.abs(channel[index] ?? 0);
+            if (value > peak) peak = value;
+          }
+          samples.push(peak);
+        }
+        const maxPeak = samples.reduce((max, value) => (value > max ? value : max), 0.0001);
+        setWaveform(samples.map((value) => Math.max(0.08, value / maxPeak)));
+      } catch {
+        if (!cancelled) {
+          setWaveform([]);
+        }
+      } finally {
+        if (context) {
+          void context.close();
+        }
+      }
+    };
+
+    void buildWaveform();
+    return () => {
+      cancelled = true;
+      if (context) {
+        void context.close();
+      }
+    };
+  }, [playableSrc]);
+
+  useEffect(() => {
+    const canvas = waveformCanvasRef.current;
+    if (!canvas) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+
+    const ratio = window.devicePixelRatio || 1;
+    const cssWidth = Math.max(canvas.clientWidth, 120);
+    const cssHeight = Math.max(canvas.clientHeight, 30);
+    if (canvas.width !== Math.floor(cssWidth * ratio) || canvas.height !== Math.floor(cssHeight * ratio)) {
+      canvas.width = Math.floor(cssWidth * ratio);
+      canvas.height = Math.floor(cssHeight * ratio);
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    }
+
+    context.clearRect(0, 0, cssWidth, cssHeight);
+
+    const values = waveform.length > 0 ? waveform : Array.from({ length: 44 }, (_, index) => 0.18 + (index % 3) * 0.04);
+    const gap = 2;
+    const barWidth = Math.max((cssWidth - gap * (values.length - 1)) / values.length, 1);
+    const progressX = cssWidth * (duration > 0 ? Math.min(1, currentTime / duration) : 0);
+    const computed = window.getComputedStyle(document.documentElement);
+    const played = computed.getPropertyValue("--color-primary").trim() || "#4b9940";
+    const pending = computed.getPropertyValue("--color-border").trim() || "#cfdecc";
+
+    values.forEach((sample, index) => {
+      const x = index * (barWidth + gap);
+      const barHeight = Math.max(4, sample * (cssHeight - 4));
+      const y = (cssHeight - barHeight) / 2;
+      context.fillStyle = x + barWidth <= progressX ? played : pending;
+      context.fillRect(x, y, barWidth, barHeight);
+    });
+
+    if (duration > 0) {
+      context.fillStyle = played;
+      context.fillRect(Math.max(0, progressX - 1), 0, 2, cssHeight);
+    }
+  }, [currentTime, duration, waveform]);
+
+  useEffect(() => {
+    if (!playing) return;
+    const audio = audioRef.current;
+    if (!audio) return;
+    let frame = 0;
+    const tick = () => {
+      setCurrentTime(audio.currentTime || 0);
+      frame = window.requestAnimationFrame(tick);
+    };
+    frame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frame);
+  }, [playing]);
+
   const togglePlay = () => {
     const audio = audioRef.current;
-    if (!audio || !ready) return;
+    if (!audio) return;
+    if (!ready) {
+      setLastAudioError("audio_no_listo: esperando metadata/canplay");
+      audio.load();
+      return;
+    }
     if (audio.paused) {
-      void audio.play();
+      void audio.play().catch((error) => {
+        setLastAudioError(`play() fallo: ${error instanceof Error ? error.message : "desconocido"}`);
+      });
     } else {
       audio.pause();
     }
@@ -261,17 +362,24 @@ function WaveAudioPlayer({
   };
 
   const remaining = Math.max(0, duration - currentTime);
-  const progress = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
+  const diagnosticLine = [
+    `src=${sourceKind}`,
+    `mime=${expectedMimeType || "?"}`,
+    `ready=${ready ? "si" : "no"}`,
+    `rs=${audioReadyState}`,
+    `net=${audioNetworkState}`,
+    `dur=${duration > 0 ? duration.toFixed(2) : "0.00"}s`,
+  ].join(" | ");
 
   return (
     <div className={`terra-wave-player ${compact ? "terra-wave-player--compact" : ""}`}>
       <audio ref={audioRef} className="hidden" />
-      <button type="button" className="terra-wave-btn" onClick={togglePlay} disabled={!ready}>
+      <button type="button" className="terra-wave-btn" onClick={togglePlay}>
         {playing ? <Pause size={14} /> : <Play size={14} />}
       </button>
       <div className="terra-wave-content">
         <div className="terra-wave-canvas">
-          <span className="terra-wave-progress" style={{ width: `${progress}%` }} />
+          <canvas ref={waveformCanvasRef} className="terra-wave-visual" aria-hidden />
         </div>
         <div className="terra-wave-meta">
           <span>{duration > 0 ? `-${formatAudioTime(remaining)}` : "--:--"}</span>
@@ -279,6 +387,8 @@ function WaveAudioPlayer({
             {audioSpeeds[speedIndex]}x
           </button>
         </div>
+        <p className="terra-wave-diagnostic">{diagnosticLine}</p>
+        {lastAudioError && <p className="terra-wave-diagnostic terra-wave-diagnostic--error">{lastAudioError}</p>}
       </div>
     </div>
   );
@@ -312,7 +422,7 @@ function MessageBody({ message }: { message: ChatMessage }) {
   if (message.kind === "audio") {
     return (
       <div className="space-y-2 min-w-[220px] sm:min-w-[240px]">
-        <WaveAudioPlayer src={attachment.dataUrl} compact />
+        <WaveAudioPlayer src={attachment.dataUrl} expectedMimeType={attachment.mimeType} compact />
         {message.text && <p>{message.text}</p>}
       </div>
     );
@@ -336,13 +446,13 @@ export function ChatsPage() {
   const isDark = resolvedTheme === "dark";
   const router = useRouter();
   const searchParams = useSearchParams();
+  const threadIdParam = searchParams.get("threadId");
   const assetIdParam = searchParams.get("assetId");
+  const handledThreadIdRef = useRef<string | null>(null);
   const handledAssetIdRef = useRef<string | null>(null);
   const photoVideoInputRef = useRef<HTMLInputElement | null>(null);
   const docsInputRef = useRef<HTMLInputElement | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
-  const voiceSegmentsRef = useRef<Blob[]>([]);
-  const voiceStopReasonRef = useRef<"pause" | "finish" | "delete" | null>(null);
   const voiceStreamRef = useRef<MediaStream | null>(null);
   const voiceTimerRef = useRef<number | null>(null);
   const voiceRecorderRef = useRef<MediaRecorder | null>(null);
@@ -365,6 +475,8 @@ export function ChatsPage() {
   const [voiceState, setVoiceState] = useState<VoiceRecordState>("idle");
   const [voicePreviewBlob, setVoicePreviewBlob] = useState<Blob | null>(null);
   const [voicePreviewUrl, setVoicePreviewUrl] = useState<string | null>(null);
+  const [voicePreparingPreview, setVoicePreparingPreview] = useState(false);
+  const [voiceSending, setVoiceSending] = useState(false);
   const [retryMessageId, setRetryMessageId] = useState<string | null>(null);
   const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -404,13 +516,17 @@ export function ChatsPage() {
 
     try {
       let preferredThreadId: string | null = null;
+      if (threadIdParam && handledThreadIdRef.current !== threadIdParam) {
+        handledThreadIdRef.current = threadIdParam;
+        preferredThreadId = threadIdParam;
+      }
       if (assetIdParam && handledAssetIdRef.current !== assetIdParam) {
         handledAssetIdRef.current = assetIdParam;
         const ensuredThread = await ensureBuyerThreadForAsset(assetIdParam, user);
         if (!ensuredThread.ok) {
           setChatError(ensuredThread.message);
         } else {
-          preferredThreadId = ensuredThread.thread.id;
+          preferredThreadId = preferredThreadId ?? ensuredThread.thread.id;
         }
       }
 
@@ -437,7 +553,7 @@ export function ChatsPage() {
       setAssets(getAssets());
       setThreads(getUserThreads(user.id));
     }
-  }, [assetIdParam, manuallyClosedChat, user]);
+  }, [assetIdParam, manuallyClosedChat, threadIdParam, user]);
 
   useEffect(() => {
     if (loading || !walletReady) return;
@@ -528,18 +644,6 @@ export function ChatsPage() {
       cameraRecorderRef.current?.stream.getTracks().forEach((track) => track.stop());
     };
   }, []);
-
-  useEffect(() => {
-    return () => {
-      if (capturedVideoUrl) URL.revokeObjectURL(capturedVideoUrl);
-    };
-  }, [capturedVideoUrl]);
-
-  useEffect(() => {
-    return () => {
-      if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
-    };
-  }, [voicePreviewUrl]);
 
   useEffect(() => {
     document.body.classList.add("chat-page-lock");
@@ -710,11 +814,27 @@ export function ChatsPage() {
   const drawLiveVoiceVisualization = () => {
     const canvas = voiceLiveCanvasRef.current;
     const analyser = voiceLiveAnalyserRef.current;
-    if (!canvas || !analyser) return;
+    if (!analyser) {
+      if (voiceRecorderRef.current?.state === "recording") {
+        voiceLiveAnimationRef.current = window.requestAnimationFrame(drawLiveVoiceVisualization);
+      }
+      return;
+    }
+    if (!canvas) {
+      if (voiceRecorderRef.current?.state === "recording") {
+        voiceLiveAnimationRef.current = window.requestAnimationFrame(drawLiveVoiceVisualization);
+      }
+      return;
+    }
     const data = new Uint8Array(analyser.frequencyBinCount);
 
     const context = canvas.getContext("2d");
-    if (!context) return;
+    if (!context) {
+      if (voiceRecorderRef.current?.state === "recording") {
+        voiceLiveAnimationRef.current = window.requestAnimationFrame(drawLiveVoiceVisualization);
+      }
+      return;
+    }
 
     const ratio = window.devicePixelRatio || 1;
     const cssWidth = Math.max(canvas.clientWidth, 120);
@@ -756,6 +876,9 @@ export function ChatsPage() {
     voiceLiveAudioContextRef.current = audioContext;
     voiceLiveAnalyserRef.current = analyser;
     voiceLiveSourceRef.current = source;
+    if (audioContext.state === "suspended") {
+      void audioContext.resume();
+    }
     voiceLiveAnimationRef.current = window.requestAnimationFrame(drawLiveVoiceVisualization);
   };
 
@@ -778,22 +901,21 @@ export function ChatsPage() {
     voiceStreamRef.current = null;
   };
 
-  const rebuildVoicePreview = async () => {
-    const merged = await mergeAudioSegmentsAsWav(voiceSegmentsRef.current);
-    if (!merged || merged.size === 0) return false;
-    voicePreviewBlobRef.current = merged;
-    setVoicePreviewBlob(merged);
+  const rebuildVoicePreviewFromChunks = () => {
+    if (voiceChunksRef.current.length === 0) return false;
+    const blob = new Blob(voiceChunksRef.current);
+    if (blob.size === 0) return false;
+    voicePreviewBlobRef.current = blob;
+    setVoicePreviewBlob(blob);
     setVoicePreviewUrl((current) => {
       if (current) URL.revokeObjectURL(current);
-      return URL.createObjectURL(merged);
+      return URL.createObjectURL(blob);
     });
     return true;
   };
 
   const createVoiceRecorder = (stream: MediaStream) => {
-    const preferredTypes = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4", "audio/webm"];
-    const selectedMimeType = preferredTypes.find((entry) => MediaRecorder.isTypeSupported(entry)) ?? "";
-    const recorder = selectedMimeType ? new MediaRecorder(stream, { mimeType: selectedMimeType }) : new MediaRecorder(stream);
+    const recorder = new MediaRecorder(stream);
     voiceChunksRef.current = [];
 
     recorder.ondataavailable = (event) => {
@@ -803,43 +925,16 @@ export function ChatsPage() {
     };
 
     recorder.onstop = () => {
-      const segmentType = recorder.mimeType || "audio/webm";
-      if (voiceChunksRef.current.length > 0) {
-        const segment = new Blob(voiceChunksRef.current, { type: segmentType });
-        if (segment.size > 0) {
-          voiceSegmentsRef.current.push(segment);
-        }
-      }
-      voiceChunksRef.current = [];
-
-      const reason = voiceStopReasonRef.current;
-      voiceStopReasonRef.current = null;
-
-      void (async () => {
-        const hasPreview = await rebuildVoicePreview();
-        if (reason === "delete") {
-          setVoiceState("idle");
-          setRecordingDuration(0);
-          return;
-        }
-        if (reason === "pause") {
-          stopVoiceTimer();
-          stopLiveVoiceVisualization();
-          setVoiceState(hasPreview ? "paused" : "idle");
-          return;
-        }
-        stopVoiceRuntime();
-        if (hasPreview) {
-          setVoiceState("preview");
-        } else {
-          setVoiceState("idle");
-          setRecordingDuration(0);
-        }
-      })();
+      stopVoiceRuntime();
+      setVoicePreparingPreview(true);
+      const hasPreview = rebuildVoicePreviewFromChunks();
+      setVoicePreparingPreview(false);
+      setVoiceState(hasPreview ? "preview" : "idle");
+      if (!hasPreview) setRecordingDuration(0);
     };
 
     voiceRecorderRef.current = recorder;
-    recorder.start(250);
+    recorder.start();
   };
 
   const stopVoiceRuntime = () => {
@@ -872,9 +967,11 @@ export function ChatsPage() {
         },
       });
       voiceStreamRef.current = stream;
-      voiceSegmentsRef.current = [];
+      voiceChunksRef.current = [];
       clearVoicePreview();
       setRecordingDuration(0);
+      setVoicePreparingPreview(false);
+      setVoiceSending(false);
       createVoiceRecorder(stream);
       startLiveVoiceVisualization(stream);
       setVoiceState("recording");
@@ -904,27 +1001,31 @@ export function ChatsPage() {
     const recorder = voiceRecorderRef.current;
     if (!recorder) return;
     if (recorder.state === "recording") {
-      voiceStopReasonRef.current = "pause";
-      recorder.stop();
+      recorder.pause();
+      stopVoiceTimer();
+      stopLiveVoiceVisualization();
+      setVoiceState("paused");
     }
   };
 
   const resumeVoiceRecording = () => {
+    const recorder = voiceRecorderRef.current;
     const stream = voiceStreamRef.current;
-    if (!stream) return;
-    createVoiceRecorder(stream);
-    setVoiceState("recording");
-    startLiveVoiceVisualization(stream);
-    voiceTimerRef.current = window.setInterval(() => {
-      setRecordingDuration((prev) => prev + 1);
-    }, 1000);
+    if (!recorder || !stream) return;
+    if (recorder.state === "paused") {
+      recorder.resume();
+      setVoiceState("recording");
+      startLiveVoiceVisualization(stream);
+      voiceTimerRef.current = window.setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+    }
   };
 
   const finalizeVoiceRecording = () => {
     const recorder = voiceRecorderRef.current;
     if (!recorder) return;
     if (recorder.state !== "inactive") {
-      voiceStopReasonRef.current = "finish";
       recorder.stop();
     }
   };
@@ -932,24 +1033,28 @@ export function ChatsPage() {
   const deleteVoiceRecording = () => {
     const recorder = voiceRecorderRef.current;
     if (recorder && recorder.state !== "inactive") {
-      voiceStopReasonRef.current = "delete";
+      recorder.onstop = null;
       recorder.stop();
     }
     stopVoiceRuntime();
     voiceRecorderRef.current = null;
     voiceChunksRef.current = [];
-    voiceSegmentsRef.current = [];
     clearVoicePreview();
     setRecordingDuration(0);
+    setVoicePreparingPreview(false);
+    setVoiceSending(false);
     setVoiceState("idle");
   };
 
   const sendVoiceRecording = async () => {
     if (!activeThreadId || !user) return;
-    if (voiceState === "recording") return;
-    const blob = voicePreviewBlobRef.current ?? voicePreviewBlob;
+    if (voiceState !== "preview" || voicePreparingPreview || voiceSending) return;
+    setVoiceSending(true);
+    const sourceBlob = voicePreviewBlobRef.current ?? voicePreviewBlob;
+    const blob = sourceBlob ?? null;
     if (!blob || blob.size === 0) {
       setChatError("No hay audio para enviar.");
+      setVoiceSending(false);
       return;
     }
 
@@ -983,6 +1088,7 @@ export function ChatsPage() {
           },
         });
         setChatError(result.message);
+        setVoiceSending(false);
         return;
       }
       deleteVoiceRecording();
@@ -992,6 +1098,8 @@ export function ChatsPage() {
         kind: "audio",
       });
       setChatError("No se pudo enviar la nota de voz.");
+    } finally {
+      setVoiceSending(false);
     }
   };
 
@@ -1391,10 +1499,15 @@ export function ChatsPage() {
                       <span className={`font-semibold ${voiceState === "recording" ? "text-red-400" : "text-[var(--color-muted)]"}`}>
                         {voiceState === "recording" ? "Grabando" : voiceState === "paused" ? "Pausado" : "Listo para enviar"} {formatRecordingDuration(recordingDuration)}
                       </span>
+                      {voicePreparingPreview && <span className="text-[11px] text-[var(--color-muted)]">Procesando audio...</span>}
+                      {voiceSending && <span className="text-[11px] text-[var(--color-muted)]">Enviando audio...</span>}
                     </div>
                     <div className="mt-2 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-2 py-2">
                       {voiceState === "recording" && (
                         <canvas ref={voiceLiveCanvasRef} className="h-[38px] w-full" />
+                      )}
+                      {voiceState === "paused" && (
+                        <p className="px-2 py-2 text-[11px] text-[var(--color-muted)]">Preview disponible al terminar la grabacion.</p>
                       )}
                       {!voicePreviewBlob && voiceState === "preview" && (
                         <p className="px-2 py-2 text-[11px] text-[var(--color-muted)]">Sin audio disponible.</p>
@@ -1402,7 +1515,7 @@ export function ChatsPage() {
                     </div>
                     {(voiceState === "paused" || voiceState === "preview") && voicePreviewUrl && (
                       <div className="mt-2">
-                        <WaveAudioPlayer src={voicePreviewUrl} />
+                        <WaveAudioPlayer src={voicePreviewUrl} expectedMimeType={voicePreviewBlob?.type} />
                       </div>
                     )}
                     <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1411,30 +1524,27 @@ export function ChatsPage() {
                           <Button type="button" variant="outline" className={`h-9 rounded-xl px-3 ${iconBtn}`} onClick={pauseVoiceRecording}>
                             <Pause size={14} className="mr-1" /> Pausar
                           </Button>
-                          <Button type="button" variant="outline" className={`h-9 rounded-xl px-3 ${iconBtn}`} onClick={finalizeVoiceRecording}>
+                          <Button type="button" variant="outline" className={`h-9 rounded-xl px-3 ${iconBtn}`} onClick={finalizeVoiceRecording} disabled={voicePreparingPreview || voiceSending}>
                             <Square size={14} className="mr-1" /> Terminar
                           </Button>
                         </>
                       )}
                       {voiceState === "paused" && (
                         <>
-                          <Button type="button" variant="outline" className={`h-9 rounded-xl px-3 ${iconBtn}`} onClick={resumeVoiceRecording}>
+                          <Button type="button" variant="outline" className={`h-9 rounded-xl px-3 ${iconBtn}`} onClick={resumeVoiceRecording} disabled={voicePreparingPreview || voiceSending}>
                             <Play size={14} className="mr-1" /> Reanudar
                           </Button>
-                          <Button type="button" variant="outline" className={`h-9 rounded-xl px-3 ${iconBtn}`} onClick={finalizeVoiceRecording}>
+                          <Button type="button" variant="outline" className={`h-9 rounded-xl px-3 ${iconBtn}`} onClick={finalizeVoiceRecording} disabled={voicePreparingPreview || voiceSending}>
                             <Square size={14} className="mr-1" /> Terminar
-                          </Button>
-                          <Button type="button" className="h-9 rounded-xl bg-[#63c35c] px-3 text-[#08260d] hover:bg-[#7ed877]" onClick={() => { void sendVoiceRecording(); }}>
-                            <ArrowUp size={14} className="mr-1" /> Enviar
                           </Button>
                         </>
                       )}
                       {voiceState === "preview" && (
-                        <Button type="button" className="h-9 rounded-xl bg-[#63c35c] px-3 text-[#08260d] hover:bg-[#7ed877]" onClick={() => { void sendVoiceRecording(); }}>
-                          <ArrowUp size={14} className="mr-1" /> Enviar audio
+                        <Button type="button" className="h-9 rounded-xl bg-[#63c35c] px-3 text-[#08260d] hover:bg-[#7ed877]" onClick={() => { void sendVoiceRecording(); }} disabled={voicePreparingPreview || voiceSending}>
+                          <ArrowUp size={14} className="mr-1" /> {voiceSending ? "Enviando..." : "Enviar audio"}
                         </Button>
                       )}
-                      <Button type="button" variant="outline" className="h-9 rounded-xl border-red-400 px-3 text-red-400 hover:bg-red-500/10" onClick={deleteVoiceRecording}>
+                      <Button type="button" variant="outline" className="h-9 rounded-xl border-red-400 px-3 text-red-400 hover:bg-red-500/10" onClick={deleteVoiceRecording} disabled={voicePreparingPreview || voiceSending}>
                         <Trash2 size={14} className="mr-1" /> Eliminar
                       </Button>
                     </div>
@@ -1555,7 +1665,7 @@ export function ChatsPage() {
           variant="outline"
           className={`h-11 w-11 rounded-xl px-0 sm:h-12 sm:w-12 sm:rounded-2xl ${iconBtn}`}
           onClick={() => { void startVoiceRecording(); }}
-          disabled={!activeThreadId}
+          disabled={!activeThreadId || voicePreparingPreview || voiceSending}
         >
           <Mic size={actionIconSize} />
         </Button>

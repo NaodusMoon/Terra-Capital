@@ -64,7 +64,7 @@ export function NotificationsBell({ mobile = false }: { mobile?: boolean }) {
           type: "message" as const,
           text: `${pending.length} mensaje(s) nuevo(s) de ${getCounterpartName(thread, user.id)}`,
           createdAt: latest.createdAt,
-          href: "/chats",
+          href: `/chats?threadId=${encodeURIComponent(thread.id)}`,
         };
       })
       .filter(Boolean) as NotificationItem[];

@@ -58,7 +58,7 @@ export function Navbar() {
               <NotificationsBell mobile />
             </div>
           </div>
-          <div className="h-16 md:hidden" />
+          <div className="chat-mobile-spacer h-16 md:hidden" />
         </>
       )}
 
