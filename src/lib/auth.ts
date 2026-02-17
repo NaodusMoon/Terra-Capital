@@ -34,6 +34,10 @@ type LoginApiFailure = {
   requiresName?: boolean;
 };
 
+interface LocalUsersMap {
+  [walletAddress: string]: AppUser;
+}
+
 function writeSession(userId: string, activeMode: UserMode) {
   const session: Session = { userId, activeMode };
   writeLocalStorage(STORAGE_KEYS.session, session);
@@ -41,6 +45,55 @@ function writeSession(userId: string, activeMode: UserMode) {
 
 function writeCurrentUser(user: AppUser) {
   writeLocalStorage(STORAGE_KEYS.authUser, user);
+}
+
+function readLocalUsers() {
+  return readLocalStorage<LocalUsersMap>(STORAGE_KEYS.users, {});
+}
+
+function writeLocalUsers(users: LocalUsersMap) {
+  writeLocalStorage(STORAGE_KEYS.users, users);
+}
+
+function loginWithLocalFallback(walletAddress: string, fullName: string) {
+  const users = readLocalUsers();
+  const existing = users[walletAddress];
+  const now = new Date().toISOString();
+
+  if (existing) {
+    const updatedUser: AppUser = fullName && fullName !== existing.fullName
+      ? { ...existing, fullName, updatedAt: now }
+      : existing;
+    users[walletAddress] = updatedUser;
+    writeLocalUsers(users);
+    writeCurrentUser(updatedUser);
+    writeSession(updatedUser.id, "buyer");
+    return { ok: true as const, user: updatedUser, activeMode: "buyer" as const, isNewUser: false as const };
+  }
+
+  if (!fullName) {
+    return {
+      ok: false as const,
+      requiresName: true as const,
+      message: "Primer acceso: indica tu nombre para crear el perfil.",
+    };
+  }
+
+  const newUser: AppUser = {
+    id: crypto.randomUUID(),
+    fullName,
+    organization: undefined,
+    stellarPublicKey: walletAddress,
+    sellerVerificationStatus: "unverified",
+    sellerVerificationData: undefined,
+    createdAt: now,
+    updatedAt: now,
+  };
+  users[walletAddress] = newUser;
+  writeLocalUsers(users);
+  writeCurrentUser(newUser);
+  writeSession(newUser.id, "buyer");
+  return { ok: true as const, user: newUser, activeMode: "buyer" as const, isNewUser: true as const };
 }
 
 export function getCurrentSession() {
@@ -72,32 +125,39 @@ export async function loginUser(input: LoginInput) {
   if (!isValidStellarPublicKey(walletAddress)) {
     return { ok: false as const, message: "Primero debes conectar una wallet valida." };
   }
+  try {
+    const response = await fetch("/api/auth/wallet-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        walletAddress,
+        fullName: fullName || undefined,
+      }),
+    });
 
-  const response = await fetch("/api/auth/wallet-login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      walletAddress,
-      fullName: fullName || undefined,
-    }),
-  });
+    const payload = await parseResponse<LoginApiSuccess | LoginApiFailure>(response);
+    if (!payload) {
+      return { ok: false as const, message: "Respuesta invalida del servidor." };
+    }
+    if (!payload.ok) {
+      const maybeDbConfigIssue = payload.message.toLowerCase().includes("database_url");
+      if (maybeDbConfigIssue) {
+        return loginWithLocalFallback(walletAddress, fullName);
+      }
+      return {
+        ok: false as const,
+        message: payload.message,
+        requiresName: payload.requiresName ?? false,
+      };
+    }
 
-  const payload = await parseResponse<LoginApiSuccess | LoginApiFailure>(response);
-  if (!payload) {
-    return { ok: false as const, message: "Respuesta invalida del servidor." };
+    const activeMode: UserMode = "buyer";
+    writeCurrentUser(payload.user);
+    writeSession(payload.user.id, activeMode);
+    return { ok: true as const, user: payload.user, activeMode, isNewUser: payload.isNewUser };
+  } catch {
+    return loginWithLocalFallback(walletAddress, fullName);
   }
-  if (!payload.ok) {
-    return {
-      ok: false as const,
-      message: payload.message,
-      requiresName: payload.requiresName ?? false,
-    };
-  }
-
-  const activeMode: UserMode = "buyer";
-  writeCurrentUser(payload.user);
-  writeSession(payload.user.id, activeMode);
-  return { ok: true as const, user: payload.user, activeMode, isNewUser: payload.isNewUser };
 }
 
 export function setActiveMode(mode: UserMode) {

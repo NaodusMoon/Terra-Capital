@@ -59,9 +59,16 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, user: mapDbUser(created.rows[0]), isNewUser: true });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "No se pudo iniciar sesion.";
+    const isDbConfigIssue = message.toLowerCase().includes("database_url");
     return NextResponse.json(
-      { ok: false, message: error instanceof Error ? error.message : "No se pudo iniciar sesion." },
-      { status: 500 },
+      {
+        ok: false,
+        message: isDbConfigIssue
+          ? "DATABASE_URL no esta configurada. El login backend no esta disponible."
+          : message,
+      },
+      { status: isDbConfigIssue ? 503 : 500 },
     );
   }
 }

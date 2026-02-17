@@ -50,6 +50,29 @@ function normalizeAddress(raw: string) {
   return raw.trim();
 }
 
+function isMobileLikeDevice() {
+  if (typeof window === "undefined") return false;
+  const compactViewport = window.matchMedia("(max-width: 1024px)").matches;
+  const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  return compactViewport || coarsePointer;
+}
+
+async function fallbackToAlbedoOnMobile(defaultMessage: string) {
+  if (!isMobileLikeDevice()) {
+    return {
+      ok: false as const,
+      message: defaultMessage,
+    };
+  }
+
+  const albedoResult = await connectAlbedoWallet();
+  if (albedoResult.ok) return albedoResult;
+  return {
+    ok: false as const,
+    message: defaultMessage,
+  };
+}
+
 function parseXBullPublicKey(value: Awaited<ReturnType<NonNullable<Window["xBullSDK"]>["getPublicKey"]>>) {
   if (typeof value === "string") return value;
   if (value?.publicKey) return value.publicKey;
@@ -117,20 +140,14 @@ export function removeUserWallet(userId: string) {
 async function connectFreighterWallet() {
   const connected = await isConnected();
   if (connected.error) {
-    return {
-      ok: false as const,
-      message: connected.error.message || "No se pudo validar Freighter.",
-    };
+    return fallbackToAlbedoOnMobile(connected.error.message || "No se pudo validar Freighter.");
   }
 
   const access = await requestAccess();
   if (access.error) {
     const detail = access.error.message || "";
     if (detail.toLowerCase().includes("not connected") || detail.toLowerCase().includes("not installed")) {
-      return {
-        ok: false as const,
-        message: "No detecto Freighter. Instala o habilita la extension.",
-      };
+      return fallbackToAlbedoOnMobile("No detecto Freighter. Instala o habilita la extension.");
     }
 
     return {
@@ -163,10 +180,7 @@ async function connectFreighterWallet() {
 
 async function connectXBullWallet() {
   if (typeof window === "undefined" || !window.xBullSDK) {
-    return {
-      ok: false as const,
-      message: "No detecto xBull. Instala o habilita la extension.",
-    };
+    return fallbackToAlbedoOnMobile("No detecto xBull. Instala o habilita la extension.");
   }
 
   try {

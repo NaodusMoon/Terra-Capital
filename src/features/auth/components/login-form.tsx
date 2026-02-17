@@ -86,7 +86,7 @@ export function LoginForm() {
         {walletError && <p className="mt-3 text-sm text-red-500">{walletError}</p>}
         {!walletAddress && (
           <p className="mt-2 text-xs text-[var(--color-muted)]">
-            En movil, algunas wallets requieren app propia o navegador compatible. Si una opcion no abre nada, prueba otra wallet.
+            En movil, Freighter y xBull intentan abrir flujo compatible sin extension. Si no conecta, usa direccion publica.
           </p>
         )}
         {!walletAddress && (
