@@ -27,8 +27,10 @@
     "pg": "^8.18.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-responsive": "^10.0.1",
     "react-webcam": "^7.2.0",
-    "vanta": "^0.5.24"
+    "vanta": "^0.5.24",
+    "wavesurfer.js": "^7.12.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

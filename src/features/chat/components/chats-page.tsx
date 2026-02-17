@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import Webcam from "react-webcam";
 import { AnimatePresence, motion } from "framer-motion";
+import WaveSurfer from "wavesurfer.js";
 import {
   AlertCircle,
   ArrowLeft,
@@ -17,15 +18,19 @@ import {
   ImageIcon,
   MessageCircle,
   Mic,
+  Pause,
+  Play,
   Plus,
   Search,
   Smile,
   Star,
   Square,
+  Trash2,
   Camera,
   X,
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useResponsive } from "@/components/providers/responsive-provider";
 import { useTheme } from "@/components/providers/theme-provider";
 import { useWallet } from "@/components/providers/wallet-provider";
 import { Button } from "@/components/ui/button";
@@ -45,6 +50,7 @@ import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import type { ChatMessage } from "@/types/market";
 
 const quickFilters = ["Todos", "No leidos", "Favoritos"];
+type VoiceRecordState = "idle" | "recording" | "paused" | "preview";
 
 function toDataUrl(file: Blob) {
   return new Promise<string>((resolve, reject) => {
@@ -53,6 +59,21 @@ function toDataUrl(file: Blob) {
     reader.onerror = () => reject(new Error("No se pudo leer el archivo."));
     reader.readAsDataURL(file);
   });
+}
+
+function dataUrlToFile(dataUrl: string, filename: string) {
+  const [meta, base64] = dataUrl.split(",");
+  if (!meta || !base64) {
+    throw new Error("Imagen capturada invalida.");
+  }
+  const mimeMatch = meta.match(/data:(.*?);base64/);
+  const mimeType = mimeMatch?.[1] ?? "image/jpeg";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new File([bytes], filename, { type: mimeType });
 }
 
 function getAttachmentKind(file: File): "image" | "video" | "audio" | "document" {
@@ -135,22 +156,31 @@ export function ChatsPage() {
   const handledAssetIdRef = useRef<string | null>(null);
   const photoVideoInputRef = useRef<HTMLInputElement | null>(null);
   const docsInputRef = useRef<HTMLInputElement | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
   const voiceStreamRef = useRef<MediaStream | null>(null);
   const voiceTimerRef = useRef<number | null>(null);
-  const cancelVoiceRef = useRef(false);
+  const voiceRecorderRef = useRef<MediaRecorder | null>(null);
+  const voicePreviewBlobRef = useRef<Blob | null>(null);
+  const voiceLiveCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const voiceLiveAnimationRef = useRef<number | null>(null);
+  const voiceLiveAudioContextRef = useRef<AudioContext | null>(null);
+  const voiceLiveAnalyserRef = useRef<AnalyserNode | null>(null);
+  const voiceLiveSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const voicePreviewWaveformRef = useRef<HTMLDivElement | null>(null);
+  const voicePreviewWaveSurferRef = useRef<WaveSurfer | null>(null);
   const webcamRef = useRef<Webcam | null>(null);
   const cameraRecorderRef = useRef<MediaRecorder | null>(null);
   const cameraChunksRef = useRef<Blob[]>([]);
-  const mediaPermissionCheckedRef = useRef(false);
+  const { isMobile } = useResponsive();
 
   const [threads, setThreads] = useState<ReturnType<typeof getUserThreads>>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [chatError, setChatError] = useState("");
   const [showEmoji, setShowEmoji] = useState(false);
-  const [recording, setRecording] = useState(false);
+  const [voiceState, setVoiceState] = useState<VoiceRecordState>("idle");
+  const [voicePreviewBlob, setVoicePreviewBlob] = useState<Blob | null>(null);
+  const [voicePreviewUrl, setVoicePreviewUrl] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("Todos");
   const [manuallyClosedChat, setManuallyClosedChat] = useState(false);
@@ -286,48 +316,77 @@ export function ChatsPage() {
   }, [activeRole, activeThreadId, activeMessages.length]);
 
   useEffect(() => {
-    if (!activeThreadId) return;
-    if (mediaPermissionCheckedRef.current) return;
-    if (!window.isSecureContext) return;
-    if (!navigator.mediaDevices?.getUserMedia) return;
-
-    const askForMediaPermissions = async () => {
-      mediaPermissionCheckedRef.current = true;
-
-      try {
-        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        audioStream.getTracks().forEach((track) => track.stop());
-      } catch {
-        // ignore
-      }
-
-      try {
-        const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
-        videoStream.getTracks().forEach((track) => track.stop());
-      } catch {
-        // ignore
-      }
-    };
-
-    const timer = window.setTimeout(() => {
-      void askForMediaPermissions();
-    }, 250);
-
-    return () => window.clearTimeout(timer);
-  }, [activeThreadId]);
-
-  useEffect(() => {
     return () => {
       if (voiceTimerRef.current) {
         window.clearInterval(voiceTimerRef.current);
         voiceTimerRef.current = null;
       }
+      const recorder = voiceRecorderRef.current;
+      if (recorder && recorder.state !== "inactive") {
+        recorder.stop();
+      }
       voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
       voiceStreamRef.current = null;
+      if (voiceLiveAnimationRef.current) {
+        window.cancelAnimationFrame(voiceLiveAnimationRef.current);
+        voiceLiveAnimationRef.current = null;
+      }
+      voiceLiveSourceRef.current?.disconnect();
+      voiceLiveAnalyserRef.current = null;
+      voiceLiveSourceRef.current = null;
+      if (voiceLiveAudioContextRef.current) {
+        void voiceLiveAudioContextRef.current.close();
+        voiceLiveAudioContextRef.current = null;
+      }
+      voicePreviewWaveSurferRef.current?.destroy();
+      voicePreviewWaveSurferRef.current = null;
       cameraRecorderRef.current?.stream.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
       if (capturedVideoUrl) URL.revokeObjectURL(capturedVideoUrl);
     };
   }, [capturedVideoUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
+    };
+  }, [voicePreviewUrl]);
+
+  useEffect(() => {
+    const container = voicePreviewWaveformRef.current;
+    if (!container || !voicePreviewUrl) {
+      voicePreviewWaveSurferRef.current?.destroy();
+      voicePreviewWaveSurferRef.current = null;
+      return;
+    }
+
+    const wave = WaveSurfer.create({
+      container,
+      waveColor: isDark ? "#2c8d7a" : "#88c6b6",
+      progressColor: isDark ? "#7ce3c9" : "#1f8c72",
+      cursorWidth: 0,
+      height: 40,
+      barWidth: 3,
+      barGap: 2,
+      barRadius: 4,
+      normalize: true,
+      interact: false,
+    });
+
+    wave.load(voicePreviewUrl);
+    voicePreviewWaveSurferRef.current = wave;
+
+    return () => {
+      wave.destroy();
+      if (voicePreviewWaveSurferRef.current === wave) {
+        voicePreviewWaveSurferRef.current = null;
+      }
+    };
+  }, [isDark, voicePreviewUrl]);
 
   const term = search.trim().toLowerCase();
   const hasTextToSend = chatInput.trim().length > 0;
@@ -420,17 +479,117 @@ export function ChatsPage() {
     }
   };
 
-  const stopVoiceRuntime = () => {
+  const stopLiveVoiceVisualization = () => {
+    if (voiceLiveAnimationRef.current) {
+      window.cancelAnimationFrame(voiceLiveAnimationRef.current);
+      voiceLiveAnimationRef.current = null;
+    }
+    voiceLiveSourceRef.current?.disconnect();
+    voiceLiveAnalyserRef.current = null;
+    voiceLiveSourceRef.current = null;
+    if (voiceLiveAudioContextRef.current) {
+      void voiceLiveAudioContextRef.current.close();
+      voiceLiveAudioContextRef.current = null;
+    }
+    const canvas = voiceLiveCanvasRef.current;
+    if (canvas) {
+      const context = canvas.getContext("2d");
+      if (context) context.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  };
+
+  const drawLiveVoiceVisualization = () => {
+    const canvas = voiceLiveCanvasRef.current;
+    const analyser = voiceLiveAnalyserRef.current;
+    if (!canvas || !analyser) return;
+    const data = new Uint8Array(analyser.frequencyBinCount);
+
+    const context = canvas.getContext("2d");
+    if (!context) return;
+
+    const ratio = window.devicePixelRatio || 1;
+    const cssWidth = Math.max(canvas.clientWidth, 120);
+    const cssHeight = Math.max(canvas.clientHeight, 38);
+    if (canvas.width !== Math.floor(cssWidth * ratio) || canvas.height !== Math.floor(cssHeight * ratio)) {
+      canvas.width = Math.floor(cssWidth * ratio);
+      canvas.height = Math.floor(cssHeight * ratio);
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    }
+
+    analyser.getByteFrequencyData(data);
+    context.clearRect(0, 0, cssWidth, cssHeight);
+    const bars = 42;
+    const gap = 2;
+    const barWidth = Math.max((cssWidth - gap * (bars - 1)) / bars, 1);
+    for (let index = 0; index < bars; index += 1) {
+      const bucket = Math.floor((index / bars) * data.length);
+      const amplitude = data[bucket] / 255;
+      const barHeight = Math.max(4, amplitude * cssHeight);
+      const x = index * (barWidth + gap);
+      const y = (cssHeight - barHeight) / 2;
+      context.fillStyle = isDark ? "#7ce3c9" : "#1f8c72";
+      context.fillRect(x, y, barWidth, barHeight);
+    }
+
+    if (voiceRecorderRef.current?.state === "recording") {
+      voiceLiveAnimationRef.current = window.requestAnimationFrame(drawLiveVoiceVisualization);
+    }
+  };
+
+  const startLiveVoiceVisualization = (stream: MediaStream) => {
+    stopLiveVoiceVisualization();
+    const audioContext = new AudioContext();
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.65;
+    const source = audioContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+    voiceLiveAudioContextRef.current = audioContext;
+    voiceLiveAnalyserRef.current = analyser;
+    voiceLiveSourceRef.current = source;
+    voiceLiveAnimationRef.current = window.requestAnimationFrame(drawLiveVoiceVisualization);
+  };
+
+  const clearVoicePreview = () => {
+    if (voicePreviewUrl) URL.revokeObjectURL(voicePreviewUrl);
+    voicePreviewBlobRef.current = null;
+    setVoicePreviewBlob(null);
+    setVoicePreviewUrl(null);
+  };
+
+  const stopVoiceTimer = () => {
     if (voiceTimerRef.current) {
       window.clearInterval(voiceTimerRef.current);
       voiceTimerRef.current = null;
     }
+  };
+
+  const stopVoiceTracks = () => {
     voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
     voiceStreamRef.current = null;
   };
 
+  const refreshVoicePreviewFromChunks = () => {
+    if (voiceChunksRef.current.length === 0) return;
+    const mimeType = voiceRecorderRef.current?.mimeType || "audio/webm";
+    const blob = new Blob(voiceChunksRef.current, { type: mimeType });
+    if (blob.size === 0) return;
+    voicePreviewBlobRef.current = blob;
+    setVoicePreviewBlob(blob);
+    setVoicePreviewUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return URL.createObjectURL(blob);
+    });
+  };
+
+  const stopVoiceRuntime = () => {
+    stopVoiceTimer();
+    stopVoiceTracks();
+    stopLiveVoiceVisualization();
+  };
+
   const startVoiceRecording = async () => {
-    if (!activeThreadId || !user || hasTextToSend || recording) return;
+    if (!activeThreadId || !user || hasTextToSend || voiceState === "recording") return;
     setChatError("");
 
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
@@ -456,49 +615,33 @@ export function ChatsPage() {
       const selectedMimeType = preferredTypes.find((entry) => MediaRecorder.isTypeSupported(entry)) ?? "";
       const recorder = selectedMimeType ? new MediaRecorder(stream, { mimeType: selectedMimeType }) : new MediaRecorder(stream);
       voiceChunksRef.current = [];
-      cancelVoiceRef.current = false;
+      clearVoicePreview();
       setRecordingDuration(0);
 
       recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) voiceChunksRef.current.push(event.data);
-      };
-
-      recorder.onstop = async () => {
-        const blob = new Blob(voiceChunksRef.current, { type: recorder.mimeType || "audio/webm" });
-        const wasCancelled = cancelVoiceRef.current;
-        voiceChunksRef.current = [];
-        stopVoiceRuntime();
-        setRecording(false);
-        setRecordingDuration(0);
-
-        if (wasCancelled || blob.size === 0 || !activeThreadId || !user) return;
-        try {
-          const dataUrl = await toDataUrl(blob);
-          const result = await sendThreadMessage(activeThreadId, user, senderRole, "", {
-            kind: "audio",
-            attachment: {
-              name: `nota-voz-${Date.now()}.webm`,
-              mimeType: blob.type || "audio/webm",
-              size: blob.size,
-              dataUrl,
-            },
-          });
-
-          if (!result.ok) {
-            appendFailedThreadMessage(activeThreadId, user, senderRole, "", result.message);
-            setChatError(result.message);
-            return;
-          }
-          void syncData();
-        } catch {
-          appendFailedThreadMessage(activeThreadId, user, senderRole, "", "No se pudo procesar la nota de voz.");
-          setChatError("No se pudo enviar la nota de voz.");
+        if (event.data.size > 0) {
+          voiceChunksRef.current.push(event.data);
+        }
+        if (recorder.state === "paused") {
+          refreshVoicePreviewFromChunks();
         }
       };
 
-      mediaRecorderRef.current = recorder;
+      recorder.onstop = () => {
+        refreshVoicePreviewFromChunks();
+        stopVoiceRuntime();
+        if (voicePreviewBlobRef.current && voicePreviewBlobRef.current.size > 0) {
+          setVoiceState("preview");
+        } else {
+          setVoiceState("idle");
+          setRecordingDuration(0);
+        }
+      };
+
+      voiceRecorderRef.current = recorder;
       recorder.start(200);
-      setRecording(true);
+      startLiveVoiceVisualization(stream);
+      setVoiceState("recording");
       voiceTimerRef.current = window.setInterval(() => {
         setRecordingDuration((prev) => prev + 1);
       }, 1000);
@@ -506,7 +649,7 @@ export function ChatsPage() {
       stopVoiceRuntime();
       const mediaError = error as DOMException | undefined;
       if (mediaError?.name === "NotAllowedError") {
-        setChatError("Permiso de microfono denegado o bloqueado. Activalo en permisos del navegador.");
+        setChatError("Permiso de microfono denegado o bloqueado. Si usas localhost/HTTPS, habilitalo en permisos del navegador.");
         return;
       }
       if (mediaError?.name === "NotFoundError") {
@@ -521,16 +664,87 @@ export function ChatsPage() {
     }
   };
 
-  const stopVoiceRecording = (cancel: boolean) => {
-    cancelVoiceRef.current = cancel;
-    const recorder = mediaRecorderRef.current;
+  const pauseVoiceRecording = () => {
+    const recorder = voiceRecorderRef.current;
     if (!recorder) return;
+    if (recorder.state === "recording") {
+      recorder.pause();
+      recorder.requestData();
+      stopVoiceTimer();
+      stopLiveVoiceVisualization();
+      setVoiceState("paused");
+    }
+  };
+
+  const resumeVoiceRecording = () => {
+    const recorder = voiceRecorderRef.current;
+    if (!recorder) return;
+    if (recorder.state === "paused") {
+      recorder.resume();
+      setVoiceState("recording");
+      if (voiceStreamRef.current) {
+        startLiveVoiceVisualization(voiceStreamRef.current);
+      }
+      voiceTimerRef.current = window.setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+    }
+  };
+
+  const finalizeVoiceRecording = () => {
+    const recorder = voiceRecorderRef.current;
+    if (!recorder) return;
+    recorder.requestData();
     if (recorder.state !== "inactive") {
       recorder.stop();
-    } else {
-      stopVoiceRuntime();
-      setRecording(false);
-      setRecordingDuration(0);
+    }
+  };
+
+  const deleteVoiceRecording = () => {
+    const recorder = voiceRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.onstop = null;
+      recorder.stop();
+    }
+    stopVoiceRuntime();
+    voiceRecorderRef.current = null;
+    voiceChunksRef.current = [];
+    clearVoicePreview();
+    setRecordingDuration(0);
+    setVoiceState("idle");
+  };
+
+  const sendVoiceRecording = async () => {
+    if (!activeThreadId || !user) return;
+    if (voiceState === "recording") return;
+    const blob = voicePreviewBlobRef.current ?? voicePreviewBlob;
+    if (!blob || blob.size === 0) {
+      setChatError("No hay audio para enviar.");
+      return;
+    }
+
+    try {
+      const dataUrl = await toDataUrl(blob);
+      const result = await sendThreadMessage(activeThreadId, user, senderRole, "", {
+        kind: "audio",
+        attachment: {
+          name: `nota-voz-${Date.now()}.webm`,
+          mimeType: blob.type || "audio/webm",
+          size: blob.size,
+          dataUrl,
+        },
+      });
+
+      if (!result.ok) {
+        appendFailedThreadMessage(activeThreadId, user, senderRole, "", result.message);
+        setChatError(result.message);
+        return;
+      }
+      deleteVoiceRecording();
+      void syncData();
+    } catch {
+      appendFailedThreadMessage(activeThreadId, user, senderRole, "", "No se pudo procesar la nota de voz.");
+      setChatError("No se pudo enviar la nota de voz.");
     }
   };
 
@@ -591,7 +805,7 @@ export function ChatsPage() {
     } catch (error) {
       const mediaError = error as DOMException | undefined;
       if (mediaError?.name === "NotAllowedError") {
-        setCameraError("Permiso de camara denegado o bloqueado. Activalo en permisos del navegador.");
+        setCameraError("Permiso de camara denegado o bloqueado. Si usas localhost/HTTPS, habilitala en permisos del navegador.");
       } else if (mediaError?.name === "NotFoundError") {
         setCameraError("No se detecto camara en este dispositivo.");
       } else if (mediaError?.name === "NotReadableError") {
@@ -655,8 +869,7 @@ export function ChatsPage() {
     if (!activeThreadId || !user) return;
     try {
       if (capturedPhoto) {
-        const photoBlob = await fetch(capturedPhoto).then((response) => response.blob());
-        const photoFile = new File([photoBlob], `foto-chat-${Date.now()}.jpg`, { type: photoBlob.type || "image/jpeg" });
+        const photoFile = dataUrlToFile(capturedPhoto, `foto-chat-${Date.now()}.jpg`);
         await sendFileMessage(photoFile);
         closeCameraModal();
         return;
@@ -702,7 +915,7 @@ export function ChatsPage() {
     "--epr-scrollbar-thumb-color": "var(--color-border)",
     "--epr-text-color": "var(--color-foreground)",
   } as CSSProperties;
-  const emojiPickerWidth = typeof window === "undefined" ? 320 : Math.min(340, window.innerWidth - 24);
+  const emojiPickerWidth = isMobile ? 300 : 340;
 
   return (
     <main className="mx-auto w-full max-w-[1500px] px-0 pb-[88px] pt-0 sm:px-5 sm:pb-4 sm:pt-6">
@@ -896,16 +1109,62 @@ export function ChatsPage() {
                   )}
                 </AnimatePresence>
 
-                {recording && (
-                  <div className={`mb-2 flex items-center justify-between rounded-xl border px-3 py-2 text-xs ${iconBtn}`}>
-                    <span className="font-semibold text-red-400">Grabando {formatRecordingDuration(recordingDuration)}</span>
-                    <button
-                      type="button"
-                      className="rounded-lg px-2 py-1 text-xs font-semibold hover:bg-red-500/15"
-                      onClick={() => stopVoiceRecording(true)}
-                    >
-                      Cancelar
-                    </button>
+                {voiceState !== "idle" && (
+                  <div className={`mb-2 rounded-xl border px-3 py-2 text-xs ${iconBtn}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`font-semibold ${voiceState === "recording" ? "text-red-400" : "text-[var(--color-muted)]"}`}>
+                        {voiceState === "recording" ? "Grabando" : voiceState === "paused" ? "Pausado" : "Listo para enviar"} {formatRecordingDuration(recordingDuration)}
+                      </span>
+                    </div>
+                    <div className="mt-2 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-2 py-2">
+                      {voiceState === "recording" && (
+                        <canvas ref={voiceLiveCanvasRef} className="h-[38px] w-full" />
+                      )}
+                      {(voiceState === "preview" || (voiceState === "paused" && voicePreviewUrl)) && (
+                        <div ref={voicePreviewWaveformRef} className="h-[40px] w-full" />
+                      )}
+                      {!voicePreviewBlob && voiceState === "preview" && (
+                        <p className="px-2 py-2 text-[11px] text-[var(--color-muted)]">Sin audio disponible.</p>
+                      )}
+                    </div>
+                    {(voiceState === "paused" || voiceState === "preview") && voicePreviewUrl && (
+                      <audio controls className="mt-2 w-full">
+                        <source src={voicePreviewUrl} type={voicePreviewBlob?.type || "audio/webm"} />
+                      </audio>
+                    )}
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {voiceState === "recording" && (
+                        <>
+                          <Button type="button" variant="outline" className={`h-9 rounded-xl px-3 ${iconBtn}`} onClick={pauseVoiceRecording}>
+                            <Pause size={14} className="mr-1" /> Pausar
+                          </Button>
+                          <Button type="button" variant="outline" className={`h-9 rounded-xl px-3 ${iconBtn}`} onClick={finalizeVoiceRecording}>
+                            <Square size={14} className="mr-1" /> Terminar
+                          </Button>
+                        </>
+                      )}
+                      {voiceState === "paused" && (
+                        <>
+                          <Button type="button" variant="outline" className={`h-9 rounded-xl px-3 ${iconBtn}`} onClick={resumeVoiceRecording}>
+                            <Play size={14} className="mr-1" /> Reanudar
+                          </Button>
+                          <Button type="button" variant="outline" className={`h-9 rounded-xl px-3 ${iconBtn}`} onClick={finalizeVoiceRecording}>
+                            <Square size={14} className="mr-1" /> Terminar
+                          </Button>
+                          <Button type="button" className="h-9 rounded-xl bg-[#63c35c] px-3 text-[#08260d] hover:bg-[#7ed877]" onClick={() => { void sendVoiceRecording(); }}>
+                            <ArrowUp size={14} className="mr-1" /> Enviar
+                          </Button>
+                        </>
+                      )}
+                      {voiceState === "preview" && (
+                        <Button type="button" className="h-9 rounded-xl bg-[#63c35c] px-3 text-[#08260d] hover:bg-[#7ed877]" onClick={() => { void sendVoiceRecording(); }}>
+                          <ArrowUp size={14} className="mr-1" /> Enviar audio
+                        </Button>
+                      )}
+                      <Button type="button" variant="outline" className="h-9 rounded-xl border-red-400 px-3 text-red-400 hover:bg-red-500/10" onClick={deleteVoiceRecording}>
+                        <Trash2 size={14} className="mr-1" /> Eliminar
+                      </Button>
+                    </div>
                   </div>
                 )}
 
@@ -1008,29 +1267,28 @@ export function ChatsPage() {
           <ArrowUp size={16} />
         </Button>
       </motion.div>
-    ) : (
+    ) : voiceState === "idle" ? (
       <motion.div
         key="mic"
         whileHover={{ y: -1 }}
         whileTap={{ scale: 0.92 }}
         initial={{ opacity: 0, scale: 0.86 }}
-        animate={recording ? { opacity: 1, scale: [1, 1.06, 1] } : { opacity: 1, scale: 1 }}
+        animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.86 }}
-        transition={recording ? { duration: 0.9, repeat: Infinity, ease: "easeInOut" } : { duration: 0.2 }}
+        transition={{ duration: 0.2 }}
       >
         <Button
           type="button"
           variant="outline"
-          className={`h-10 w-10 rounded-xl px-0 sm:h-12 sm:w-12 sm:rounded-2xl ${recording ? "border-red-400 text-red-400" : ""} ${iconBtn}`}
-          onPointerDown={() => { void startVoiceRecording(); }}
-          onPointerUp={() => stopVoiceRecording(false)}
-          onPointerLeave={() => { if (recording) stopVoiceRecording(false); }}
-          onPointerCancel={() => stopVoiceRecording(true)}
+          className={`h-10 w-10 rounded-xl px-0 sm:h-12 sm:w-12 sm:rounded-2xl ${iconBtn}`}
+          onClick={() => { void startVoiceRecording(); }}
           disabled={!activeThreadId}
         >
-          {recording ? <Square size={17} /> : <Mic size={17} />}
+          <Mic size={17} />
         </Button>
       </motion.div>
+    ) : (
+      <div className="h-10 w-10 sm:h-12 sm:w-12" />
     )}
   </AnimatePresence>
 </form>
