@@ -1,20 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, TrendingUp } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useWallet } from "@/components/providers/wallet-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { MARKETPLACE_EVENT } from "@/lib/constants";
 import { formatShortDate, formatUSD } from "@/lib/format";
-import { getBuyerPortfolio } from "@/lib/marketplace";
+import { getBuyerPortfolio, syncMarketplace } from "@/lib/marketplace";
 
 export function PortfolioPage() {
   const { user, loading, activeMode } = useAuth();
   const { walletAddress, walletReady } = useWallet();
   const router = useRouter();
+  const [portfolio, setPortfolio] = useState<ReturnType<typeof getBuyerPortfolio>>([]);
 
   useEffect(() => {
     if (loading || !walletReady) return;
@@ -27,7 +29,25 @@ export function PortfolioPage() {
     }
   }, [loading, router, user, walletAddress, walletReady]);
 
-  const portfolio = useMemo(() => (user ? getBuyerPortfolio(user.id) : []), [user]);
+  useEffect(() => {
+    if (!user) return;
+    const runSync = async () => {
+      try {
+        await syncMarketplace(user.id);
+      } catch {
+        // keep last known state
+      }
+      setPortfolio(getBuyerPortfolio(user.id));
+    };
+    void runSync();
+
+    const marketListener = () => {
+      setPortfolio(getBuyerPortfolio(user.id));
+    };
+    window.addEventListener(MARKETPLACE_EVENT, marketListener);
+    return () => window.removeEventListener(MARKETPLACE_EVENT, marketListener);
+  }, [user]);
+
   const totalInvested = portfolio.reduce((sum, row) => sum + row.purchase.totalPaid, 0);
 
   if (loading || !walletReady || !user || !walletAddress) {

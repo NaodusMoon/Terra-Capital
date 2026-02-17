@@ -1,72 +1,76 @@
-﻿import { MARKETPLACE_EVENT, STORAGE_KEYS } from "@/lib/constants";
+import { MARKETPLACE_EVENT, STORAGE_KEYS } from "@/lib/constants";
 import { normalizeSafeText, toSafeHttpUrlOrUndefined } from "@/lib/security";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import type { AppUser } from "@/types/auth";
 import type { ChatMessage, ChatThread, PurchaseRecord, TokenizedAsset } from "@/types/market";
 
-const seedAssets: TokenizedAsset[] = [
-  {
-    id: "asset-seed-1",
-    title: "Token Soja Premium 2026",
-    category: "cultivo",
-    description: "Participacion en campana de soja con trazabilidad de insumos y cosecha.",
-    location: "Cordoba, AR",
-    pricePerToken: 12.5,
-    totalTokens: 45000,
-    availableTokens: 21800,
-    expectedYield: "14.1% anual estimado",
-    sellerId: "seller-seed-1",
-    sellerName: "Agro Nucleo SA",
-    imageUrl: "https://images.unsplash.com/photo-1620147461831-a97b99ade1d3?auto=format&fit=crop&w=1200&q=80",
-    createdAt: "2026-01-10T10:00:00.000Z",
-  },
-  {
-    id: "asset-seed-2",
-    title: "Token Tierra Productiva Lote Norte",
-    category: "tierra",
-    description: "Fraccionamiento digital de lote agricola con garantia fiduciaria.",
-    location: "Entre Rios, AR",
-    pricePerToken: 26,
-    totalTokens: 18000,
-    availableTokens: 9400,
-    expectedYield: "11.2% anual estimado",
-    sellerId: "seller-seed-2",
-    sellerName: "Campos del Litoral",
-    imageUrl: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1200&q=80",
-    createdAt: "2026-01-16T10:00:00.000Z",
-  },
-  {
-    id: "asset-seed-3",
-    title: "Token Engorde Bovino Delta",
-    category: "ganaderia",
-    description: "Modelo de engorde con monitoreo veterinario y costos auditables.",
-    location: "Santa Fe, AR",
-    pricePerToken: 18.75,
-    totalTokens: 32000,
-    availableTokens: 19750,
-    expectedYield: "16.0% anual estimado",
-    sellerId: "seller-seed-3",
-    sellerName: "Ganadera Delta",
-    imageUrl: "https://images.unsplash.com/photo-1527153857715-3908f2bae5e8?auto=format&fit=crop&w=1200&q=80",
-    createdAt: "2026-01-21T10:00:00.000Z",
-  },
-];
+interface BlendSnapshot {
+  grossVolume: number;
+  sentToBlend: number;
+  reserveForPayouts: number;
+  cycle: string;
+}
+
+interface MarketplaceStateResponse {
+  ok: boolean;
+  message?: string;
+  assets?: TokenizedAsset[];
+  purchases?: PurchaseRecord[];
+  threads?: ChatThread[];
+  messages?: ChatMessage[];
+  blendSnapshot?: BlendSnapshot;
+}
 
 function emitMarketUpdate() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(MARKETPLACE_EVENT));
 }
 
-function getAssetsRaw() {
-  const assets = readLocalStorage<TokenizedAsset[]>(STORAGE_KEYS.assets, []);
-  if (assets.length > 0) return assets;
+async function parseResponse<T>(response: Response): Promise<T | null> {
+  const raw = await response.text();
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
 
-  writeLocalStorage(STORAGE_KEYS.assets, seedAssets);
-  return seedAssets;
+function writeMarketplaceState(state: {
+  assets?: TokenizedAsset[];
+  purchases?: PurchaseRecord[];
+  threads?: ChatThread[];
+  messages?: ChatMessage[];
+  blendSnapshot?: BlendSnapshot;
+}) {
+  if (state.assets) writeLocalStorage(STORAGE_KEYS.assets, state.assets);
+  if (state.purchases) writeLocalStorage(STORAGE_KEYS.purchases, state.purchases);
+  if (state.threads) writeLocalStorage(STORAGE_KEYS.chatThreads, state.threads);
+  if (state.messages) writeLocalStorage(STORAGE_KEYS.chatMessages, state.messages);
+  if (state.blendSnapshot) writeLocalStorage(STORAGE_KEYS.blendSnapshot, state.blendSnapshot);
+  emitMarketUpdate();
+}
+
+export async function syncMarketplace(userId?: string) {
+  const query = userId ? `?userId=${encodeURIComponent(userId)}` : "";
+  const response = await fetch(`/api/marketplace${query}`);
+  const payload = await parseResponse<MarketplaceStateResponse>(response);
+  if (!payload || !payload.ok) {
+    throw new Error(payload?.message ?? "No se pudo sincronizar marketplace.");
+  }
+  writeMarketplaceState({
+    assets: payload.assets ?? [],
+    purchases: payload.purchases ?? [],
+    threads: payload.threads ?? [],
+    messages: payload.messages ?? [],
+    blendSnapshot: payload.blendSnapshot,
+  });
+  return payload;
 }
 
 export function getAssets() {
-  return [...getAssetsRaw()].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
+  const assets = readLocalStorage<TokenizedAsset[]>(STORAGE_KEYS.assets, []);
+  return [...assets].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
 }
 
 export function getPurchases() {
@@ -81,7 +85,7 @@ export function getMessages() {
   return readLocalStorage<ChatMessage[]>(STORAGE_KEYS.chatMessages, []);
 }
 
-export function createAsset(
+export async function createAsset(
   seller: AppUser,
   input: {
     title: string;
@@ -96,7 +100,6 @@ export function createAsset(
     videoUrl?: string;
   },
 ) {
-  const assets = getAssetsRaw();
   const title = normalizeSafeText(input.title, 120);
   const description = normalizeSafeText(input.description, 500);
   const location = normalizeSafeText(input.location, 80);
@@ -110,121 +113,96 @@ export function createAsset(
   if (!title || !description || !location || !expectedYield) {
     throw new Error("Los campos del activo contienen valores invalidos.");
   }
-
   if (!Number.isFinite(pricePerToken) || !Number.isFinite(totalTokens) || pricePerToken <= 0 || totalTokens <= 0) {
     throw new Error("Precio y tokens deben ser numericos y mayores a 0.");
   }
 
-  const newAsset: TokenizedAsset = {
-    id: crypto.randomUUID(),
-    sellerId: seller.id,
-    sellerName: seller.organization || seller.fullName,
-    availableTokens: totalTokens,
-    createdAt: new Date().toISOString(),
-    title,
-    category: input.category,
-    description,
-    location,
-    pricePerToken,
-    totalTokens,
-    expectedYield,
-    imageUrl: safeImageUrl,
-    imageUrls: safeGallery.length > 0 ? safeGallery : undefined,
-    videoUrl: safeVideoUrl,
-  };
+  const response = await fetch("/api/marketplace", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "createAsset",
+      sellerId: seller.id,
+      sellerName: seller.organization || seller.fullName,
+      title,
+      category: input.category,
+      description,
+      location,
+      pricePerToken,
+      totalTokens,
+      expectedYield,
+      imageUrl: safeImageUrl,
+      imageUrls: safeGallery,
+      videoUrl: safeVideoUrl,
+    }),
+  });
 
-  assets.push(newAsset);
-  writeLocalStorage(STORAGE_KEYS.assets, assets);
+  const payload = await parseResponse<{ ok: boolean; asset?: TokenizedAsset; message?: string }>(response);
+  if (!payload || !payload.ok || !payload.asset) {
+    throw new Error(payload?.message ?? "No se pudo publicar el activo.");
+  }
+
+  const assets = getAssets();
+  writeLocalStorage(STORAGE_KEYS.assets, [payload.asset, ...assets.filter((item) => item.id !== payload.asset!.id)]);
   emitMarketUpdate();
-
-  return newAsset;
+  return payload.asset;
 }
 
-export function buyAsset(assetId: string, buyer: AppUser, quantity: number) {
+export async function buyAsset(assetId: string, buyer: AppUser, quantity: number) {
   const normalizedQuantity = Math.floor(quantity);
   if (!Number.isInteger(normalizedQuantity) || normalizedQuantity <= 0) {
     return { ok: false as const, message: "La cantidad debe ser mayor a 0." };
   }
 
-  const assets = getAssetsRaw();
-  const asset = assets.find((item) => item.id === assetId);
-
-  if (!asset) {
-    return { ok: false as const, message: "Activo no encontrado." };
-  }
-
-  if (asset.availableTokens < normalizedQuantity) {
-    return { ok: false as const, message: "No hay suficientes tokens disponibles." };
-  }
-
-  asset.availableTokens -= normalizedQuantity;
-  writeLocalStorage(STORAGE_KEYS.assets, assets);
-
-  const purchases = getPurchases();
-  const purchase: PurchaseRecord = {
-    id: crypto.randomUUID(),
-    assetId: asset.id,
-    buyerId: buyer.id,
-    buyerName: buyer.fullName,
-    sellerId: asset.sellerId,
-    quantity: normalizedQuantity,
-    pricePerToken: asset.pricePerToken,
-    totalPaid: normalizedQuantity * asset.pricePerToken,
-    purchasedAt: new Date().toISOString(),
-  };
-  purchases.push(purchase);
-  writeLocalStorage(STORAGE_KEYS.purchases, purchases);
-
-  const threads = getThreads();
-  const existingThread = threads.find((thread) => thread.assetId === asset.id && thread.buyerId === buyer.id && thread.sellerId === asset.sellerId);
-  if (!existingThread) {
-    threads.push({
-      id: crypto.randomUUID(),
-      assetId: asset.id,
+  const response = await fetch("/api/marketplace", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "buyAsset",
+      assetId,
       buyerId: buyer.id,
       buyerName: buyer.fullName,
-      sellerId: asset.sellerId,
-      sellerName: asset.sellerName,
-      updatedAt: purchase.purchasedAt,
-    });
-    writeLocalStorage(STORAGE_KEYS.chatThreads, threads);
+      quantity: normalizedQuantity,
+    }),
+  });
+
+  const payload = await parseResponse<{ ok: boolean; purchase?: PurchaseRecord; message?: string }>(response);
+  if (!payload || !payload.ok || !payload.purchase) {
+    return { ok: false as const, message: payload?.message ?? "No se pudo completar la compra." };
   }
 
-  emitMarketUpdate();
-  return { ok: true as const, purchase };
+  await syncMarketplace(buyer.id);
+  return { ok: true as const, purchase: payload.purchase };
 }
 
-export function ensureBuyerThreadForAsset(assetId: string, buyer: AppUser) {
-  const asset = getAssetsRaw().find((item) => item.id === assetId);
-  if (!asset) {
-    return { ok: false as const, message: "Activo no encontrado." };
+export async function ensureBuyerThreadForAsset(assetId: string, buyer: AppUser) {
+  const response = await fetch("/api/marketplace", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "ensureThread",
+      assetId,
+      buyerId: buyer.id,
+      buyerName: buyer.fullName,
+    }),
+  });
+  const payload = await parseResponse<{ ok: boolean; message?: string; thread?: ChatThread }>(response);
+  if (!payload || !payload.ok || !payload.thread) {
+    return { ok: false as const, message: payload?.message ?? "No se pudo abrir el chat." };
   }
 
   const threads = getThreads();
-  const existingThread = threads.find((thread) => thread.assetId === asset.id && thread.buyerId === buyer.id && thread.sellerId === asset.sellerId);
-  if (existingThread) {
-    return { ok: true as const, thread: existingThread, created: false as const };
+  const exists = threads.some((thread) => thread.id === payload.thread!.id);
+  if (!exists) {
+    writeLocalStorage(STORAGE_KEYS.chatThreads, [payload.thread, ...threads]);
+    emitMarketUpdate();
   }
 
-  const thread: ChatThread = {
-    id: crypto.randomUUID(),
-    assetId: asset.id,
-    buyerId: buyer.id,
-    buyerName: buyer.fullName,
-    sellerId: asset.sellerId,
-    sellerName: asset.sellerName,
-    updatedAt: new Date().toISOString(),
-  };
-
-  threads.push(thread);
-  writeLocalStorage(STORAGE_KEYS.chatThreads, threads);
-  emitMarketUpdate();
-
-  return { ok: true as const, thread, created: true as const };
+  return { ok: true as const, thread: payload.thread, created: !exists };
 }
 
 export function getBuyerPortfolio(buyerId: string) {
-  const assetsMap = new Map(getAssetsRaw().map((asset) => [asset.id, asset]));
+  const assetsMap = new Map(getAssets().map((asset) => [asset.id, asset]));
   return getPurchases()
     .filter((purchase) => purchase.buyerId === buyerId)
     .map((purchase) => ({
@@ -248,15 +226,15 @@ export function getSellerSalesSummary(sellerId: string) {
 }
 
 export function getBlendLiquiditySnapshot() {
+  const snapshot = readLocalStorage<BlendSnapshot | null>(STORAGE_KEYS.blendSnapshot, null);
+  if (snapshot) return snapshot;
+
   const purchases = getPurchases();
   const grossVolume = purchases.reduce((sum, purchase) => sum + purchase.totalPaid, 0);
-  const sentToBlend = grossVolume * 0.8;
-  const reserveForPayouts = grossVolume * 0.2;
-
   return {
     grossVolume,
-    sentToBlend,
-    reserveForPayouts,
+    sentToBlend: grossVolume * 0.8,
+    reserveForPayouts: grossVolume * 0.2,
     cycle: "mensual o bimestral",
   };
 }
@@ -291,25 +269,33 @@ export function getThreadRoleForUser(thread: ChatThread, userId: string): "buyer
   return null;
 }
 
-export function markThreadMessagesRead(threadId: string, readerRole: "buyer" | "seller") {
+export async function markThreadMessagesRead(threadId: string, readerRole: "buyer" | "seller") {
+  const response = await fetch("/api/marketplace", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "markRead",
+      threadId,
+      readerRole,
+    }),
+  });
+  const payload = await parseResponse<{ ok: boolean; changed?: boolean; message?: string }>(response);
+  if (!payload || !payload.ok || !payload.changed) return false;
+
   const messages = getMessages();
-  let changed = false;
   const now = new Date().toISOString();
   const next = messages.map((message) => {
     if (message.threadId !== threadId) return message;
     if (message.senderRole === readerRole) return message;
     if (message.status === "read" || message.status === "failed") return message;
-    changed = true;
     return { ...message, status: "read" as const, readAt: now };
   });
-
-  if (!changed) return false;
   writeLocalStorage(STORAGE_KEYS.chatMessages, next);
   emitMarketUpdate();
   return true;
 }
 
-export function sendThreadMessage(
+export async function sendThreadMessage(
   threadId: string,
   sender: AppUser,
   senderRole: "buyer" | "seller",
@@ -332,36 +318,43 @@ export function sendThreadMessage(
     return { ok: false as const, message: "Escribe un mensaje." };
   }
 
-  const threads = getThreads();
-  const thread = threads.find((item) => item.id === threadId);
-  if (!thread) {
-    return { ok: false as const, message: "Conversacion no encontrada." };
-  }
-  if (options?.attachment && options.attachment.size > 25 * 1024 * 1024) {
-    return { ok: false as const, message: "El archivo supera el limite de 25 MB." };
-  }
-
-  const messages = getMessages();
-  const createdAt = new Date().toISOString();
-  messages.push({
-    id: crypto.randomUUID(),
-    threadId,
-    senderId: sender.id,
-    senderName: sender.fullName,
-    senderRole,
-    text: messageText,
-    status: "sent",
-    kind: messageKind,
-    attachment: options?.attachment,
-    createdAt,
+  const response = await fetch("/api/marketplace", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "sendMessage",
+      threadId,
+      senderId: sender.id,
+      senderName: sender.fullName,
+      senderRole,
+      text: messageText,
+      kind: messageKind,
+      attachment: options?.attachment,
+    }),
   });
 
-  thread.updatedAt = createdAt;
+  const payload = await parseResponse<
+    | { ok: true; message: ChatMessage }
+    | { ok: false; message?: string }
+  >(response);
+  if (!payload || !payload.ok) {
+    return { ok: false as const, message: payload?.message ?? "No se pudo enviar el mensaje." };
+  }
 
+  const receivedMessage = payload.message;
+
+  const messages = getMessages();
+  messages.push(receivedMessage);
   writeLocalStorage(STORAGE_KEYS.chatMessages, messages);
-  writeLocalStorage(STORAGE_KEYS.chatThreads, threads);
-  emitMarketUpdate();
 
+  const threads = getThreads();
+  const thread = threads.find((item) => item.id === threadId);
+  if (thread) {
+    thread.updatedAt = receivedMessage.createdAt;
+    writeLocalStorage(STORAGE_KEYS.chatThreads, threads);
+  }
+
+  emitMarketUpdate();
   return { ok: true as const, status: "sent" as const };
 }
 
@@ -397,4 +390,3 @@ export function appendFailedThreadMessage(
   emitMarketUpdate();
   return true;
 }
-

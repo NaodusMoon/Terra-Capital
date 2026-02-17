@@ -39,6 +39,7 @@ import {
   getUserThreads,
   markThreadMessagesRead,
   sendThreadMessage,
+  syncMarketplace,
 } from "@/lib/marketplace";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import type { ChatMessage } from "@/types/market";
@@ -164,8 +165,9 @@ export function ChatsPage() {
   const [capturedVideoBlob, setCapturedVideoBlob] = useState<Blob | null>(null);
   const [capturedVideoUrl, setCapturedVideoUrl] = useState<string | null>(null);
   const [recordingDuration, setRecordingDuration] = useState(0);
+  const [assets, setAssets] = useState<ReturnType<typeof getAssets>>([]);
 
-  const assetsMap = useMemo(() => new Map(getAssets().map((asset) => [asset.id, asset.title])), []);
+  const assetsMap = useMemo(() => new Map(assets.map((asset) => [asset.id, asset.title])), [assets]);
   const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null;
   const activeMessages = activeThreadId ? getThreadMessages(activeThreadId) : [];
   const activeRole = activeThread && user ? getThreadRoleForUser(activeThread, user.id) : null;
@@ -180,37 +182,44 @@ export function ChatsPage() {
     return () => window.clearTimeout(boot);
   }, [user]);
 
-  const syncData = useCallback(() => {
+  const syncData = useCallback(async () => {
     if (!user) return;
 
-    let preferredThreadId: string | null = null;
-    if (assetIdParam && handledAssetIdRef.current !== assetIdParam) {
-      handledAssetIdRef.current = assetIdParam;
-      const ensuredThread = ensureBuyerThreadForAsset(assetIdParam, user);
-      if (!ensuredThread.ok) {
-        setChatError(ensuredThread.message);
-      } else {
-        preferredThreadId = ensuredThread.thread.id;
+    try {
+      let preferredThreadId: string | null = null;
+      if (assetIdParam && handledAssetIdRef.current !== assetIdParam) {
+        handledAssetIdRef.current = assetIdParam;
+        const ensuredThread = await ensureBuyerThreadForAsset(assetIdParam, user);
+        if (!ensuredThread.ok) {
+          setChatError(ensuredThread.message);
+        } else {
+          preferredThreadId = ensuredThread.thread.id;
+        }
       }
-    }
 
-    const nextThreads = getUserThreads(user.id);
-    setThreads(nextThreads);
+      await syncMarketplace(user.id);
+      setAssets(getAssets());
+      const nextThreads = getUserThreads(user.id);
+      setThreads(nextThreads);
 
-    if (nextThreads.length === 0) {
-      setActiveThreadId(null);
-      return;
-    }
-    if (preferredThreadId && nextThreads.some((thread) => thread.id === preferredThreadId)) {
-      setManuallyClosedChat(false);
-    }
+      if (nextThreads.length === 0) {
+        setActiveThreadId(null);
+        return;
+      }
+      if (preferredThreadId && nextThreads.some((thread) => thread.id === preferredThreadId)) {
+        setManuallyClosedChat(false);
+      }
 
-    setActiveThreadId((current) => {
-      if (preferredThreadId && nextThreads.some((thread) => thread.id === preferredThreadId)) return preferredThreadId;
-      if (current && nextThreads.some((thread) => thread.id === current)) return current;
-      if (manuallyClosedChat) return null;
-      return current ?? null;
-    });
+      setActiveThreadId((current) => {
+        if (preferredThreadId && nextThreads.some((thread) => thread.id === preferredThreadId)) return preferredThreadId;
+        if (current && nextThreads.some((thread) => thread.id === current)) return current;
+        if (manuallyClosedChat) return null;
+        return current ?? null;
+      });
+    } catch {
+      setAssets(getAssets());
+      setThreads(getUserThreads(user.id));
+    }
   }, [assetIdParam, manuallyClosedChat, user]);
 
   useEffect(() => {
@@ -232,7 +241,7 @@ export function ChatsPage() {
 
     const runSync = () => {
       if (document.visibilityState !== "visible") return;
-      syncData();
+      void syncData();
     };
 
     const startSync = () => {
@@ -245,7 +254,7 @@ export function ChatsPage() {
       boot = window.setTimeout(startSync, 0);
     }
 
-    const marketListener = () => syncData();
+    const marketListener = () => { void syncData(); };
     const visibilityListener = () => {
       if (document.visibilityState === "visible") {
         startSync();
@@ -255,7 +264,7 @@ export function ChatsPage() {
       }
     };
     const storageListener = (event: StorageEvent) => {
-      if (!event.key || event.key.startsWith("terra_capital_")) syncData();
+      if (!event.key || event.key.startsWith("terra_capital_")) void syncData();
     };
 
     window.addEventListener(MARKETPLACE_EVENT, marketListener);
@@ -273,7 +282,7 @@ export function ChatsPage() {
 
   useEffect(() => {
     if (!activeThreadId || !activeRole) return;
-    markThreadMessagesRead(activeThreadId, activeRole);
+    void markThreadMessagesRead(activeThreadId, activeRole);
   }, [activeRole, activeThreadId, activeMessages.length]);
 
   useEffect(() => {
@@ -336,22 +345,22 @@ export function ChatsPage() {
     return true;
   });
 
-  const handleSendText = (event: FormEvent<HTMLFormElement>) => {
+  const handleSendText = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setChatError("");
     if (!activeThreadId || !user) return;
 
-    const result = sendThreadMessage(activeThreadId, user, senderRole, chatInput, { kind: "text" });
+    const result = await sendThreadMessage(activeThreadId, user, senderRole, chatInput, { kind: "text" });
     if (!result.ok) {
       appendFailedThreadMessage(activeThreadId, user, senderRole, chatInput, result.message);
       setChatError(result.message);
-      syncData();
+      void syncData();
       return;
     }
 
     setChatInput("");
     setShowEmoji(false);
-    syncData();
+    void syncData();
   };
 
   const handleOpenThread = (threadId: string) => {
@@ -382,7 +391,7 @@ export function ChatsPage() {
     if (!activeThreadId || !user) return;
     const dataUrl = await toDataUrl(file);
     const kind = getAttachmentKind(file);
-    const result = sendThreadMessage(activeThreadId, user, senderRole, chatInput, {
+    const result = await sendThreadMessage(activeThreadId, user, senderRole, chatInput, {
       kind,
       attachment: {
         name: file.name,
@@ -396,7 +405,7 @@ export function ChatsPage() {
       throw new Error(result.message);
     }
     setChatInput("");
-    syncData();
+    void syncData();
   };
 
   const handleFilePick = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -465,7 +474,7 @@ export function ChatsPage() {
         if (wasCancelled || blob.size === 0 || !activeThreadId || !user) return;
         try {
           const dataUrl = await toDataUrl(blob);
-          const result = sendThreadMessage(activeThreadId, user, senderRole, "", {
+          const result = await sendThreadMessage(activeThreadId, user, senderRole, "", {
             kind: "audio",
             attachment: {
               name: `nota-voz-${Date.now()}.webm`,
@@ -480,7 +489,7 @@ export function ChatsPage() {
             setChatError(result.message);
             return;
           }
-          syncData();
+          void syncData();
         } catch {
           appendFailedThreadMessage(activeThreadId, user, senderRole, "", "No se pudo procesar la nota de voz.");
           setChatError("No se pudo enviar la nota de voz.");

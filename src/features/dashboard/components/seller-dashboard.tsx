@@ -15,6 +15,7 @@ import {
   getPurchases,
   getSellerAssets,
   getSellerSalesSummary,
+  syncMarketplace,
 } from "@/lib/marketplace";
 import type { AssetCategory } from "@/types/market";
 
@@ -41,28 +42,32 @@ export function SellerDashboard() {
   const [assets, setAssets] = useState<ReturnType<typeof getSellerAssets>>([]);
   const [summary, setSummary] = useState({ soldTokens: 0, grossAmount: 0, operations: 0 });
 
-  const syncData = useCallback(() => {
+  const syncData = useCallback(async () => {
     if (!user) return;
-
-    setAssets(getSellerAssets(user.id));
-    setSummary(getSellerSalesSummary(user.id));
+    try {
+      await syncMarketplace(user.id);
+      setAssets(getSellerAssets(user.id));
+      setSummary(getSellerSalesSummary(user.id));
+    } catch {
+      // keep last known state
+    }
   }, [user]);
 
   useEffect(() => {
     if (!user) return;
 
-    const boot = window.setTimeout(() => syncData(), 0);
+    const boot = window.setTimeout(() => { void syncData(); }, 0);
 
-    const marketListener = () => syncData();
+    const marketListener = () => { void syncData(); };
     const storageListener = (event: StorageEvent) => {
       if (!event.key || event.key.startsWith("terra_capital_")) {
-        syncData();
+        void syncData();
       }
     };
 
     window.addEventListener(MARKETPLACE_EVENT, marketListener);
     window.addEventListener("storage", storageListener);
-    const interval = window.setInterval(syncData, 3000);
+    const interval = window.setInterval(() => { void syncData(); }, 3000);
 
     return () => {
       window.clearTimeout(boot);
@@ -90,7 +95,7 @@ export function SellerDashboard() {
 
   const blendSnapshot = getBlendLiquiditySnapshot();
 
-  const handleCreateAsset = (event: FormEvent<HTMLFormElement>) => {
+  const handleCreateAsset = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFormMessage("");
 
@@ -109,7 +114,7 @@ export function SellerDashboard() {
     }
 
     try {
-      createAsset(user, {
+      await createAsset(user, {
         title,
         category,
         description,
@@ -135,7 +140,7 @@ export function SellerDashboard() {
     setImageUrl("");
     setVideoUrl("");
     setFormMessage("Activo publicado en el marketplace.");
-    syncData();
+    await syncData();
   };
 
   return (

@@ -15,6 +15,7 @@ import {
   getAssets,
   getBlendLiquiditySnapshot,
   getBuyerPortfolio,
+  syncMarketplace,
 } from "@/lib/marketplace";
 import type { AssetCategory, TokenizedAsset } from "@/types/market";
 
@@ -76,29 +77,33 @@ export function BuyerDashboard() {
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [portfolio, setPortfolio] = useState<ReturnType<typeof getBuyerPortfolio>>([]);
 
-  const syncData = useCallback(() => {
+  const syncData = useCallback(async () => {
     if (!user) return;
-
-    const allAssets = getAssets();
-    setAssets(allAssets);
-    setPortfolio(getBuyerPortfolio(user.id));
+    try {
+      await syncMarketplace(user.id);
+      const allAssets = getAssets();
+      setAssets(allAssets);
+      setPortfolio(getBuyerPortfolio(user.id));
+    } catch {
+      // keep last known state
+    }
   }, [user]);
 
   useEffect(() => {
     if (!user) return;
 
-    const boot = window.setTimeout(() => syncData(), 0);
+    const boot = window.setTimeout(() => { void syncData(); }, 0);
 
-    const marketListener = () => syncData();
+    const marketListener = () => { void syncData(); };
     const storageListener = (event: StorageEvent) => {
       if (!event.key || event.key.startsWith("terra_capital_")) {
-        syncData();
+        void syncData();
       }
     };
 
     window.addEventListener(MARKETPLACE_EVENT, marketListener);
     window.addEventListener("storage", storageListener);
-    const interval = window.setInterval(syncData, 3000);
+    const interval = window.setInterval(() => { void syncData(); }, 3000);
 
     return () => {
       window.clearTimeout(boot);
@@ -170,14 +175,14 @@ export function BuyerDashboard() {
     setConfirmOpen(true);
   };
 
-  const confirmBuy = () => {
+  const confirmBuy = async () => {
     if (!selectedAsset || !user) return;
     if (!confirmAccepted || confirmText.trim().toUpperCase() !== "CONFIRMAR") {
       setTradeMessage("Debes aceptar la compra y escribir CONFIRMAR para continuar.");
       return;
     }
 
-    const result = buyAsset(selectedAsset.id, user, quantity);
+    const result = await buyAsset(selectedAsset.id, user, quantity);
     if (!result.ok) {
       setTradeMessage(result.message);
       return;
@@ -188,7 +193,7 @@ export function BuyerDashboard() {
     setConfirmOpen(false);
     setConfirmText("");
     setConfirmAccepted(false);
-    syncData();
+    await syncData();
   };
 
   return (
