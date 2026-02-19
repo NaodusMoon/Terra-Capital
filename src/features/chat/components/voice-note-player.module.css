@@ -1,0 +1,110 @@
+.player {
+  --vnp-wave-color: rgba(142, 163, 177, 0.65);
+  --vnp-progress-color: #3cc8ff;
+  --vnp-text-color: #7b8f9f;
+  --vnp-chip-bg: rgba(15, 28, 36, 0.18);
+  --vnp-chip-border: rgba(112, 136, 154, 0.35);
+  --vnp-chip-text: #d9edf7;
+  --vnp-btn-bg: rgba(255, 255, 255, 0.9);
+  --vnp-btn-fg: #133243;
+
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.outgoing {
+  --vnp-wave-color: rgba(255, 255, 255, 0.45);
+  --vnp-progress-color: rgba(255, 255, 255, 0.96);
+  --vnp-text-color: rgba(255, 255, 255, 0.9);
+  --vnp-chip-bg: rgba(255, 255, 255, 0.16);
+  --vnp-chip-border: rgba(255, 255, 255, 0.34);
+  --vnp-chip-text: #ffffff;
+  --vnp-btn-bg: #ffffff;
+  --vnp-btn-fg: #103629;
+}
+
+.button {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--vnp-btn-bg);
+  color: var(--vnp-btn-fg);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.body {
+  min-width: 0;
+  flex: 1;
+}
+
+.waveWrap {
+  position: relative;
+  height: 34px;
+}
+
+.wave {
+  width: 100%;
+  height: 34px;
+  position: relative;
+  z-index: 1;
+}
+
+.loadingSkeleton {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 34px;
+  border-radius: 999px;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--vnp-wave-color) 70%, transparent) 0 3px,
+      transparent 3px 6px
+    );
+  opacity: 0.4;
+  z-index: 2;
+}
+
+.dot {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  background: var(--vnp-progress-color);
+  box-shadow: 0 0 0 2px rgba(7, 20, 27, 0.24);
+  pointer-events: none;
+}
+
+.meta {
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--vnp-text-color);
+  font-size: 12px;
+  line-height: 1.1;
+}
+
+.speed {
+  border-radius: 999px;
+  border: 1px solid var(--vnp-chip-border);
+  background: var(--vnp-chip-bg);
+  color: var(--vnp-chip-text);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+}
+
+.error {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #ef4444;
+}

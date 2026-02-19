@@ -57,5 +57,8 @@ export interface ChatMessage {
   };
   errorMessage?: string;
   readAt?: string;
+  deletedForEveryone?: boolean;
+  deletedForEveryoneAt?: string;
+  deletedForEveryoneBy?: string;
   createdAt: string;
 }

@@ -76,28 +76,34 @@ body.chat-page-lock {
 }
 
 .terra-wave-player {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 0.85rem;
+  background: transparent;
+  border: 0;
+  border-radius: 1rem;
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
-  padding: 8px;
+  padding: 4px 0;
 }
 
 .terra-wave-player--compact {
-  padding: 7px;
+  padding: 2px 0;
 }
 
 .terra-wave-btn {
-  height: 32px;
-  width: 32px;
+  height: 30px;
+  width: 30px;
   border-radius: 999px;
   border: 1px solid var(--color-border);
   background: var(--color-surface-soft);
   color: var(--color-primary);
   display: grid;
   place-items: center;
+  flex-shrink: 0;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+.terra-wave-btn:hover {
+  transform: scale(1.05);
 }
 
 .terra-wave-content {
@@ -108,37 +114,98 @@ body.chat-page-lock {
 .terra-wave-canvas {
   position: relative;
   width: 100%;
-  min-height: 30px;
+  min-height: 32px;
   border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: color-mix(in oklab, var(--color-surface-soft) 88%, transparent);
+  border: 0;
+  background: transparent;
   overflow: hidden;
-  padding: 2px 6px;
+  padding: 0 5px;
 }
 
 .terra-wave-visual {
-  display: block;
+  display: block !important;
   width: 100%;
-  height: 26px;
+  height: 32px;
+  pointer-events: none;
+}
+
+.terra-wave-scrubber {
+  position: absolute;
+  left: 5px;
+  top: 0;
+  width: calc(100% - 10px);
+  height: 100%;
+  z-index: 20;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.terra-wave-scrubber::-webkit-slider-runnable-track {
+  height: 32px;
+  background: transparent;
+}
+
+.terra-wave-scrubber::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 6px;
+  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.terra-wave-scrubber::-moz-range-track {
+  height: 32px;
+  background: transparent;
+  border: 0;
+}
+
+.terra-wave-scrubber::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.terra-wave-progress-dot {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: #3cc8ff;
+  box-shadow: 0 0 0 2px rgba(14, 27, 34, 0.35);
+  z-index: 15;
+  pointer-events: none;
 }
 
 .terra-wave-meta {
-  margin-top: 3px;
+  margin-top: 2px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--color-muted);
+  line-height: 1.1;
 }
 
 .terra-wave-speed {
   border-radius: 999px;
   border: 1px solid var(--color-border);
-  background: var(--color-surface-soft);
+  background: color-mix(in oklab, var(--color-surface-soft) 90%, transparent);
   color: var(--color-foreground);
   font-size: 10px;
   font-weight: 700;
-  padding: 2px 8px;
+  padding: 2px 7px;
 }
 
 .terra-wave-diagnostic {
@@ -153,9 +220,42 @@ body.chat-page-lock {
   color: #ef4444;
 }
 
-.terra-wave-slider {
-  margin-top: 4px;
-  width: 100%;
+.terra-wave-player--outgoing .terra-wave-btn {
+  border-color: color-mix(in oklab, #ffffff 55%, transparent);
+  background: #ffffff;
+  color: #103629;
+}
+
+.terra-wave-player--outgoing .terra-wave-meta {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.terra-wave-player--outgoing .terra-wave-speed {
+  border: 1px solid color-mix(in oklab, #ffffff 40%, transparent);
+  background: color-mix(in oklab, #ffffff 14%, transparent);
+  color: #ffffff;
+}
+
+.terra-wave-player--outgoing .terra-wave-scrubber::-webkit-slider-thumb {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.terra-wave-player--outgoing .terra-wave-scrubber::-moz-range-thumb {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.terra-wave-player--outgoing .terra-wave-progress-dot {
+  border-color: rgba(0, 0, 0, 0.16);
+  background: #3dc8ff;
+  box-shadow: 0 0 0 2px rgba(5, 21, 28, 0.28);
+}
+
+.terra-wave-player--outgoing .terra-wave-diagnostic--error {
+  color: #ffcbcb;
 }
 
 @media (max-width: 768px) {

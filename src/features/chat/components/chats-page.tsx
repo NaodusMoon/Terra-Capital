@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChangeEvent, CSSProperties, FormEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, ClipboardEvent as ReactClipboardEvent, CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, TouchEvent as ReactTouchEvent, WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import EmojiPicker, { EmojiClickData, Theme } from "emoji-picker-react";
 import Webcam from "react-webcam";
@@ -26,15 +26,23 @@ import {
   Trash2,
   Camera,
   X,
+  ImagePlus,
+  ScanEye,
+  Users,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useResponsive } from "@/components/providers/responsive-provider";
 import { useTheme } from "@/components/providers/theme-provider";
 import { useWallet } from "@/components/providers/wallet-provider";
 import { Button } from "@/components/ui/button";
+import { VoiceNotePlayer } from "@/features/chat/components/voice-note-player";
 import { MARKETPLACE_EVENT, STORAGE_KEYS } from "@/lib/constants";
 import {
   appendFailedThreadMessage,
+  deleteThreadMessages,
   ensureBuyerThreadForAsset,
   getAssets,
   getThreadMessages,
@@ -49,7 +57,21 @@ import type { ChatMessage } from "@/types/market";
 
 const quickFilters = ["Todos", "No leidos", "Favoritos"];
 type VoiceRecordState = "idle" | "recording" | "paused" | "preview";
-const audioSpeeds = [1, 1.5, 2] as const;
+type MessageContextMenuState = {
+  messageId: string;
+  x: number;
+  y: number;
+} | null;
+
+type PendingImageDraft = {
+  file: File;
+  previewUrl: string;
+};
+
+type LightboxState = {
+  src: string;
+  alt: string;
+} | null;
 
 function toDataUrl(file: Blob) {
   return new Promise<string>((resolve, reject) => {
@@ -94,13 +116,6 @@ function formatLongDay(iso: string) {
   return new Intl.DateTimeFormat("es-AR", { day: "2-digit", month: "long", year: "numeric" }).format(new Date(iso));
 }
 
-function formatAudioTime(totalSeconds: number) {
-  const safe = Math.max(0, Math.floor(totalSeconds));
-  const minutes = Math.floor(safe / 60).toString().padStart(2, "0");
-  const seconds = (safe % 60).toString().padStart(2, "0");
-  return `${minutes}:${seconds}`;
-}
-
 function StatusIcon({ message }: { message: ChatMessage }) {
   if (message.status === "failed") return <AlertCircle size={13} className="text-red-400" />;
   if (message.status === "read") return <CheckCheck size={13} className="text-sky-400" />;
@@ -108,353 +123,40 @@ function StatusIcon({ message }: { message: ChatMessage }) {
   return <Check size={13} className="opacity-60" />;
 }
 
-function WaveAudioPlayer({
-  src,
-  compact = false,
-  expectedMimeType,
+function MessageBody({
+  message,
+  isOutgoing,
+  onImageOpen,
 }: {
-  src: string;
-  compact?: boolean;
-  expectedMimeType?: string;
+  message: ChatMessage;
+  isOutgoing: boolean;
+  onImageOpen: (src: string, alt: string) => void;
 }) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const waveformCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [ready, setReady] = useState(false);
-  const [playing, setPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [speedIndex, setSpeedIndex] = useState(0);
-  const [waveform, setWaveform] = useState<number[]>([]);
-  const [playableSrc, setPlayableSrc] = useState(src);
-  const [audioReadyState, setAudioReadyState] = useState(0);
-  const [audioNetworkState, setAudioNetworkState] = useState(0);
-  const [lastAudioError, setLastAudioError] = useState<string | null>(null);
-  const [seekingTime, setSeekingTime] = useState<number | null>(null);
+  if (message.deletedForEveryone) {
+    return (
+      <p className="italic opacity-85">
+        {message.deletedForEveryoneBy === message.senderId && isOutgoing ? "Eliminaste este mensaje." : "Se elimino este mensaje."}
+      </p>
+    );
+  }
 
-  const sourceKind = src.startsWith("data:") ? "data" : src.startsWith("blob:") ? "blob" : "url";
-
-  useEffect(() => {
-    if (!src.startsWith("data:")) {
-      setPlayableSrc(src);
-      return;
-    }
-
-    try {
-      const [meta, base64] = src.split(",");
-      if (!meta || !base64) {
-        setPlayableSrc(src);
-        return;
-      }
-      const mimeMatch = meta.match(/data:(.*?);base64/);
-      const mimeType = mimeMatch?.[1] ?? "application/octet-stream";
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let index = 0; index < binary.length; index += 1) {
-        bytes[index] = binary.charCodeAt(index);
-      }
-      const objectUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
-      setPlayableSrc(objectUrl);
-      return () => URL.revokeObjectURL(objectUrl);
-    } catch {
-      setPlayableSrc(src);
-      return;
-    }
-  }, [src]);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    setReady(false);
-    setPlaying(false);
-    setDuration(0);
-    setCurrentTime(0);
-    setLastAudioError(null);
-    setAudioReadyState(audio.readyState);
-    setAudioNetworkState(audio.networkState);
-
-    const onLoaded = () => {
-      setReady(true);
-      setDuration(audio.duration || 0);
-      setCurrentTime(audio.currentTime || 0);
-      setAudioReadyState(audio.readyState);
-      setAudioNetworkState(audio.networkState);
-    };
-    const onCanPlay = () => {
-      setAudioReadyState(audio.readyState);
-      setAudioNetworkState(audio.networkState);
-    };
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
-    const onTimeUpdate = () => {
-      setCurrentTime(audio.currentTime || 0);
-      setAudioReadyState(audio.readyState);
-      setAudioNetworkState(audio.networkState);
-    };
-    const onEnded = () => {
-      setPlaying(false);
-      setCurrentTime(0);
-    };
-    const onError = () => {
-      setReady(false);
-      setPlaying(false);
-      const code = audio.error?.code;
-      const codeLabel = code === 1
-        ? "MEDIA_ERR_ABORTED"
-        : code === 2
-          ? "MEDIA_ERR_NETWORK"
-          : code === 3
-            ? "MEDIA_ERR_DECODE"
-            : code === 4
-              ? "MEDIA_ERR_SRC_NOT_SUPPORTED"
-              : "UNKNOWN";
-      setLastAudioError(`error=${codeLabel} (${code ?? "-"})`);
-      setAudioReadyState(audio.readyState);
-      setAudioNetworkState(audio.networkState);
-    };
-
-    audio.addEventListener("loadedmetadata", onLoaded);
-    audio.addEventListener("canplay", onCanPlay);
-    audio.addEventListener("play", onPlay);
-    audio.addEventListener("pause", onPause);
-    audio.addEventListener("timeupdate", onTimeUpdate);
-    audio.addEventListener("ended", onEnded);
-    audio.addEventListener("error", onError);
-    audio.preload = "metadata";
-    audio.src = playableSrc;
-    audio.load();
-    if (audio.readyState >= 1 && Number.isFinite(audio.duration)) {
-      onLoaded();
-    }
-
-    return () => {
-      audio.pause();
-      audio.removeEventListener("loadedmetadata", onLoaded);
-      audio.removeEventListener("canplay", onCanPlay);
-      audio.removeEventListener("play", onPlay);
-      audio.removeEventListener("pause", onPause);
-      audio.removeEventListener("timeupdate", onTimeUpdate);
-      audio.removeEventListener("ended", onEnded);
-      audio.removeEventListener("error", onError);
-    };
-  }, [playableSrc]);
-
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.playbackRate = audioSpeeds[speedIndex];
-    }
-  }, [speedIndex]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let context: AudioContext | null = null;
-
-    const buildWaveform = async () => {
-      try {
-        const response = await fetch(playableSrc);
-        const buffer = await response.arrayBuffer();
-        context = new AudioContext();
-        const decoded = await context.decodeAudioData(buffer.slice(0));
-        if (cancelled) return;
-        const channel = decoded.getChannelData(0);
-        const bars = 56;
-        const chunkSize = Math.max(1, Math.floor(channel.length / bars));
-        const samples: number[] = [];
-        for (let bar = 0; bar < bars; bar += 1) {
-          const start = bar * chunkSize;
-          const end = Math.min(channel.length, start + chunkSize);
-          let peak = 0;
-          for (let index = start; index < end; index += 1) {
-            const value = Math.abs(channel[index] ?? 0);
-            if (value > peak) peak = value;
-          }
-          samples.push(peak);
-        }
-        const maxPeak = samples.reduce((max, value) => (value > max ? value : max), 0.0001);
-        setWaveform(samples.map((value) => Math.max(0.08, value / maxPeak)));
-      } catch {
-        if (!cancelled) {
-          setWaveform([]);
-        }
-      } finally {
-        if (context) {
-          void context.close();
-        }
-      }
-    };
-
-    void buildWaveform();
-    return () => {
-      cancelled = true;
-      if (context) {
-        void context.close();
-      }
-    };
-  }, [playableSrc]);
-
-  useEffect(() => {
-    const canvas = waveformCanvasRef.current;
-    if (!canvas) return;
-    const context = canvas.getContext("2d");
-    if (!context) return;
-
-    const ratio = window.devicePixelRatio || 1;
-    const cssWidth = Math.max(canvas.clientWidth, 120);
-    const cssHeight = Math.max(canvas.clientHeight, 30);
-    if (canvas.width !== Math.floor(cssWidth * ratio) || canvas.height !== Math.floor(cssHeight * ratio)) {
-      canvas.width = Math.floor(cssWidth * ratio);
-      canvas.height = Math.floor(cssHeight * ratio);
-      context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    }
-
-    context.clearRect(0, 0, cssWidth, cssHeight);
-
-    const values = waveform.length > 0 ? waveform : Array.from({ length: 44 }, (_, index) => 0.18 + (index % 3) * 0.04);
-    const gap = 2;
-    const barWidth = Math.max((cssWidth - gap * (values.length - 1)) / values.length, 1);
-    const progressX = cssWidth * (duration > 0 ? Math.min(1, currentTime / duration) : 0);
-    const computed = window.getComputedStyle(document.documentElement);
-    const played = computed.getPropertyValue("--color-primary").trim() || "#4b9940";
-    const pending = computed.getPropertyValue("--color-border").trim() || "#cfdecc";
-
-    values.forEach((sample, index) => {
-      const x = index * (barWidth + gap);
-      const barHeight = Math.max(4, sample * (cssHeight - 4));
-      const y = (cssHeight - barHeight) / 2;
-      context.fillStyle = x + barWidth <= progressX ? played : pending;
-      context.fillRect(x, y, barWidth, barHeight);
-    });
-
-    if (duration > 0) {
-      context.fillStyle = played;
-      context.fillRect(Math.max(0, progressX - 1), 0, 2, cssHeight);
-    }
-  }, [currentTime, duration, waveform]);
-
-  useEffect(() => {
-    if (!playing) return;
-    const audio = audioRef.current;
-    if (!audio) return;
-    let frame = 0;
-    const tick = () => {
-      setCurrentTime(audio.currentTime || 0);
-      frame = window.requestAnimationFrame(tick);
-    };
-    frame = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(frame);
-  }, [playing]);
-
-  const togglePlay = () => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (!ready) {
-      setLastAudioError("audio_no_listo: esperando metadata/canplay");
-      audio.load();
-      return;
-    }
-    if (audio.paused) {
-      void audio.play().catch((error) => {
-        setLastAudioError(`play() fallo: ${error instanceof Error ? error.message : "desconocido"}`);
-      });
-    } else {
-      audio.pause();
-    }
-  };
-
-  const seekToRatio = (ratio: number) => {
-    const audio = audioRef.current;
-    if (!audio || !duration) return;
-    const clamped = Math.max(0, Math.min(1, ratio));
-    const target = duration * clamped;
-    audio.currentTime = target;
-    setCurrentTime(target);
-  };
-
-  const handleCanvasSeek = (event: MouseEvent<HTMLButtonElement>) => {
-    if (!duration) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    const ratio = (event.clientX - rect.left) / rect.width;
-    seekToRatio(ratio);
-  };
-
-  const handleSliderChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const next = Number(event.target.value);
-    setSeekingTime(next);
-  };
-
-  const commitSliderSeek = () => {
-    if (seekingTime === null || !duration) return;
-    seekToRatio(seekingTime / duration);
-    setSeekingTime(null);
-  };
-
-  const cycleSpeed = () => {
-    const next = (speedIndex + 1) % audioSpeeds.length;
-    setSpeedIndex(next);
-    if (audioRef.current) {
-      audioRef.current.playbackRate = audioSpeeds[next];
-    }
-  };
-
-  const referenceTime = seekingTime ?? currentTime;
-  const remaining = Math.max(0, duration - referenceTime);
-  const displayTime = duration > 0 ? formatAudioTime(remaining || duration) : "00:00";
-  const diagnosticLine = [
-    `src=${sourceKind}`,
-    `mime=${expectedMimeType || "?"}`,
-    `ready=${ready ? "si" : "no"}`,
-    `rs=${audioReadyState}`,
-    `net=${audioNetworkState}`,
-    `dur=${duration > 0 ? duration.toFixed(2) : "0.00"}s`,
-  ].join(" | ");
-
-  return (
-    <div className={`terra-wave-player ${compact ? "terra-wave-player--compact" : ""}`}>
-      <audio ref={audioRef} className="hidden" />
-      <button type="button" className="terra-wave-btn" onClick={togglePlay}>
-        {playing ? <Pause size={14} /> : <Play size={14} />}
-      </button>
-      <div className="terra-wave-content">
-        <div className="terra-wave-canvas">
-          <button type="button" className="absolute inset-0 z-10 cursor-pointer" aria-label="Mover reproduccion" onClick={handleCanvasSeek} />
-          <canvas ref={waveformCanvasRef} className="terra-wave-visual" aria-hidden />
-        </div>
-        <div className="terra-wave-meta">
-          <span>{displayTime}</span>
-          <button type="button" className="terra-wave-speed" onClick={cycleSpeed} disabled={!ready}>
-            {audioSpeeds[speedIndex]}x
-          </button>
-        </div>
-        <input
-          type="range"
-          className="terra-wave-slider"
-          min={0}
-          max={duration || 0}
-          step={0.01}
-          value={seekingTime ?? currentTime}
-          onChange={handleSliderChange}
-          onMouseUp={commitSliderSeek}
-          onTouchEnd={commitSliderSeek}
-          disabled={!ready || duration <= 0}
-          aria-label="Barra de reproduccion"
-        />
-        <p className="terra-wave-diagnostic">{diagnosticLine}</p>
-        {lastAudioError && <p className="terra-wave-diagnostic terra-wave-diagnostic--error">{lastAudioError}</p>}
-      </div>
-    </div>
-  );
-}
-
-function MessageBody({ message }: { message: ChatMessage }) {
   const attachment = message.attachment;
   if (!attachment) return <p className="whitespace-pre-wrap">{message.text}</p>;
 
   if (message.kind === "image") {
     return (
       <div className="space-y-2">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={attachment.dataUrl} alt={attachment.name} className="max-h-56 w-full rounded-xl object-cover" />
+        <button
+          type="button"
+          className="block w-full overflow-hidden rounded-xl"
+          onClick={(event) => {
+            event.stopPropagation();
+            onImageOpen(attachment.dataUrl, attachment.name);
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={attachment.dataUrl} alt={attachment.name} className="max-h-56 w-full rounded-xl object-cover transition-transform duration-200 hover:scale-[1.01]" />
+        </button>
         {message.text && <p>{message.text}</p>}
       </div>
     );
@@ -473,8 +175,8 @@ function MessageBody({ message }: { message: ChatMessage }) {
 
   if (message.kind === "audio") {
     return (
-      <div className="space-y-2 min-w-[220px] sm:min-w-[240px]">
-        <WaveAudioPlayer src={attachment.dataUrl} expectedMimeType={attachment.mimeType} compact />
+      <div className="space-y-2 w-[clamp(180px,62vw,320px)] max-w-full">
+        <VoiceNotePlayer audioUrl={attachment.dataUrl} tone={isOutgoing ? "outgoing" : "incoming"} />
         {message.text && <p>{message.text}</p>}
       </div>
     );
@@ -504,11 +206,13 @@ export function ChatsPage() {
   const handledAssetIdRef = useRef<string | null>(null);
   const photoVideoInputRef = useRef<HTMLInputElement | null>(null);
   const docsInputRef = useRef<HTMLInputElement | null>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
   const voiceStreamRef = useRef<MediaStream | null>(null);
   const voiceTimerRef = useRef<number | null>(null);
   const voiceRecorderRef = useRef<MediaRecorder | null>(null);
   const voicePreviewBlobRef = useRef<Blob | null>(null);
+  const voiceMimeTypeRef = useRef<string>("audio/webm");
   const voiceLiveCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const voiceLiveAnimationRef = useRef<number | null>(null);
   const voiceLiveAudioContextRef = useRef<AudioContext | null>(null);
@@ -519,6 +223,11 @@ export function ChatsPage() {
   const cameraChunksRef = useRef<Blob[]>([]);
   const messagesViewportRef = useRef<HTMLDivElement | null>(null);
   const scrollDateHintTimerRef = useRef<number | null>(null);
+  const scrollDateHintCandidateTimerRef = useRef<number | null>(null);
+  const scrollDateHintCandidateRef = useRef<string | null>(null);
+  const messageLongPressTimerRef = useRef<number | null>(null);
+  const lightboxPinchStartDistanceRef = useRef<number | null>(null);
+  const lightboxPinchStartZoomRef = useRef(1);
   const { isMobile } = useResponsive();
 
   const [threads, setThreads] = useState<ReturnType<typeof getUserThreads>>([]);
@@ -549,6 +258,14 @@ export function ChatsPage() {
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [assets, setAssets] = useState<ReturnType<typeof getAssets>>([]);
   const [scrollDateHint, setScrollDateHint] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
+  const [deletingMessages, setDeletingMessages] = useState(false);
+  const [messageContextMenu, setMessageContextMenu] = useState<MessageContextMenuState>(null);
+  const [pendingImageDraft, setPendingImageDraft] = useState<PendingImageDraft | null>(null);
+  const [pendingImageComment, setPendingImageComment] = useState("");
+  const [lightbox, setLightbox] = useState<LightboxState>(null);
+  const [lightboxZoom, setLightboxZoom] = useState(1);
 
   const assetsMap = useMemo(() => new Map(assets.map((asset) => [asset.id, asset.title])), [assets]);
   const activeThread = threads.find((thread) => thread.id === activeThreadId) ?? null;
@@ -556,6 +273,18 @@ export function ChatsPage() {
   const activeRole = activeThread && user ? getThreadRoleForUser(activeThread, user.id) : null;
   const senderRole = activeRole ?? (activeMode === "seller" ? "seller" : "buyer");
   const mobileThreadOpen = isMobile && Boolean(activeThread);
+  const selectedMessages = activeMessages.filter((message) => selectedMessageIds.includes(message.id));
+
+  const canDeleteForEveryone = useCallback((message: ChatMessage) => {
+    if (!user) return false;
+    if (message.deletedForEveryone) return false;
+    if (message.senderId !== user.id) return false;
+    if (message.status === "read" || Boolean(message.readAt)) return false;
+    return true;
+  }, [user]);
+
+  const canBulkDeleteForEveryone = selectedMessages.length > 0 && selectedMessages.every(canDeleteForEveryone);
+  const contextMenuMessage = activeMessages.find((message) => message.id === messageContextMenu?.messageId) ?? null;
 
   const scrollToLatestMessage = useCallback((smooth = false) => {
     const viewport = messagesViewportRef.current;
@@ -707,6 +436,14 @@ export function ChatsPage() {
         window.clearTimeout(scrollDateHintTimerRef.current);
         scrollDateHintTimerRef.current = null;
       }
+      if (scrollDateHintCandidateTimerRef.current) {
+        window.clearTimeout(scrollDateHintCandidateTimerRef.current);
+        scrollDateHintCandidateTimerRef.current = null;
+      }
+      if (messageLongPressTimerRef.current) {
+        window.clearTimeout(messageLongPressTimerRef.current);
+        messageLongPressTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -714,6 +451,14 @@ export function ChatsPage() {
     document.body.classList.add("chat-page-lock");
     return () => document.body.classList.remove("chat-page-lock");
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (pendingImageDraft?.previewUrl) {
+        URL.revokeObjectURL(pendingImageDraft.previewUrl);
+      }
+    };
+  }, [pendingImageDraft]);
 
   useEffect(() => {
     if (mobileThreadOpen) {
@@ -729,6 +474,42 @@ export function ChatsPage() {
     const id = window.setTimeout(() => scrollToLatestMessage(false), 0);
     return () => window.clearTimeout(id);
   }, [activeThreadId, scrollToLatestMessage]);
+
+  useEffect(() => {
+    setSelectionMode(false);
+    setSelectedMessageIds([]);
+    setMessageContextMenu(null);
+    setPendingImageComment("");
+    setNextPendingImageDraft(null);
+    scrollDateHintCandidateRef.current = null;
+    if (scrollDateHintCandidateTimerRef.current) {
+      window.clearTimeout(scrollDateHintCandidateTimerRef.current);
+      scrollDateHintCandidateTimerRef.current = null;
+    }
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    const closeMenu = () => setMessageContextMenu(null);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      closeMenu();
+      setLightbox(null);
+      setLightboxZoom(1);
+      if (pendingImageDraft?.previewUrl) {
+        URL.revokeObjectURL(pendingImageDraft.previewUrl);
+      }
+      setPendingImageDraft(null);
+      setPendingImageComment("");
+    };
+    window.addEventListener("click", closeMenu);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("click", closeMenu);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [pendingImageDraft]);
 
   const term = search.trim().toLowerCase();
   const hasTextToSend = chatInput.trim().length > 0;
@@ -811,6 +592,8 @@ export function ChatsPage() {
     setManuallyClosedChat(false);
     setActiveThreadId(threadId);
     setScrollDateHint(null);
+    setSelectionMode(false);
+    setSelectedMessageIds([]);
   };
 
   const handleCloseThread = () => {
@@ -819,34 +602,160 @@ export function ChatsPage() {
     setShowEmoji(false);
     setShowAttachMenu(false);
     setShowAttachCameraSubmenu(false);
+    closeImageDraft();
+    setSelectionMode(false);
+    setSelectedMessageIds([]);
+  };
+
+  const toggleMessageSelection = (messageId: string) => {
+    setSelectedMessageIds((current) => (
+      current.includes(messageId)
+        ? current.filter((id) => id !== messageId)
+        : [...current, messageId]
+    ));
+  };
+
+  const clearSelection = () => {
+    setSelectionMode(false);
+    setSelectedMessageIds([]);
+  };
+
+  const handleDeleteMessageIds = async (messageIds: string[], mode: "me" | "everyone") => {
+    if (!activeThreadId || !user || messageIds.length === 0 || deletingMessages) return;
+    setDeletingMessages(true);
+    setChatError("");
+    try {
+      const result = await deleteThreadMessages(activeThreadId, user, messageIds, mode);
+      if (!result.ok) {
+        setChatError(result.message);
+        return;
+      }
+      if (result.notAllowedIds.length > 0 && mode === "everyone") {
+        setChatError("Algunos mensajes ya fueron vistos y no se pueden eliminar para todos.");
+      }
+      clearSelection();
+      setMessageContextMenu(null);
+      void syncData();
+    } finally {
+      setDeletingMessages(false);
+    }
+  };
+
+  const handleDeleteSelectedMessages = async (mode: "me" | "everyone") => {
+    await handleDeleteMessageIds(selectedMessageIds, mode);
+  };
+
+  const openMessageContextMenu = (messageId: string, x: number, y: number) => {
+    setMessageContextMenu({
+      messageId,
+      x: Math.max(16, Math.min(window.innerWidth - 220, x)),
+      y: Math.max(16, Math.min(window.innerHeight - 180, y)),
+    });
+  };
+
+  const startMessageLongPress = (event: ReactPointerEvent<HTMLElement>, messageId: string) => {
+    if (!isMobile || selectionMode) return;
+    if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
+    if (messageLongPressTimerRef.current) {
+      window.clearTimeout(messageLongPressTimerRef.current);
+    }
+    const { clientX, clientY } = event;
+    messageLongPressTimerRef.current = window.setTimeout(() => {
+      openMessageContextMenu(messageId, clientX, clientY);
+      messageLongPressTimerRef.current = null;
+    }, 520);
+  };
+
+  const cancelMessageLongPress = () => {
+    if (messageLongPressTimerRef.current) {
+      window.clearTimeout(messageLongPressTimerRef.current);
+      messageLongPressTimerRef.current = null;
+    }
   };
 
   const handleMessagesScroll = () => {
     const viewport = messagesViewportRef.current;
     if (!viewport) return;
+    if (voiceState !== "idle") {
+      if (scrollDateHintTimerRef.current) {
+        window.clearTimeout(scrollDateHintTimerRef.current);
+        scrollDateHintTimerRef.current = null;
+      }
+      setScrollDateHint(null);
+      return;
+    }
+    const nearBottom = viewport.scrollTop + viewport.clientHeight >= viewport.scrollHeight - 20;
+    if (nearBottom) {
+      if (scrollDateHintTimerRef.current) {
+        window.clearTimeout(scrollDateHintTimerRef.current);
+        scrollDateHintTimerRef.current = null;
+      }
+      setScrollDateHint(null);
+      return;
+    }
     const items = Array.from(viewport.querySelectorAll<HTMLElement>("[data-message-date]"));
     if (items.length === 0) return;
     const viewportTop = viewport.getBoundingClientRect().top;
-    let selectedDate = items[0].dataset.messageDate ?? null;
+    const anchorOffset = 56;
+    let selectedDate: string | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
 
     for (const element of items) {
       const top = element.getBoundingClientRect().top - viewportTop;
-      if (top <= 36) {
-        selectedDate = element.dataset.messageDate ?? selectedDate;
-      } else {
-        break;
+      const distance = Math.abs(top - anchorOffset);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        selectedDate = element.dataset.messageDate ?? null;
       }
     }
 
-    if (selectedDate) {
-      setScrollDateHint(selectedDate);
+    if (!selectedDate) return;
+
+    const commitSelectedDate = () => {
+      const dateChanged = selectedDate !== scrollDateHint;
+      if (dateChanged) {
+        setScrollDateHint(selectedDate);
+      }
       if (scrollDateHintTimerRef.current) {
         window.clearTimeout(scrollDateHintTimerRef.current);
       }
       scrollDateHintTimerRef.current = window.setTimeout(() => {
         setScrollDateHint(null);
         scrollDateHintTimerRef.current = null;
-      }, 2000);
+      }, 1400);
+      scrollDateHintCandidateRef.current = null;
+      scrollDateHintCandidateTimerRef.current = null;
+    };
+
+    if (!scrollDateHint) {
+      commitSelectedDate();
+      return;
+    }
+
+    if (selectedDate === scrollDateHint) {
+      if (scrollDateHintCandidateTimerRef.current) {
+        window.clearTimeout(scrollDateHintCandidateTimerRef.current);
+        scrollDateHintCandidateTimerRef.current = null;
+      }
+      scrollDateHintCandidateRef.current = null;
+      if (scrollDateHintTimerRef.current) {
+        window.clearTimeout(scrollDateHintTimerRef.current);
+      }
+      scrollDateHintTimerRef.current = window.setTimeout(() => {
+        setScrollDateHint(null);
+        scrollDateHintTimerRef.current = null;
+      }, 1400);
+      return;
+    }
+
+    if (scrollDateHintCandidateRef.current !== selectedDate) {
+      scrollDateHintCandidateRef.current = selectedDate;
+      if (scrollDateHintCandidateTimerRef.current) {
+        window.clearTimeout(scrollDateHintCandidateTimerRef.current);
+      }
+      scrollDateHintCandidateTimerRef.current = window.setTimeout(() => {
+        commitSelectedDate();
+      }, 160);
     }
   };
 
@@ -861,11 +770,35 @@ export function ChatsPage() {
     writeLocalStorage(STORAGE_KEYS.chatFavorites, map);
   };
 
-  const sendFileMessage = async (file: File) => {
+  const setNextPendingImageDraft = (next: PendingImageDraft | null) => {
+    setPendingImageDraft((current) => {
+      if (current && current.previewUrl !== next?.previewUrl) {
+        URL.revokeObjectURL(current.previewUrl);
+      }
+      return next;
+    });
+  };
+
+  const openImageDraftFromFile = (file: File) => {
+    const previewUrl = URL.createObjectURL(file);
+    setPendingImageComment(chatInput);
+    setNextPendingImageDraft({ file, previewUrl });
+    setShowAttachMenu(false);
+    setShowAttachCameraSubmenu(false);
+    setShowEmoji(false);
+  };
+
+  const closeImageDraft = () => {
+    setNextPendingImageDraft(null);
+    setPendingImageComment("");
+    window.setTimeout(() => messageInputRef.current?.focus(), 0);
+  };
+
+  const sendFileMessage = async (file: File, messageText: string) => {
     if (!activeThreadId || !user) return;
     const dataUrl = await toDataUrl(file);
     const kind = getAttachmentKind(file);
-    const result = await sendThreadMessage(activeThreadId, user, senderRole, chatInput, {
+    const result = await sendThreadMessage(activeThreadId, user, senderRole, messageText, {
       kind,
       attachment: {
         name: file.name,
@@ -875,7 +808,7 @@ export function ChatsPage() {
       },
     });
     if (!result.ok) {
-      appendFailedThreadMessage(activeThreadId, user, senderRole, chatInput, result.message, {
+      appendFailedThreadMessage(activeThreadId, user, senderRole, messageText, result.message, {
         kind,
         attachment: {
           name: file.name,
@@ -894,11 +827,27 @@ export function ChatsPage() {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
+    if (file.type.startsWith("image/")) {
+      openImageDraftFromFile(file);
+      return;
+    }
     setChatError("");
     try {
-      await sendFileMessage(file);
+      await sendFileMessage(file, chatInput);
     } catch (error) {
       setChatError(error instanceof Error ? error.message : "No se pudo adjuntar el archivo.");
+    }
+  };
+
+  const handleSendPendingImage = async () => {
+    if (!pendingImageDraft) return;
+    setChatError("");
+    try {
+      await sendFileMessage(pendingImageDraft.file, pendingImageComment);
+      setChatInput("");
+      closeImageDraft();
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : "No se pudo enviar la imagen.");
     }
   };
 
@@ -1013,7 +962,10 @@ export function ChatsPage() {
 
   const rebuildVoicePreviewFromChunks = () => {
     if (voiceChunksRef.current.length === 0) return false;
-    const blob = new Blob(voiceChunksRef.current);
+    const resolvedMimeType = voiceMimeTypeRef.current
+      || voiceChunksRef.current[0]?.type
+      || "audio/webm";
+    const blob = new Blob(voiceChunksRef.current, { type: resolvedMimeType });
     if (blob.size === 0) return false;
     voicePreviewBlobRef.current = blob;
     setVoicePreviewBlob(blob);
@@ -1025,7 +977,17 @@ export function ChatsPage() {
   };
 
   const createVoiceRecorder = (stream: MediaStream) => {
-    const recorder = new MediaRecorder(stream);
+    const candidateMimeTypes = [
+      "audio/webm;codecs=opus",
+      "audio/ogg;codecs=opus",
+      "audio/webm",
+      "",
+    ];
+    const selectedMimeType = candidateMimeTypes.find((candidate) => candidate && MediaRecorder.isTypeSupported(candidate)) ?? "";
+    const recorder = selectedMimeType
+      ? new MediaRecorder(stream, { mimeType: selectedMimeType, audioBitsPerSecond: 24000 })
+      : new MediaRecorder(stream, { audioBitsPerSecond: 24000 });
+    voiceMimeTypeRef.current = recorder.mimeType || selectedMimeType || "audio/webm";
     voiceChunksRef.current = [];
 
     recorder.ondataavailable = (event) => {
@@ -1034,6 +996,7 @@ export function ChatsPage() {
       }
       if (recorder.state === "paused") {
         const hasPreview = rebuildVoicePreviewFromChunks();
+        setVoicePreparingPreview(false);
         if (hasPreview) {
           setVoiceState("paused");
         }
@@ -1050,7 +1013,7 @@ export function ChatsPage() {
     };
 
     voiceRecorderRef.current = recorder;
-    recorder.start();
+    recorder.start(800);
   };
 
   const stopVoiceRuntime = () => {
@@ -1124,12 +1087,17 @@ export function ChatsPage() {
       setVoicePreparingPreview(true);
       recorder.requestData();
       window.setTimeout(() => {
+        if (recorder.state !== "paused") return;
+        if (voicePreviewBlobRef.current && voicePreviewBlobRef.current.size > 0) {
+          setVoicePreparingPreview(false);
+          return;
+        }
         const hasPreview = rebuildVoicePreviewFromChunks();
         setVoicePreparingPreview(false);
         if (!hasPreview) {
           setChatError("Aun no hay suficiente audio para previsualizar. Continua grabando unos segundos.");
         }
-      }, 120);
+      }, 420);
     }
   };
 
@@ -1164,6 +1132,7 @@ export function ChatsPage() {
     stopVoiceRuntime();
     voiceRecorderRef.current = null;
     voiceChunksRef.current = [];
+    voiceMimeTypeRef.current = "audio/webm";
     clearVoicePreview();
     setRecordingDuration(0);
     setVoicePreparingPreview(false);
@@ -1262,6 +1231,60 @@ export function ChatsPage() {
 
   const handleEmojiPick = (emoji: EmojiClickData) => {
     setChatInput((prev) => `${prev}${emoji.emoji}`);
+  };
+
+  const handleComposerPaste = (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    if (!activeThreadId) return;
+    const clipboardItems = Array.from(event.clipboardData.items ?? []);
+    const imageItem = clipboardItems.find((item) => item.kind === "file" && item.type.startsWith("image/"));
+    if (!imageItem) return;
+    const imageFile = imageItem.getAsFile();
+    if (!imageFile) return;
+    event.preventDefault();
+    setChatError("");
+    openImageDraftFromFile(imageFile);
+  };
+
+  const openLightbox = (src: string, alt: string) => {
+    setLightbox({ src, alt });
+    setLightboxZoom(1);
+  };
+
+  const closeLightbox = () => {
+    setLightbox(null);
+    setLightboxZoom(1);
+  };
+
+  const handleLightboxWheel = (event: WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setLightboxZoom((current) => {
+      const delta = event.deltaY > 0 ? -0.12 : 0.12;
+      return Math.max(1, Math.min(4, Number((current + delta).toFixed(2))));
+    });
+  };
+
+  const handleLightboxTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (event.touches.length !== 2) return;
+    const [touchA, touchB] = Array.from(event.touches);
+    const distance = Math.hypot(touchB.clientX - touchA.clientX, touchB.clientY - touchA.clientY);
+    lightboxPinchStartDistanceRef.current = distance;
+    lightboxPinchStartZoomRef.current = lightboxZoom;
+  };
+
+  const handleLightboxTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (event.touches.length !== 2 || !lightboxPinchStartDistanceRef.current) return;
+    event.preventDefault();
+    const [touchA, touchB] = Array.from(event.touches);
+    const distance = Math.hypot(touchB.clientX - touchA.clientX, touchB.clientY - touchA.clientY);
+    const baseDistance = lightboxPinchStartDistanceRef.current || distance;
+    if (!baseDistance) return;
+    const zoomDelta = distance / baseDistance;
+    const nextZoom = lightboxPinchStartZoomRef.current * zoomDelta;
+    setLightboxZoom(Math.max(1, Math.min(4, Number(nextZoom.toFixed(2)))));
+  };
+
+  const handleLightboxTouchEnd = () => {
+    lightboxPinchStartDistanceRef.current = null;
   };
 
   const stopCameraTracks = () => {
@@ -1376,14 +1399,14 @@ export function ChatsPage() {
     try {
       if (capturedPhoto) {
         const photoFile = dataUrlToFile(capturedPhoto, `foto-chat-${Date.now()}.jpg`);
-        await sendFileMessage(photoFile);
+        await sendFileMessage(photoFile, chatInput);
         closeCameraModal();
         return;
       }
 
       if (capturedVideoBlob) {
         const videoFile = new File([capturedVideoBlob], `video-chat-${Date.now()}.webm`, { type: capturedVideoBlob.type || "video/webm" });
-        await sendFileMessage(videoFile);
+        await sendFileMessage(videoFile, chatInput);
         closeCameraModal();
         return;
       }
@@ -1466,7 +1489,11 @@ export function ChatsPage() {
               const counterpart = thread.buyerId === user.id ? thread.sellerName : thread.buyerName;
               const subtitle = assetsMap.get(thread.assetId) ?? "Activo";
               const latest = getThreadMessages(thread.id).at(-1);
-              const preview = latest ? `${latest.senderId === user.id ? "Tu: " : ""}${latest.text || (latest.kind ?? "Adjunto")}` : "Sin mensajes";
+              const preview = latest
+                ? latest.deletedForEveryone
+                  ? (latest.senderId === user.id ? "Eliminaste este mensaje." : "Se elimino este mensaje.")
+                  : `${latest.senderId === user.id ? "Tu: " : ""}${latest.text || (latest.kind ?? "Adjunto")}`
+                : "Sin mensajes";
               const isActive = thread.id === activeThreadId;
               const isFavorite = favoriteThreadIds.includes(thread.id);
 
@@ -1551,14 +1578,59 @@ export function ChatsPage() {
                     <p className={`truncate text-xs ${isDark ? "text-[#aebac1]" : "text-[#5f7487]"}`}>{assetsMap.get(activeThread.assetId) ?? "Activo tokenizado"}</p>
                   </div>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={`hidden h-11 rounded-xl px-3 text-sm font-semibold lg:inline-flex ${iconBtn}`}
-                  onClick={handleCloseThread}
-                >
-                  <X size={16} className="mr-2" /> Cerrar chat
-                </Button>
+                <div className="flex items-center gap-2">
+                  {!selectionMode ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={`h-10 rounded-xl px-3 text-sm font-semibold ${iconBtn}`}
+                      onClick={() => {
+                        setSelectionMode(true);
+                        setSelectedMessageIds([]);
+                      }}
+                    >
+                      Seleccionar
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={`h-10 rounded-xl px-3 text-sm font-semibold ${iconBtn}`}
+                        onClick={() => { void handleDeleteSelectedMessages("me"); }}
+                        disabled={selectedMessageIds.length === 0 || deletingMessages}
+                      >
+                        {deletingMessages ? "Eliminando..." : "Eliminar para mi"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={`h-10 rounded-xl px-3 text-sm font-semibold ${iconBtn}`}
+                        onClick={() => { void handleDeleteSelectedMessages("everyone"); }}
+                        disabled={!canBulkDeleteForEveryone || deletingMessages}
+                      >
+                        Eliminar para todos
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={`h-10 rounded-xl px-3 text-sm font-semibold ${iconBtn}`}
+                        onClick={clearSelection}
+                        disabled={deletingMessages}
+                      >
+                        Cancelar
+                      </Button>
+                    </>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={`hidden h-11 rounded-xl px-3 text-sm font-semibold lg:inline-flex ${iconBtn}`}
+                    onClick={handleCloseThread}
+                  >
+                    <X size={16} className="mr-2" /> Cerrar chat
+                  </Button>
+                </div>
               </header>
 
               <div
@@ -1574,6 +1646,9 @@ export function ChatsPage() {
                 <div className="space-y-2.5">
                   <AnimatePresence initial={false}>
                     {activeMessages.map((message) => (
+                      (() => {
+                        const isSelected = selectedMessageIds.includes(message.id);
+                        return (
                       <motion.div
                         key={message.id}
                         data-message-date={formatLongDay(message.createdAt)}
@@ -1586,27 +1661,61 @@ export function ChatsPage() {
                         <article
                           className={`inline-block rounded-2xl px-3 py-2 text-sm shadow-sm ${
                             message.kind === "audio"
-                              ? "w-full max-w-[78%] min-w-[220px] sm:max-w-[68%]"
+                              ? "w-fit max-w-[82%] sm:max-w-[72%]"
                               : "w-fit max-w-[82%] sm:max-w-[78%]"
-                          } ${message.senderId === user.id ? bubbleOut : bubbleIn}`}
+                          } ${message.senderId === user.id ? bubbleOut : bubbleIn} ${isSelected ? "ring-2 ring-[#3cc8ff] ring-offset-1 ring-offset-transparent" : ""}`}
+                          onContextMenu={(event) => {
+                            if (selectionMode) return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            openMessageContextMenu(message.id, event.clientX, event.clientY);
+                          }}
+                          onPointerDown={(event) => startMessageLongPress(event, message.id)}
+                          onPointerUp={cancelMessageLongPress}
+                          onPointerCancel={cancelMessageLongPress}
+                          onPointerLeave={cancelMessageLongPress}
                           onClick={() => {
+                            if (selectionMode) {
+                              toggleMessageSelection(message.id);
+                              return;
+                            }
                             if (message.status === "failed" && message.senderId === user.id) {
                               setRetryMessageId((current) => (current === message.id ? null : message.id));
                             }
                           }}
                         >
-                          <MessageBody message={message} />
+                          {selectionMode && (
+                            <div className="mb-1 flex justify-end">
+                              <span className={`grid h-4 w-4 place-items-center rounded-full border ${isSelected ? "border-[#3cc8ff] bg-[#3cc8ff]" : "border-current/40 bg-transparent"}`}>
+                                {isSelected && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                              </span>
+                            </div>
+                          )}
+                          <MessageBody message={message} isOutgoing={message.senderId === user.id} onImageOpen={openLightbox} />
                           <div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-75">
+                            {!selectionMode && !message.deletedForEveryone && (
+                              <button
+                                type="button"
+                                className="mr-1 rounded px-1 py-0.5 text-[10px] hover:bg-black/10"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setSelectionMode(true);
+                                  setSelectedMessageIds([message.id]);
+                                }}
+                              >
+                                Selec.
+                              </button>
+                            )}
                             <span>{formatTime(message.createdAt)}</span>
                             {message.senderId === user.id && <StatusIcon message={message} />}
                           </div>
-                          {message.status === "failed" && message.errorMessage && (
+                          {message.status === "failed" && message.errorMessage && !message.deletedForEveryone && (
                             <>
                               <p className="mt-1 text-[11px] text-red-400">{message.errorMessage}</p>
                               <p className="mt-1 text-[10px] text-red-300/90">Toca este mensaje para reintentar envio.</p>
                             </>
                           )}
-                          {message.status === "failed" && retryMessageId === message.id && (
+                          {message.status === "failed" && retryMessageId === message.id && !message.deletedForEveryone && (
                             <button
                               type="button"
                               className="mt-2 rounded-lg border border-red-400 px-2 py-1 text-[11px] font-semibold text-red-300 hover:bg-red-500/10"
@@ -1621,10 +1730,62 @@ export function ChatsPage() {
                           )}
                         </article>
                       </motion.div>
+                        );
+                      })()
                     ))}
                   </AnimatePresence>
                 </div>
               </div>
+
+              <AnimatePresence>
+                {messageContextMenu && contextMenuMessage && !selectionMode && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.94, y: 6 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.96, y: 4 }}
+                    transition={{ duration: 0.14, ease: "easeOut" }}
+                    className={`fixed z-50 min-w-[238px] overflow-hidden rounded-2xl border shadow-2xl ${
+                      isDark
+                        ? "border-[#2d3e48] bg-[#1f2c34]/95 text-[#d9e6ee] backdrop-blur-sm"
+                        : "border-[#c9dceb] bg-white/95 text-[#153548] backdrop-blur-sm"
+                    }`}
+                    style={{ left: `${messageContextMenu.x}px`, top: `${messageContextMenu.y}px` }}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium ${isDark ? "hover:bg-[#2a3942]" : "hover:bg-[#ecf5fc]"}`}
+                      onClick={() => { void handleDeleteMessageIds([contextMenuMessage.id], "me"); }}
+                    >
+                      <span>Eliminar para mi</span>
+                      <Trash2 size={16} />
+                    </button>
+                    <div className={`h-px ${isDark ? "bg-[#2d3e48]" : "bg-[#d8e9f5]"}`} />
+                    <button
+                      type="button"
+                      className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium disabled:opacity-45 ${isDark ? "hover:bg-[#2a3942]" : "hover:bg-[#ecf5fc]"}`}
+                      onClick={() => { void handleDeleteMessageIds([contextMenuMessage.id], "everyone"); }}
+                      disabled={!canDeleteForEveryone(contextMenuMessage)}
+                    >
+                      <span>Eliminar para todos</span>
+                      <Users size={16} />
+                    </button>
+                    <div className={`h-px ${isDark ? "bg-[#2d3e48]" : "bg-[#d8e9f5]"}`} />
+                    <button
+                      type="button"
+                      className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium ${isDark ? "hover:bg-[#2a3942]" : "hover:bg-[#ecf5fc]"}`}
+                      onClick={() => {
+                        setSelectionMode(true);
+                        setSelectedMessageIds([contextMenuMessage.id]);
+                        setMessageContextMenu(null);
+                      }}
+                    >
+                      <span>Seleccionar</span>
+                      <ScanEye size={16} />
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               <footer className={`relative border-t p-2 pb-[max(env(safe-area-inset-bottom),10px)] sm:p-2 ${headerBg}`}>
                 <AnimatePresence>
@@ -1676,7 +1837,7 @@ export function ChatsPage() {
                     </div>
                     {(voiceState === "paused" || voiceState === "preview") && voicePreviewUrl && (
                       <div className="mt-2">
-                        <WaveAudioPlayer src={voicePreviewUrl} expectedMimeType={voicePreviewBlob?.type} />
+                        <VoiceNotePlayer audioUrl={voicePreviewUrl} tone="incoming" />
                       </div>
                     )}
                     <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1734,10 +1895,12 @@ export function ChatsPage() {
 
   <div className="relative flex-1">
     <textarea
+      ref={messageInputRef}
       className={`max-h-24 min-h-11 min-w-0 w-full rounded-2xl border p-2.5 text-sm sm:max-h-28 sm:min-h-12 sm:rounded-3xl sm:p-3 ${inputBg}`}
       placeholder={activeThreadId ? "Escribe un mensaje" : "Selecciona una conversacion"}
       value={chatInput}
       onChange={(event) => setChatInput(event.target.value)}
+      onPaste={handleComposerPaste}
       disabled={!activeThreadId}
     />
   </div>
@@ -1839,6 +2002,39 @@ export function ChatsPage() {
                 {chatError && <p className="mt-2 text-xs text-red-500">{chatError}</p>}
               </footer>
 
+              {pendingImageDraft && (
+                <div className="absolute inset-0 z-30 grid place-items-center bg-black/72 p-4">
+                  <div className={`w-full max-w-xl rounded-2xl border p-3 ${isDark ? "border-[#2a3942] bg-[#111b21]" : "border-[#bfd6e8] bg-white"}`}>
+                    <div className="mb-3 flex items-center justify-between">
+                      <p className="flex items-center gap-2 text-sm font-semibold"><ImagePlus size={16} /> Imagen lista para enviar</p>
+                      <Button type="button" variant="outline" className={`h-9 rounded-lg px-3 ${iconBtn}`} onClick={closeImageDraft}>
+                        <X size={14} className="mr-1" /> Cancelar
+                      </Button>
+                    </div>
+                    <div className="overflow-hidden rounded-xl border border-[var(--color-border)]">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={pendingImageDraft.previewUrl} alt="Previsualizacion de imagen" className="max-h-[380px] w-full object-contain bg-black/25" />
+                    </div>
+                    <div className="mt-3">
+                      <textarea
+                        className={`max-h-24 min-h-12 w-full rounded-xl border p-3 text-sm ${inputBg}`}
+                        placeholder="Escribe un comentario opcional"
+                        value={pendingImageComment}
+                        onChange={(event) => setPendingImageComment(event.target.value)}
+                      />
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Button type="button" variant="outline" className={`h-10 rounded-xl px-3 ${iconBtn}`} onClick={closeImageDraft}>
+                        Descartar
+                      </Button>
+                      <Button type="button" className="h-10 rounded-xl bg-[#63c35c] px-3 text-[#08260d] hover:bg-[#7ed877]" onClick={() => { void handleSendPendingImage(); }}>
+                        <ArrowUp size={16} className="mr-2" /> Enviar imagen
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {showCameraModal && (
                 <div className="absolute inset-0 z-30 grid place-items-center bg-black/70 p-4">
                   <div className={`w-full max-w-xl rounded-2xl border p-3 ${isDark ? "border-[#2a3942] bg-[#111b21]" : "border-[#bfd6e8] bg-white"}`}>
@@ -1912,6 +2108,76 @@ export function ChatsPage() {
                       )}
                     </div>
                     {cameraError && <p className="mt-2 text-xs text-red-500">{cameraError}</p>}
+                  </div>
+                </div>
+              )}
+
+              {lightbox && (
+                <div
+                  className="absolute inset-0 z-40 bg-black/88"
+                  onClick={closeLightbox}
+                  onWheel={handleLightboxWheel}
+                  onTouchStart={handleLightboxTouchStart}
+                  onTouchMove={handleLightboxTouchMove}
+                  onTouchEnd={handleLightboxTouchEnd}
+                  onTouchCancel={handleLightboxTouchEnd}
+                  style={{ touchAction: "none" }}
+                >
+                  <div className="absolute right-3 top-3 flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 w-9 rounded-full border-white/35 bg-black/45 px-0 text-white hover:bg-black/65"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setLightboxZoom((current) => Math.max(1, Number((current - 0.2).toFixed(2))));
+                      }}
+                    >
+                      <ZoomOut size={15} />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 w-9 rounded-full border-white/35 bg-black/45 px-0 text-white hover:bg-black/65"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setLightboxZoom((current) => Math.min(4, Number((current + 0.2).toFixed(2))));
+                      }}
+                    >
+                      <ZoomIn size={15} />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 w-9 rounded-full border-white/35 bg-black/45 px-0 text-white hover:bg-black/65"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setLightboxZoom(1);
+                      }}
+                    >
+                      <RotateCcw size={15} />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 w-9 rounded-full border-white/35 bg-black/45 px-0 text-white hover:bg-black/65"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        closeLightbox();
+                      }}
+                    >
+                      <X size={15} />
+                    </Button>
+                  </div>
+                  <div className="grid h-full place-items-center p-5">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={lightbox.src}
+                      alt={lightbox.alt}
+                      className="max-h-full max-w-full object-contain transition-transform duration-150"
+                      style={{ transform: `scale(${lightboxZoom})` }}
+                      onClick={(event) => event.stopPropagation()}
+                    />
                   </div>
                 </div>
               )}

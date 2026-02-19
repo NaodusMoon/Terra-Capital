@@ -55,7 +55,36 @@ interface DbMessageRow {
   attachment: unknown;
   error_message: string | null;
   read_at: string | null;
+  deleted_for_everyone?: boolean;
+  deleted_for_everyone_at?: string | null;
+  deleted_for_everyone_by?: string | null;
   created_at: string;
+}
+
+let cachedSupportsDeleteColumns: boolean | null = null;
+
+async function supportsMessageDeleteColumns() {
+  if (cachedSupportsDeleteColumns !== null) return cachedSupportsDeleteColumns;
+  const pool = getPostgresPool();
+  try {
+    const result = await pool.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'marketplace_messages'
+         AND column_name = ANY($1::text[])`,
+      [[
+        "deleted_for_everyone",
+        "deleted_for_everyone_at",
+        "deleted_for_everyone_by",
+        "deleted_for_user_ids",
+      ]],
+    );
+    cachedSupportsDeleteColumns = result.rows.length === 4;
+  } catch {
+    cachedSupportsDeleteColumns = false;
+  }
+  return cachedSupportsDeleteColumns;
 }
 
 function toNumber(value: string | number) {
@@ -149,12 +178,16 @@ function mapMessageRow(row: DbMessageRow): ChatMessage {
     attachment: parseAttachment(row.attachment),
     errorMessage: row.error_message ?? undefined,
     readAt: row.read_at ?? undefined,
+    deletedForEveryone: Boolean(row.deleted_for_everyone),
+    deletedForEveryoneAt: row.deleted_for_everyone_at ?? undefined,
+    deletedForEveryoneBy: row.deleted_for_everyone_by ?? undefined,
     createdAt: row.created_at,
   };
 }
 
 export async function getMarketplaceState(userId?: string, options?: { includeChat?: boolean }) {
   const pool = getPostgresPool();
+  const withDeleteColumns = await supportsMessageDeleteColumns();
   const includeChat = options?.includeChat ?? false;
   const assetsResult = await pool.query<DbAssetRow>(
     `SELECT id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, created_at
@@ -185,13 +218,24 @@ export async function getMarketplaceState(userId?: string, options?: { includeCh
   const threadIds = threadsResult.rows.map((row) => row.id);
   let messagesRows: DbMessageRow[] = [];
   if (threadIds.length > 0) {
-    const messagesResult = await pool.query<DbMessageRow>(
-      `SELECT id, thread_id, sender_id, sender_name, sender_role, text, status, kind, attachment, error_message, read_at, created_at
-       FROM marketplace_messages
-       WHERE thread_id = ANY($1::uuid[])
-       ORDER BY created_at ASC`,
-      [threadIds],
-    );
+    const messagesResult = withDeleteColumns
+      ? await pool.query<DbMessageRow>(
+        `SELECT id, thread_id, sender_id, sender_name, sender_role, text, status, kind, attachment, error_message, read_at,
+                deleted_for_everyone, deleted_for_everyone_at, deleted_for_everyone_by, created_at
+         FROM marketplace_messages
+         WHERE thread_id = ANY($1::uuid[])
+           AND ($2::uuid IS NULL OR NOT ($2::uuid = ANY(deleted_for_user_ids)))
+         ORDER BY created_at ASC`,
+        [threadIds, userId ?? null],
+      )
+      : await pool.query<DbMessageRow>(
+        `SELECT id, thread_id, sender_id, sender_name, sender_role, text, status, kind, attachment, error_message, read_at,
+                created_at
+         FROM marketplace_messages
+         WHERE thread_id = ANY($1::uuid[])
+         ORDER BY created_at ASC`,
+        [threadIds],
+      );
     messagesRows = messagesResult.rows;
   }
 
@@ -482,6 +526,7 @@ export async function sendMarketplaceMessage(input: {
   };
 }) {
   const pool = getPostgresPool();
+  const withDeleteColumns = await supportsMessageDeleteColumns();
   const client: PoolClient = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -505,7 +550,11 @@ export async function sendMarketplaceMessage(input: {
       VALUES (
         gen_random_uuid(), $1, $2, $3, $4, $5, 'sent', $6, $7::jsonb, NULL, NULL, timezone('utc', now())
       )
-      RETURNING id, thread_id, sender_id, sender_name, sender_role, text, status, kind, attachment, error_message, read_at, created_at`,
+      RETURNING id, thread_id, sender_id, sender_name, sender_role, text, status, kind, attachment, error_message, read_at,
+                ${withDeleteColumns
+          ? "deleted_for_everyone, deleted_for_everyone_at, deleted_for_everyone_by,"
+          : ""}
+                created_at`,
       [
         input.threadId,
         input.senderId,
@@ -566,5 +615,69 @@ export async function markMarketplaceMessagesRead(input: {
   return {
     ok: true as const,
     changed,
+  };
+}
+
+export async function deleteMarketplaceMessages(input: {
+  threadId: string;
+  actorId: string;
+  messageIds: string[];
+  mode: "me" | "everyone";
+}) {
+  const withDeleteColumns = await supportsMessageDeleteColumns();
+  if (!withDeleteColumns) {
+    return {
+      ok: false as const,
+      message: "Falta migracion de chat para eliminar mensajes. Ejecuta las migraciones y vuelve a intentar.",
+    };
+  }
+
+  const uniqueIds = Array.from(new Set(input.messageIds.filter(Boolean)));
+  if (uniqueIds.length === 0) {
+    return { ok: false as const, message: "No hay mensajes para eliminar." };
+  }
+
+  const pool = getPostgresPool();
+  if (input.mode === "me") {
+    const result = await pool.query<{ id: string }>(
+      `UPDATE marketplace_messages
+       SET deleted_for_user_ids = CASE
+         WHEN $3::uuid = ANY(deleted_for_user_ids) THEN deleted_for_user_ids
+         ELSE array_append(deleted_for_user_ids, $3::uuid)
+       END
+       WHERE thread_id = $1
+         AND id = ANY($2::uuid[])
+       RETURNING id`,
+      [input.threadId, uniqueIds, input.actorId],
+    );
+    return {
+      ok: true as const,
+      deletedIds: result.rows.map((row) => row.id),
+      notAllowedIds: uniqueIds.filter((id) => !result.rows.some((row) => row.id === id)),
+    };
+  }
+
+  const result = await pool.query<{ id: string }>(
+    `UPDATE marketplace_messages
+     SET deleted_for_everyone = true,
+         deleted_for_everyone_at = timezone('utc', now()),
+         deleted_for_everyone_by = $3::uuid,
+         text = '',
+         attachment = NULL,
+         kind = 'text'
+     WHERE thread_id = $1
+       AND id = ANY($2::uuid[])
+       AND sender_id = $3
+       AND deleted_for_everyone = false
+       AND read_at IS NULL
+       AND status <> 'read'
+     RETURNING id`,
+    [input.threadId, uniqueIds, input.actorId],
+  );
+
+  return {
+    ok: true as const,
+    deletedIds: result.rows.map((row) => row.id),
+    notAllowedIds: uniqueIds.filter((id) => !result.rows.some((row) => row.id === id)),
   };
 }

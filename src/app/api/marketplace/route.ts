@@ -4,6 +4,7 @@ import {
   buyMarketplaceAsset,
   createMarketplaceAsset,
   deleteMarketplaceAsset,
+  deleteMarketplaceMessages,
   ensureMarketplaceThreadForBuyer,
   getMarketplaceState,
   markMarketplaceMessagesRead,
@@ -121,6 +122,13 @@ type CommandPayload =
     action: "markRead";
     threadId?: string;
     readerRole?: "buyer" | "seller";
+  }
+  | {
+    action: "deleteMessages";
+    threadId?: string;
+    actorId?: string;
+    messageIds?: unknown;
+    mode?: "me" | "everyone";
   };
 
 export async function POST(request: Request) {
@@ -321,6 +329,23 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: false, message: "Datos invalidos para marcar lectura." }, { status: 400 });
       }
       const result = await markMarketplaceMessagesRead({ threadId, readerRole });
+      return NextResponse.json(result);
+    }
+
+    if (payload.action === "deleteMessages") {
+      const threadId = payload.threadId?.trim() ?? "";
+      const actorId = payload.actorId?.trim() ?? "";
+      const mode = payload.mode;
+      const messageIds = Array.isArray(payload.messageIds)
+        ? payload.messageIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+        : [];
+      if (!threadId || !actorId || (mode !== "me" && mode !== "everyone") || messageIds.length === 0) {
+        return NextResponse.json({ ok: false, message: "Datos invalidos para eliminar mensajes." }, { status: 400 });
+      }
+      const result = await deleteMarketplaceMessages({ threadId, actorId, messageIds, mode });
+      if (!result.ok) {
+        return NextResponse.json({ ok: false, message: result.message }, { status: 400 });
+      }
       return NextResponse.json(result);
     }
 

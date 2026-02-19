@@ -28,6 +28,7 @@ let volatilePurchases: PurchaseRecord[] = [];
 let volatileThreads: ChatThread[] = [];
 let volatileMessages: ChatMessage[] = [];
 let volatileBlendSnapshot: BlendSnapshot | null = null;
+let latestMarketplaceSyncRequest = 0;
 
 function emitMarketUpdate() {
   if (typeof window === "undefined") return;
@@ -75,6 +76,8 @@ function writeMarketplaceState(state: {
 }
 
 export async function syncMarketplace(userId?: string, options?: { includeChat?: boolean }) {
+  const requestId = latestMarketplaceSyncRequest + 1;
+  latestMarketplaceSyncRequest = requestId;
   const params = new URLSearchParams();
   if (userId && UUID_REGEX.test(userId)) {
     params.set("userId", userId);
@@ -87,6 +90,9 @@ export async function syncMarketplace(userId?: string, options?: { includeChat?:
   const payload = await parseResponse<MarketplaceStateResponse>(response);
   if (!payload || !payload.ok) {
     throw new Error(payload?.message ?? "No se pudo sincronizar marketplace.");
+  }
+  if (requestId !== latestMarketplaceSyncRequest) {
+    return payload;
   }
   writeMarketplaceState({
     assets: payload.assets ?? [],
@@ -484,6 +490,62 @@ export async function sendThreadMessage(
 
   emitMarketUpdate();
   return { ok: true as const, status: "sent" as const };
+}
+
+export async function deleteThreadMessages(
+  threadId: string,
+  actor: AppUser,
+  messageIds: string[],
+  mode: "me" | "everyone",
+) {
+  const uniqueIds = Array.from(new Set(messageIds.filter(Boolean)));
+  if (uniqueIds.length === 0) {
+    return { ok: false as const, message: "No hay mensajes seleccionados." };
+  }
+
+  const response = await fetch("/api/marketplace", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "deleteMessages",
+      threadId,
+      actorId: actor.id,
+      messageIds: uniqueIds,
+      mode,
+    }),
+  });
+
+  const payload = await parseResponse<
+    | { ok: true; deletedIds: string[]; notAllowedIds: string[] }
+    | { ok: false; message?: string }
+  >(response);
+
+  if (!payload || !payload.ok) {
+    return { ok: false as const, message: payload?.message ?? "No se pudieron eliminar los mensajes." };
+  }
+
+  const deletedSet = new Set(payload.deletedIds);
+  const messages = getMessages();
+  const next = mode === "me"
+    ? messages.filter((message) => !deletedSet.has(message.id))
+    : messages.map((message) => {
+      if (!deletedSet.has(message.id)) return message;
+      return {
+        ...message,
+        text: "",
+        kind: "text" as const,
+        attachment: undefined,
+        deletedForEveryone: true,
+        deletedForEveryoneBy: actor.id,
+        deletedForEveryoneAt: new Date().toISOString(),
+      };
+    });
+
+  volatileMessages = next;
+  try { writeLocalStorage(STORAGE_KEYS.chatMessages, next); } catch {}
+  emitMarketUpdate();
+
+  return { ok: true as const, deletedIds: payload.deletedIds, notAllowedIds: payload.notAllowedIds };
 }
 
 export function appendFailedThreadMessage(
