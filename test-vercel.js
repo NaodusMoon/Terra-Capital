@@ -2,8 +2,17 @@
 import { check, sleep } from 'k6';
 
 const BASE_URL = __ENV.BASE_URL;
-const P95_THRESHOLD_MS = Number(__ENV.K6_P95_MS || 800);
-const MAX_FAILED_RATE = Number(__ENV.K6_MAX_FAILED_RATE || 0.05);
+
+function envNumber(value, fallback) {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+const P95_THRESHOLD_MS = envNumber(__ENV.K6_P95_MS, 800);
+const MAX_FAILED_RATE = envNumber(__ENV.K6_MAX_FAILED_RATE, 0.05);
 
 if (!BASE_URL) {
   throw new Error('Missing BASE_URL environment variable');
