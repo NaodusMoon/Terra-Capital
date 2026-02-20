@@ -581,7 +581,9 @@ export function ChatsPage() {
 
   const term = search.trim().toLowerCase();
   const hasTextToSend = chatInput.trim().length > 0;
-  const visibleThreads = threads.filter((thread) => {
+  const nonSelfThreads = threads.filter((thread) => thread.buyerId !== thread.sellerId);
+  const threadsForList = nonSelfThreads.length > 0 ? nonSelfThreads : threads;
+  const visibleThreads = threadsForList.filter((thread) => {
     const counterpart = thread.buyerId === user?.id ? thread.sellerName : thread.buyerName;
     const assetTitle = assetsMap.get(thread.assetId) ?? "";
     const termMatch = !term || counterpart.toLowerCase().includes(term) || assetTitle.toLowerCase().includes(term);
