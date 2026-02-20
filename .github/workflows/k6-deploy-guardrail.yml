@@ -25,12 +25,14 @@ jobs:
           FALLBACK_URL: ${{ secrets.PERF_BASE_URL }}
         run: |
           BASE_URL=""
-          if [ -n "$DEPLOYMENT_ENV_URL" ]; then
+          # Always prefer explicit production URL from secret to avoid
+          # deployment event URLs that may point to non-public pages.
+          if [ -n "$FALLBACK_URL" ]; then
+            BASE_URL="$FALLBACK_URL"
+          elif [ -n "$DEPLOYMENT_ENV_URL" ]; then
             BASE_URL="$DEPLOYMENT_ENV_URL"
           elif [ -n "$DEPLOYMENT_TARGET_URL" ]; then
             BASE_URL="$DEPLOYMENT_TARGET_URL"
-          elif [ -n "$FALLBACK_URL" ]; then
-            BASE_URL="$FALLBACK_URL"
           fi
 
           if [ -z "$BASE_URL" ]; then
@@ -44,6 +46,7 @@ jobs:
       - name: Run k6 test
         env:
           BASE_URL: ${{ steps.base_url.outputs.base_url }}
+          K6_TEST_PATH: ${{ vars.K6_TEST_PATH }}
           K6_P95_MS: ${{ vars.K6_P95_MS }}
           K6_MAX_FAILED_RATE: ${{ vars.K6_MAX_FAILED_RATE }}
         run: |

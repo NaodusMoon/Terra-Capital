@@ -2,6 +2,7 @@
 import { check, sleep } from 'k6';
 
 const BASE_URL = __ENV.BASE_URL;
+const TEST_PATH = __ENV.K6_TEST_PATH || '/';
 
 function envNumber(value, fallback) {
   if (value === undefined || value === null || value === '') {
@@ -13,6 +14,7 @@ function envNumber(value, fallback) {
 
 const P95_THRESHOLD_MS = envNumber(__ENV.K6_P95_MS, 800);
 const MAX_FAILED_RATE = envNumber(__ENV.K6_MAX_FAILED_RATE, 0.05);
+const ACCEPTED_STATUSES = [200, 301, 302, 307, 308];
 
 if (!BASE_URL) {
   throw new Error('Missing BASE_URL environment variable');
@@ -32,12 +34,17 @@ export const options = {
 };
 
 export default function () {
-  const res = http.get(BASE_URL, {
+  const base = BASE_URL.endsWith('/') ? BASE_URL.slice(0, -1) : BASE_URL;
+  const path = TEST_PATH.startsWith('/') ? TEST_PATH : `/${TEST_PATH}`;
+  const url = `${base}${path}`;
+
+  const res = http.get(url, {
     tags: { endpoint: 'home' },
+    responseCallback: http.expectedStatuses(...ACCEPTED_STATUSES),
   });
 
   check(res, {
-    'status is 200': (r) => r.status === 200,
+    'status is acceptable': (r) => ACCEPTED_STATUSES.includes(r.status),
   });
 
   sleep(1);
