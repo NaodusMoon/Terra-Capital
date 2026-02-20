@@ -1,0 +1,87 @@
+﻿name: k6 Performance Guardrail
+
+on:
+  deployment_status:
+  workflow_dispatch:
+
+jobs:
+  k6-smoke-perf:
+    if: github.event_name == 'workflow_dispatch' || github.event.deployment_status.state == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Resolve base URL
+        id: base_url
+        env:
+          DEPLOYMENT_ENV_URL: ${{ github.event.deployment_status.environment_url }}
+          DEPLOYMENT_TARGET_URL: ${{ github.event.deployment_status.target_url }}
+          FALLBACK_URL: ${{ secrets.PERF_BASE_URL }}
+        run: |
+          BASE_URL=""
+          if [ -n "$DEPLOYMENT_ENV_URL" ]; then
+            BASE_URL="$DEPLOYMENT_ENV_URL"
+          elif [ -n "$DEPLOYMENT_TARGET_URL" ]; then
+            BASE_URL="$DEPLOYMENT_TARGET_URL"
+          elif [ -n "$FALLBACK_URL" ]; then
+            BASE_URL="$FALLBACK_URL"
+          fi
+
+          if [ -z "$BASE_URL" ]; then
+            echo "No base URL available. Set PERF_BASE_URL secret or ensure deployment_status includes a URL."
+            exit 1
+          fi
+
+          echo "base_url=$BASE_URL" >> "$GITHUB_OUTPUT"
+          echo "Using BASE_URL=$BASE_URL"
+
+      - name: Run k6 test
+        env:
+          BASE_URL: ${{ steps.base_url.outputs.base_url }}
+        run: |
+          k6 run --summary-export=k6-summary.json test-vercel.js
+
+      - name: Upload k6 summary artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-summary-${{ github.run_id }}
+          path: k6-summary.json
+          if-no-files-found: warn
+
+      - name: Publish run summary
+        if: always()
+        run: |
+          echo "## k6 Performance Report" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Base URL: \`${{ steps.base_url.outputs.base_url }}\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f k6-summary.json ]; then
+            echo "- Artifact: \`k6-summary-${{ github.run_id }}\`" >> "$GITHUB_STEP_SUMMARY"
+            P95=$(jq -r '.metrics.http_req_duration["p(95)"] // "n/a"' k6-summary.json)
+            AVG=$(jq -r '.metrics.http_req_duration.avg // "n/a"' k6-summary.json)
+            FAIL_RATE=$(jq -r '.metrics.http_req_failed.rate // "n/a"' k6-summary.json)
+            REQS=$(jq -r '.metrics.http_reqs.count // "n/a"' k6-summary.json)
+            echo "- http_req_duration p(95): \`$P95\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- http_req_duration avg: \`$AVG\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- http_req_failed rate: \`$FAIL_RATE\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "- http_reqs count: \`$REQS\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- No summary file generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Notify on failure (Slack webhook)
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL is not set, skipping Slack notification."
+            exit 0
+          fi
+          payload='{"text":"k6 performance guardrail failed for ${{ github.repository }} on ${{ github.ref_name }}. Check run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}'
+          curl -X POST -H 'Content-type: application/json' --data "$payload" "$SLACK_WEBHOOK_URL"
