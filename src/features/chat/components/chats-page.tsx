@@ -82,6 +82,65 @@ function toDataUrl(file: Blob) {
   });
 }
 
+function audioBufferToWav(audioBuffer: AudioBuffer) {
+  const channelCount = Math.min(2, Math.max(1, audioBuffer.numberOfChannels));
+  const sampleRate = audioBuffer.sampleRate;
+  const bitsPerSample = 16;
+  const bytesPerSample = bitsPerSample / 8;
+  const blockAlign = channelCount * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const frameCount = audioBuffer.length;
+  const dataSize = frameCount * blockAlign;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  const writeText = (offset: number, text: string) => {
+    for (let index = 0; index < text.length; index += 1) {
+      view.setUint8(offset + index, text.charCodeAt(index));
+    }
+  };
+
+  writeText(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeText(8, "WAVE");
+  writeText(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channelCount, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeText(36, "data");
+  view.setUint32(40, dataSize, true);
+
+  const channels = Array.from({ length: channelCount }, (_, index) => audioBuffer.getChannelData(index));
+  let offset = 44;
+  for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
+    for (let channelIndex = 0; channelIndex < channelCount; channelIndex += 1) {
+      const sample = Math.max(-1, Math.min(1, channels[channelIndex][frameIndex] ?? 0));
+      const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+      view.setInt16(offset, intSample, true);
+      offset += 2;
+    }
+  }
+
+  return buffer;
+}
+
+async function convertVoiceBlobToWav(blob: Blob) {
+  if (blob.type.toLowerCase().includes("wav")) return blob;
+  const audioContext = new AudioContext();
+  try {
+    const sourceBuffer = await blob.arrayBuffer();
+    const decoded = await audioContext.decodeAudioData(sourceBuffer.slice(0));
+    const wavBuffer = audioBufferToWav(decoded);
+    return new Blob([wavBuffer], { type: "audio/wav" });
+  } finally {
+    void audioContext.close();
+  }
+}
+
 function dataUrlToFile(dataUrl: string, filename: string) {
   const [meta, base64] = dataUrl.split(",");
   if (!meta || !base64) {
@@ -183,7 +242,7 @@ function MessageBody({
         }`}>
           <Mic size={11} /> Nota de voz
         </p>
-        <VoiceNotePlayer audioUrl={attachment.dataUrl} tone={isOutgoing ? "outgoing" : "incoming"} />
+        <VoiceNotePlayer audioUrl={attachment.dataUrl} audioMimeType={attachment.mimeType} tone={isOutgoing ? "outgoing" : "incoming"} />
         {message.text && <p>{message.text}</p>}
       </div>
     );
@@ -312,6 +371,8 @@ export function ChatsPage() {
     if (!user) return;
 
     try {
+      setAssets(getAssets());
+      setThreads(getUserThreads(user.id));
       let preferredThreadId: string | null = null;
       if (threadIdParam && handledThreadIdRef.current !== threadIdParam) {
         handledThreadIdRef.current = threadIdParam;
@@ -1152,17 +1213,23 @@ export function ChatsPage() {
     if (voiceState !== "preview" || voicePreparingPreview || voiceSending) return;
     setVoiceSending(true);
     const sourceBlob = voicePreviewBlobRef.current ?? voicePreviewBlob;
-    const blob = sourceBlob ?? null;
-    if (!blob || blob.size === 0) {
+    const rawBlob = sourceBlob ?? null;
+    if (!rawBlob || rawBlob.size === 0) {
       setChatError("No hay audio para enviar.");
       setVoiceSending(false);
       return;
+    }
+    let blob = rawBlob;
+    try {
+      blob = await convertVoiceBlobToWav(rawBlob);
+    } catch {
+      blob = rawBlob;
     }
 
     let optimisticId: string | null = null;
     try {
       optimisticId = crypto.randomUUID();
-      const optimisticAttachmentUrl = voicePreviewUrl ?? URL.createObjectURL(blob);
+      const optimisticAttachmentUrl = voicePreviewUrl ?? URL.createObjectURL(rawBlob);
       appendLocalOptimisticMessage({
         id: optimisticId,
         threadId: activeThreadId,
@@ -1174,8 +1241,8 @@ export function ChatsPage() {
         kind: "audio",
         attachment: {
           name: `nota-voz-temp-${Date.now()}`,
-          mimeType: blob.type || "audio/webm",
-          size: blob.size,
+          mimeType: rawBlob.type || "audio/wav",
+          size: rawBlob.size,
           dataUrl: optimisticAttachmentUrl,
         },
         createdAt: new Date().toISOString(),
@@ -1191,11 +1258,12 @@ export function ChatsPage() {
           : blob.type.includes("mp4")
             ? "m4a"
             : "webm";
+      const mimeType = blob.type || "audio/wav";
       const result = await sendThreadMessage(activeThreadId, user, senderRole, "", {
         kind: "audio",
         attachment: {
           name: `nota-voz-${Date.now()}.${extension}`,
-          mimeType: blob.type || "audio/webm",
+          mimeType,
           size: blob.size,
           dataUrl,
         },
@@ -1207,7 +1275,7 @@ export function ChatsPage() {
           kind: "audio",
           attachment: {
             name: `nota-voz-${Date.now()}.${extension}`,
-            mimeType: blob.type || "audio/webm",
+            mimeType,
             size: blob.size,
             dataUrl,
           },

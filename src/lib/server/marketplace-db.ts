@@ -673,6 +673,10 @@ export async function buyMarketplaceAsset(input: {
       await client.query("ROLLBACK");
       return { ok: false as const, message: "Activo no encontrado." };
     }
+    if (asset.seller_id === input.buyerId) {
+      await client.query("ROLLBACK");
+      return { ok: false as const, message: "No puedes comprar tus propios activos." };
+    }
     if (asset.available_tokens < input.quantity) {
       await client.query("ROLLBACK");
       return { ok: false as const, message: "No hay suficientes tokens disponibles." };
@@ -770,6 +774,9 @@ export async function ensureMarketplaceThreadForBuyer(input: {
   const asset = assetResult.rows[0];
   if (!asset) {
     return { ok: false as const, message: "Activo no encontrado." };
+  }
+  if (asset.seller_id === input.buyerId) {
+    return { ok: false as const, message: "No puedes abrir un chat contigo mismo." };
   }
 
   const threadResult = await pool.query<DbThreadRow>(

@@ -30,6 +30,10 @@ let volatileMessages: ChatMessage[] = [];
 let volatileBlendSnapshot: BlendSnapshot | null = null;
 let latestMarketplaceSyncRequest = 0;
 
+function isSelfThread(thread: ChatThread) {
+  return thread.buyerId === thread.sellerId;
+}
+
 function emitMarketUpdate() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(MARKETPLACE_EVENT));
@@ -470,13 +474,13 @@ export function getBlendLiquiditySnapshot() {
 
 export function getSellerThreads(sellerId: string) {
   return getThreads()
-    .filter((thread) => thread.sellerId === sellerId)
+    .filter((thread) => thread.sellerId === sellerId && !isSelfThread(thread))
     .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
 }
 
 export function getBuyerThreads(buyerId: string) {
   return getThreads()
-    .filter((thread) => thread.buyerId === buyerId)
+    .filter((thread) => thread.buyerId === buyerId && !isSelfThread(thread))
     .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
 }
 
@@ -488,7 +492,7 @@ export function getThreadMessages(threadId: string) {
 
 export function getUserThreads(userId: string) {
   return getThreads()
-    .filter((thread) => thread.buyerId === userId || thread.sellerId === userId)
+    .filter((thread) => (thread.buyerId === userId || thread.sellerId === userId) && !isSelfThread(thread))
     .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
 }
 

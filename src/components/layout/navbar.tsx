@@ -92,7 +92,15 @@ export function Navbar() {
                   </Link>
                 )}
 
-                <ModeToggle mode={activeMode} onChange={(mode) => switchMode(mode)} className="w-[222px]" layoutId="desktop-mode-pill" />
+                <ModeToggle
+                  mode={activeMode}
+                  onChange={(mode) => {
+                    switchMode(mode);
+                    router.push(mode === "seller" ? "/seller" : "/buyer");
+                  }}
+                  className="w-[222px]"
+                  layoutId="desktop-mode-pill"
+                />
 
                 <div className="flex items-center gap-2">
                   <Link href={portfolioPath} title={portfolioLabel}>

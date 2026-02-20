@@ -47,7 +47,7 @@ export function NotificationsBell({ mobile = false }: { mobile?: boolean }) {
     const lastSeenMap = readLocalStorage<Record<string, string>>(STORAGE_KEYS.notificationsLastSeen, {});
     const lastSeenAt = lastSeenMap[user.id] ?? "1970-01-01T00:00:00.000Z";
 
-    const userThreads = threads.filter((thread) => thread.buyerId === user.id || thread.sellerId === user.id);
+    const userThreads = threads.filter((thread) => (thread.buyerId === user.id || thread.sellerId === user.id) && thread.buyerId !== thread.sellerId);
     const userThreadIds = new Set(userThreads.map((thread) => thread.id));
     const unreadMessageGroups = userThreads
       .map((thread) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Pause, Play } from "lucide-react";
 import WaveSurfer from "wavesurfer.js";
@@ -26,15 +26,102 @@ function getMediaErrorLabel(code: number) {
 type VoiceNotePlayerProps = {
   audioUrl?: string;
   audioBlob?: Blob | null;
+  audioMimeType?: string;
   tone?: "incoming" | "outgoing";
   waveColor?: string;
   progressColor?: string;
   className?: string;
 };
 
+type ResolvedSource = {
+  url: string;
+  revoke: boolean;
+  blob: Blob | null;
+};
+
+function detectAudioMime(bytes: Uint8Array) {
+  if (bytes.length >= 12) {
+    const head = String.fromCharCode(...bytes.slice(0, 4));
+    if (head === "RIFF") {
+      const wave = String.fromCharCode(...bytes.slice(8, 12));
+      if (wave === "WAVE") return "audio/wav";
+    }
+    if (head === "OggS") return "audio/ogg";
+    if (head === "fLaC") return "audio/flac";
+    if (head === "ID3") return "audio/mpeg";
+    const ftyp = String.fromCharCode(...bytes.slice(4, 8));
+    if (ftyp === "ftyp") return "audio/mp4";
+  }
+  if (bytes.length >= 4) {
+    if (bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) return "audio/webm";
+    if (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) return "audio/mpeg";
+  }
+  return "";
+}
+
+function audioBufferToWav(audioBuffer: AudioBuffer) {
+  const channelCount = Math.min(2, Math.max(1, audioBuffer.numberOfChannels));
+  const sampleRate = audioBuffer.sampleRate;
+  const bitsPerSample = 16;
+  const bytesPerSample = bitsPerSample / 8;
+  const blockAlign = channelCount * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const frameCount = audioBuffer.length;
+  const dataSize = frameCount * blockAlign;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  const writeText = (offset: number, text: string) => {
+    for (let index = 0; index < text.length; index += 1) {
+      view.setUint8(offset + index, text.charCodeAt(index));
+    }
+  };
+
+  writeText(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeText(8, "WAVE");
+  writeText(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channelCount, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeText(36, "data");
+  view.setUint32(40, dataSize, true);
+
+  const channels = Array.from({ length: channelCount }, (_, index) => audioBuffer.getChannelData(index));
+  let offset = 44;
+  for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
+    for (let channelIndex = 0; channelIndex < channelCount; channelIndex += 1) {
+      const sample = Math.max(-1, Math.min(1, channels[channelIndex][frameIndex] ?? 0));
+      const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+      view.setInt16(offset, intSample, true);
+      offset += 2;
+    }
+  }
+
+  return buffer;
+}
+
+async function convertAudioBlobToWav(blob: Blob) {
+  if (blob.type.toLowerCase().includes("wav")) return blob;
+  const audioContext = new AudioContext();
+  try {
+    const sourceBuffer = await blob.arrayBuffer();
+    const decoded = await audioContext.decodeAudioData(sourceBuffer.slice(0));
+    const wavBuffer = audioBufferToWav(decoded);
+    return new Blob([wavBuffer], { type: "audio/wav" });
+  } finally {
+    void audioContext.close();
+  }
+}
+
 export function VoiceNotePlayer({
   audioUrl,
   audioBlob,
+  audioMimeType,
   tone = "incoming",
   waveColor,
   progressColor,
@@ -50,34 +137,44 @@ export function VoiceNotePlayer({
   const [speedIndex, setSpeedIndex] = useState(0);
   const [waveReady, setWaveReady] = useState(false);
   const [errorDetail, setErrorDetail] = useState("");
+  const [source, setSource] = useState<ResolvedSource>({ url: "", revoke: false, blob: null });
+  const fallbackTriedRef = useRef(false);
 
-  const source = useMemo(() => {
+  useEffect(() => {
+    fallbackTriedRef.current = false;
     if (audioBlob) {
-      return { url: URL.createObjectURL(audioBlob), revoke: true };
+      setSource({ url: URL.createObjectURL(audioBlob), revoke: true, blob: audioBlob });
+      return;
     }
     if (!audioUrl) {
-      return { url: "", revoke: false };
+      setSource({ url: "", revoke: false, blob: null });
+      return;
     }
     if (!audioUrl.startsWith("data:")) {
-      return { url: audioUrl, revoke: false };
+      setSource({ url: audioUrl, revoke: false, blob: null });
+      return;
     }
     try {
       const [meta, base64] = audioUrl.split(",");
       if (!meta || !base64) {
-        return { url: audioUrl, revoke: false };
+        setSource({ url: audioUrl, revoke: false, blob: null });
+        return;
       }
       const mimeMatch = meta.match(/data:(.*?);base64/);
-      const mimeType = mimeMatch?.[1] ?? "audio/webm";
+      const declaredMime = mimeMatch?.[1] ?? audioMimeType ?? "";
       const binary = atob(base64);
       const bytes = new Uint8Array(binary.length);
       for (let index = 0; index < binary.length; index += 1) {
         bytes[index] = binary.charCodeAt(index);
       }
-      return { url: URL.createObjectURL(new Blob([bytes], { type: mimeType })), revoke: true };
+      const sniffedMime = detectAudioMime(bytes);
+      const mimeType = sniffedMime || declaredMime || "audio/wav";
+      const blob = new Blob([bytes], { type: mimeType });
+      setSource({ url: URL.createObjectURL(blob), revoke: true, blob });
     } catch {
-      return { url: audioUrl, revoke: false };
+      setSource({ url: audioUrl, revoke: false, blob: null });
     }
-  }, [audioBlob, audioUrl]);
+  }, [audioBlob, audioMimeType, audioUrl]);
 
   useEffect(() => {
     return () => {
@@ -103,7 +200,7 @@ export function VoiceNotePlayer({
       const next = audio.currentTime || 0;
       setCurrentTime(next);
       const ws = wavesurferRef.current;
-      if (ws && waveReady) {
+      if (ws) {
         try {
           ws.setTime(next);
         } catch {
@@ -118,6 +215,25 @@ export function VoiceNotePlayer({
     const onError = () => {
       const errorCode = audio.error?.code ?? 0;
       const browserMessage = audio.error?.message?.trim();
+      if (errorCode === 4 && !fallbackTriedRef.current && source.blob) {
+        fallbackTriedRef.current = true;
+        setStatus("loading");
+        setErrorDetail("Convirtiendo audio para compatibilidad...");
+        void convertAudioBlobToWav(source.blob)
+          .then((wavBlob) => {
+            setSource((current) => {
+              if (current.revoke && current.url.startsWith("blob:")) URL.revokeObjectURL(current.url);
+              return { url: URL.createObjectURL(wavBlob), revoke: true, blob: wavBlob };
+            });
+          })
+          .catch(() => {
+            const detail = `code=${errorCode} (${getMediaErrorLabel(errorCode)})${browserMessage ? ` - ${browserMessage}` : ""}`;
+            setErrorDetail(detail);
+            setStatus("error");
+            setPlaying(false);
+          });
+        return;
+      }
       const detail = `code=${errorCode} (${getMediaErrorLabel(errorCode)})${browserMessage ? ` - ${browserMessage}` : ""}`;
       setErrorDetail(detail);
       setStatus("error");
@@ -152,7 +268,7 @@ export function VoiceNotePlayer({
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("error", onError);
     };
-  }, [source.url, waveReady]);
+  }, [source.blob, source.url]);
 
   useEffect(() => {
     const container = waveformRef.current;
