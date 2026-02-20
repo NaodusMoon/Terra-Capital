@@ -1,29 +1,40 @@
+@config "../../tailwind.config.ts";
 @import "tailwindcss";
 
 :root {
-  --color-background: #f3f6f1;
-  --color-foreground: #10211a;
-  --color-primary: #4b9940;
-  --color-primary-contrast: #f7fbf5;
-  --color-accent: #7fb44c;
-  --color-gold: #ccab62;
-  --color-surface: #ffffff;
-  --color-surface-soft: #e9f0e5;
-  --color-border: #cfdecc;
-  --color-muted: #4f6b5c;
+  --color-background: #f4f3ea;
+  --color-foreground: #1c1f26;
+  --color-primary: #6aa64e;
+  --color-primary-contrast: #f7faef;
+  --color-secondary: #d99923;
+  --color-accent: #c9d94e;
+  --color-warning: #8c6111;
+  --color-warning-contrast: #fff7e5;
+  --color-nav: #ece4cf;
+  --color-nav-foreground: #1c1f26;
+  --color-gold: #d99923;
+  --color-surface: #fffdf6;
+  --color-surface-soft: #efecd9;
+  --color-border: #d6d2ba;
+  --color-muted: #6c6a58;
 }
 
 .dark {
-  --color-background: #081018;
-  --color-foreground: #e7f0eb;
-  --color-primary: #69b55c;
-  --color-primary-contrast: #08140f;
-  --color-accent: #90c54d;
-  --color-gold: #d2af61;
-  --color-surface: #0f1b26;
-  --color-surface-soft: #172634;
-  --color-border: #23374a;
-  --color-muted: #9bb5a9;
+  --color-background: #1c1f26;
+  --color-foreground: #eef2dc;
+  --color-primary: #6aa64e;
+  --color-primary-contrast: #0f130f;
+  --color-secondary: #d99923;
+  --color-accent: #c9d94e;
+  --color-warning: #8c6111;
+  --color-warning-contrast: #ffefce;
+  --color-nav: #161922;
+  --color-nav-foreground: #eef2dc;
+  --color-gold: #d99923;
+  --color-surface: #232734;
+  --color-surface-soft: #2d3241;
+  --color-border: #3e4558;
+  --color-muted: #b7bf9e;
 }
 
 @theme inline {
@@ -68,6 +79,32 @@ h3,
 h4 {
   font-family: var(--font-sora), sans-serif;
   letter-spacing: -0.01em;
+}
+
+.terra-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in oklab, var(--color-accent) 70%, var(--color-border));
+  background: color-mix(in oklab, var(--color-accent) 86%, white 14%);
+  color: #1c1f26;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.terra-alert {
+  border: 1px solid color-mix(in oklab, var(--color-warning) 52%, var(--color-border));
+  border-radius: 0.75rem;
+  background: color-mix(in oklab, var(--color-warning) 16%, var(--color-surface));
+  color: color-mix(in oklab, var(--color-warning) 85%, var(--color-foreground));
+  padding: 0.65rem 0.8rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 body.chat-page-lock {

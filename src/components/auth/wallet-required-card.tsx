@@ -36,7 +36,7 @@ export function WalletRequiredCard() {
         ))}
       </div>
 
-      {error && <p className="mt-4 text-sm text-red-500">{error}</p>}
+      {error && <p className="terra-alert mt-4">{error}</p>}
     </Card>
   );
 }

@@ -1,8 +1,8 @@
 import { MARKETPLACE_EVENT, STORAGE_KEYS } from "@/lib/constants";
-import { normalizeSafeText, toSafeHttpUrlOrUndefined } from "@/lib/security";
+import { normalizeSafeText, toSafeMediaUrlOrUndefined } from "@/lib/security";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import type { AppUser } from "@/types/auth";
-import type { ChatMessage, ChatThread, PurchaseRecord, TokenizedAsset } from "@/types/market";
+import type { AssetMediaItem, ChatMessage, ChatThread, PurchaseRecord, TokenizedAsset } from "@/types/market";
 
 interface BlendSnapshot {
   grossVolume: number;
@@ -140,29 +140,48 @@ export async function createAsset(
     category: TokenizedAsset["category"];
     description: string;
     location: string;
-    pricePerToken: number;
+    tokenPriceSats: number;
     totalTokens: number;
+    cycleDurationDays: 30 | 60 | 90;
+    estimatedApyBps: number;
+    historicalRoiBps: number;
     expectedYield: string;
+    proofOfAssetHash?: string;
     imageUrl?: string;
     imageUrls?: string[];
     videoUrl?: string;
+    mediaGallery?: AssetMediaItem[];
   },
 ) {
   const title = normalizeSafeText(input.title, 120);
   const description = normalizeSafeText(input.description, 500);
   const location = normalizeSafeText(input.location, 80);
   const expectedYield = normalizeSafeText(input.expectedYield, 80);
-  const safeImageUrl = toSafeHttpUrlOrUndefined(input.imageUrl);
-  const safeVideoUrl = toSafeHttpUrlOrUndefined(input.videoUrl);
-  const safeGallery = (input.imageUrls ?? []).map((url) => toSafeHttpUrlOrUndefined(url)).filter(Boolean) as string[];
-  const pricePerToken = Number(input.pricePerToken);
+  const safeImageUrl = toSafeMediaUrlOrUndefined(input.imageUrl);
+  const safeVideoUrl = toSafeMediaUrlOrUndefined(input.videoUrl);
+  const safeGallery = (input.imageUrls ?? []).map((url) => toSafeMediaUrlOrUndefined(url)).filter(Boolean) as string[];
+  const safeMediaGallery = (input.mediaGallery ?? [])
+    .map((item) => {
+      const url = toSafeMediaUrlOrUndefined(item.url);
+      if (!url) return null;
+      return { id: item.id, kind: item.kind, url };
+    })
+    .filter((item): item is AssetMediaItem => Boolean(item));
+  const tokenPriceSats = Number(input.tokenPriceSats);
   const totalTokens = Math.floor(Number(input.totalTokens));
+  const estimatedApyBps = Math.floor(Number(input.estimatedApyBps));
+  const historicalRoiBps = Math.floor(Number(input.historicalRoiBps));
+  const cycleDurationDays = input.cycleDurationDays;
+  const proofOfAssetHash = normalizeSafeText(input.proofOfAssetHash ?? "", 160);
 
   if (!title || !description || !location || !expectedYield) {
     throw new Error("Los campos del activo contienen valores invalidos.");
   }
-  if (!Number.isFinite(pricePerToken) || !Number.isFinite(totalTokens) || pricePerToken <= 0 || totalTokens <= 0) {
+  if (!Number.isFinite(tokenPriceSats) || !Number.isFinite(totalTokens) || tokenPriceSats <= 0 || totalTokens <= 0) {
     throw new Error("Precio y tokens deben ser numericos y mayores a 0.");
+  }
+  if (![30, 60, 90].includes(cycleDurationDays)) {
+    throw new Error("La duracion del ciclo debe ser de 30, 60 o 90 dias.");
   }
 
   const response = await fetch("/api/marketplace", {
@@ -176,12 +195,18 @@ export async function createAsset(
       category: input.category,
       description,
       location,
-      pricePerToken,
+      pricePerToken: tokenPriceSats,
+      tokenPriceSats,
       totalTokens,
+      cycleDurationDays,
+      estimatedApyBps,
+      historicalRoiBps,
       expectedYield,
+      proofOfAssetHash,
       imageUrl: safeImageUrl,
       imageUrls: safeGallery,
       videoUrl: safeVideoUrl,
+      mediaGallery: safeMediaGallery,
     }),
   });
 
@@ -202,29 +227,48 @@ export async function updateAsset(
     category: TokenizedAsset["category"];
     description: string;
     location: string;
-    pricePerToken: number;
+    tokenPriceSats: number;
     totalTokens: number;
+    cycleDurationDays: 30 | 60 | 90;
+    estimatedApyBps: number;
+    historicalRoiBps: number;
     expectedYield: string;
+    proofOfAssetHash?: string;
     imageUrl?: string;
     imageUrls?: string[];
     videoUrl?: string;
+    mediaGallery?: AssetMediaItem[];
   },
 ) {
   const title = normalizeSafeText(input.title, 120);
   const description = normalizeSafeText(input.description, 500);
   const location = normalizeSafeText(input.location, 80);
   const expectedYield = normalizeSafeText(input.expectedYield, 80);
-  const safeImageUrl = toSafeHttpUrlOrUndefined(input.imageUrl);
-  const safeVideoUrl = toSafeHttpUrlOrUndefined(input.videoUrl);
-  const safeGallery = (input.imageUrls ?? []).map((url) => toSafeHttpUrlOrUndefined(url)).filter(Boolean) as string[];
-  const pricePerToken = Number(input.pricePerToken);
+  const safeImageUrl = toSafeMediaUrlOrUndefined(input.imageUrl);
+  const safeVideoUrl = toSafeMediaUrlOrUndefined(input.videoUrl);
+  const safeGallery = (input.imageUrls ?? []).map((url) => toSafeMediaUrlOrUndefined(url)).filter(Boolean) as string[];
+  const safeMediaGallery = (input.mediaGallery ?? [])
+    .map((item) => {
+      const url = toSafeMediaUrlOrUndefined(item.url);
+      if (!url) return null;
+      return { id: item.id, kind: item.kind, url };
+    })
+    .filter((item): item is AssetMediaItem => Boolean(item));
+  const tokenPriceSats = Number(input.tokenPriceSats);
   const totalTokens = Math.floor(Number(input.totalTokens));
+  const estimatedApyBps = Math.floor(Number(input.estimatedApyBps));
+  const historicalRoiBps = Math.floor(Number(input.historicalRoiBps));
+  const cycleDurationDays = input.cycleDurationDays;
+  const proofOfAssetHash = normalizeSafeText(input.proofOfAssetHash ?? "", 160);
 
   if (!title || !description || !location || !expectedYield) {
     throw new Error("Los campos del activo contienen valores invalidos.");
   }
-  if (!Number.isFinite(pricePerToken) || !Number.isFinite(totalTokens) || pricePerToken <= 0 || totalTokens <= 0) {
+  if (!Number.isFinite(tokenPriceSats) || !Number.isFinite(totalTokens) || tokenPriceSats <= 0 || totalTokens <= 0) {
     throw new Error("Precio y tokens deben ser numericos y mayores a 0.");
+  }
+  if (![30, 60, 90].includes(cycleDurationDays)) {
+    throw new Error("La duracion del ciclo debe ser de 30, 60 o 90 dias.");
   }
 
   const response = await fetch("/api/marketplace", {
@@ -239,12 +283,18 @@ export async function updateAsset(
       category: input.category,
       description,
       location,
-      pricePerToken,
+      pricePerToken: tokenPriceSats,
+      tokenPriceSats,
       totalTokens,
+      cycleDurationDays,
+      estimatedApyBps,
+      historicalRoiBps,
       expectedYield,
+      proofOfAssetHash,
       imageUrl: safeImageUrl,
       imageUrls: safeGallery,
       videoUrl: safeVideoUrl,
+      mediaGallery: safeMediaGallery,
     }),
   });
 
@@ -339,6 +389,58 @@ export function getBuyerPortfolio(buyerId: string) {
     .filter((row) => Boolean(row.asset));
 }
 
+export function getBuyerPortfolioSummaryByAsset(buyerId: string) {
+  const purchases = getPurchases().filter((purchase) => purchase.buyerId === buyerId);
+  const assetsById = new Map(getAssets().map((asset) => [asset.id, asset]));
+  const grouped = new Map<string, { invested: number; tokens: number; purchases: number }>();
+
+  for (const purchase of purchases) {
+    const prev = grouped.get(purchase.assetId) ?? { invested: 0, tokens: 0, purchases: 0 };
+    prev.invested += purchase.totalPaid;
+    prev.tokens += purchase.quantity;
+    prev.purchases += 1;
+    grouped.set(purchase.assetId, prev);
+  }
+
+  return Array.from(grouped.entries())
+    .map(([assetId, stats]) => {
+      const asset = assetsById.get(assetId);
+      if (!asset) return null;
+      const participationPct = (stats.tokens / Math.max(1, asset.totalTokens)) * 100;
+      const netProfit = asset.netProfitSats ?? 0;
+      const projectedUserProfit = (stats.tokens / Math.max(1, asset.totalTokens)) * netProfit;
+      return {
+        asset,
+        tokensOwned: stats.tokens,
+        investedUsdt: stats.invested,
+        purchasesCount: stats.purchases,
+        participationPct,
+        projectedUserProfit,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row))
+    .sort((a, b) => b.investedUsdt - a.investedUsdt);
+}
+
+export function getSellerAssetPerformance(sellerId: string) {
+  const assets = getSellerAssets(sellerId);
+  const purchases = getPurchases().filter((purchase) => purchase.sellerId === sellerId);
+
+  return assets.map((asset) => {
+    const rows = purchases.filter((purchase) => purchase.assetId === asset.id);
+    const soldTokens = rows.reduce((sum, row) => sum + row.quantity, 0);
+    const grossUsdt = rows.reduce((sum, row) => sum + row.totalPaid, 0);
+    const uniqueBuyers = new Set(rows.map((row) => row.buyerId)).size;
+    return {
+      asset,
+      soldTokens,
+      grossUsdt,
+      uniqueBuyers,
+      fillRatePct: (soldTokens / Math.max(1, asset.totalTokens)) * 100,
+    };
+  });
+}
+
 export function getSellerAssets(sellerId: string) {
   return getAssets().filter((asset) => asset.sellerId === sellerId);
 }
@@ -360,8 +462,8 @@ export function getBlendLiquiditySnapshot() {
   const grossVolume = purchases.reduce((sum, purchase) => sum + purchase.totalPaid, 0);
   return {
     grossVolume,
-    sentToBlend: grossVolume * 0.8,
-    reserveForPayouts: grossVolume * 0.2,
+    sentToBlend: Math.floor(grossVolume * 0.8),
+    reserveForPayouts: Math.ceil(grossVolume * 0.2),
     cycle: "mensual o bimestral",
   };
 }

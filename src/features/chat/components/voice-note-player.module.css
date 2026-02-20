@@ -1,12 +1,12 @@
 .player {
-  --vnp-wave-color: rgba(142, 163, 177, 0.65);
-  --vnp-progress-color: #3cc8ff;
-  --vnp-text-color: #7b8f9f;
-  --vnp-chip-bg: rgba(15, 28, 36, 0.18);
-  --vnp-chip-border: rgba(112, 136, 154, 0.35);
-  --vnp-chip-text: #d9edf7;
-  --vnp-btn-bg: rgba(255, 255, 255, 0.9);
-  --vnp-btn-fg: #133243;
+  --vnp-wave-color: color-mix(in oklab, var(--color-muted) 70%, transparent);
+  --vnp-progress-color: var(--color-secondary);
+  --vnp-text-color: var(--color-muted);
+  --vnp-chip-bg: color-mix(in oklab, var(--color-accent) 14%, var(--color-surface-soft));
+  --vnp-chip-border: color-mix(in oklab, var(--color-accent) 52%, var(--color-border));
+  --vnp-chip-text: color-mix(in oklab, var(--color-warning) 70%, var(--color-foreground));
+  --vnp-btn-bg: color-mix(in oklab, var(--color-accent) 16%, var(--color-surface));
+  --vnp-btn-fg: var(--color-warning);
 
   display: flex;
   align-items: center;
@@ -16,14 +16,14 @@
 }
 
 .outgoing {
-  --vnp-wave-color: rgba(255, 255, 255, 0.45);
-  --vnp-progress-color: rgba(255, 255, 255, 0.96);
-  --vnp-text-color: rgba(255, 255, 255, 0.9);
-  --vnp-chip-bg: rgba(255, 255, 255, 0.16);
-  --vnp-chip-border: rgba(255, 255, 255, 0.34);
-  --vnp-chip-text: #ffffff;
-  --vnp-btn-bg: #ffffff;
-  --vnp-btn-fg: #103629;
+  --vnp-wave-color: color-mix(in oklab, var(--color-primary-contrast) 48%, transparent);
+  --vnp-progress-color: var(--color-accent);
+  --vnp-text-color: color-mix(in oklab, var(--color-primary-contrast) 88%, white);
+  --vnp-chip-bg: color-mix(in oklab, var(--color-primary-contrast) 16%, transparent);
+  --vnp-chip-border: color-mix(in oklab, var(--color-primary-contrast) 40%, transparent);
+  --vnp-chip-text: var(--color-primary-contrast);
+  --vnp-btn-bg: color-mix(in oklab, var(--color-primary-contrast) 88%, white);
+  --vnp-btn-fg: color-mix(in oklab, var(--color-primary) 76%, black);
 }
 
 .button {
@@ -36,6 +36,12 @@
   display: grid;
   place-items: center;
   flex-shrink: 0;
+  transition: transform 0.16s ease, filter 0.16s ease;
+}
+
+.button:hover {
+  transform: scale(1.05);
+  filter: brightness(1.03);
 }
 
 .body {
@@ -79,7 +85,7 @@
   border-radius: 999px;
   transform: translate(-50%, -50%);
   background: var(--vnp-progress-color);
-  box-shadow: 0 0 0 2px rgba(7, 20, 27, 0.24);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-foreground) 22%, transparent);
   pointer-events: none;
 }
 
@@ -106,5 +112,5 @@
 .error {
   margin-top: 4px;
   font-size: 11px;
-  color: #ef4444;
+  color: color-mix(in oklab, var(--color-warning) 72%, #b91c1c);
 }

@@ -47,7 +47,7 @@ export function LandingPage() {
 
         <div className="relative z-10 mx-auto grid min-h-[calc(100vh-74px)] w-full max-w-7xl items-center gap-10 px-5 py-16 lg:grid-cols-[1.2fr_0.8fr] lg:gap-12 lg:py-20">
           <FadeIn>
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/20 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white/90 backdrop-blur-sm">
+            <span className="terra-badge">
               <Sprout size={15} /> Tokenizacion de tierras, campo y cultivos en Stellar
             </span>
             <h1 className="mt-6 max-w-3xl text-4xl font-black leading-[1.02] text-white md:text-6xl lg:text-7xl">

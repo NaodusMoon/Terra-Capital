@@ -1,7 +1,7 @@
 import "server-only";
 import type { PoolClient } from "pg";
 import { getPostgresPool } from "@/lib/server/postgres";
-import type { ChatMessage, ChatThread, PurchaseRecord, TokenizedAsset } from "@/types/market";
+import type { AssetApiState, ChatMessage, ChatThread, PurchaseRecord, TokenizedAsset } from "@/types/market";
 
 interface DbAssetRow {
   id: string;
@@ -18,6 +18,21 @@ interface DbAssetRow {
   image_url: string | null;
   image_urls: unknown;
   video_url: string | null;
+  media_gallery: unknown;
+  token_price_sats: string | number;
+  cycle_duration_days: 30 | 60 | 90;
+  lifecycle_status: "FUNDING" | "OPERATING" | "SETTLED";
+  cycle_start_at: string | null;
+  cycle_end_at: string;
+  estimated_apy_bps: number;
+  historical_roi_bps: number;
+  proof_of_asset_hash: string;
+  audit_hash: string | null;
+  health_score: "Optimal" | "Warning" | "Critical";
+  current_yield_accrued_sats: string | number;
+  net_profit_sats: string | number | null;
+  final_payout_sats: string | number | null;
+  snapshot_locked_at: string | null;
   created_at: string;
 }
 
@@ -119,7 +134,114 @@ function parseAttachment(value: unknown) {
   };
 }
 
-function mapAssetRow(row: DbAssetRow): TokenizedAsset {
+function parseMediaGallery(value: unknown) {
+  if (!Array.isArray(value)) return undefined;
+  const out = value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as { id?: unknown; kind?: unknown; url?: unknown };
+      if (typeof row.id !== "string" || typeof row.url !== "string") return null;
+      if (row.kind !== "image" && row.kind !== "video") return null;
+      return { id: row.id, kind: row.kind, url: row.url };
+    })
+    .filter((item): item is { id: string; kind: "image" | "video"; url: string } => Boolean(item));
+  return out.length > 0 ? out : undefined;
+}
+
+function toWholeNumber(value: string | number | null | undefined) {
+  if (value === null || value === undefined) return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toMaybeWholeNumber(value: string | number | null | undefined) {
+  if (value === null || value === undefined) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function formatBpsAsPercent(value: number) {
+  return `${(value / 100).toFixed(2)}%`;
+}
+
+function calcProgressPct(asset: DbAssetRow) {
+  if (asset.lifecycle_status === "SETTLED") return 100;
+  if (asset.lifecycle_status === "FUNDING") {
+    const sold = asset.total_tokens - asset.available_tokens;
+    return clamp(Math.round((sold / Math.max(1, asset.total_tokens)) * 100), 0, 100);
+  }
+  const endMs = +new Date(asset.cycle_end_at);
+  const startMs = +(asset.cycle_start_at ? new Date(asset.cycle_start_at) : new Date(asset.created_at));
+  const nowMs = Date.now();
+  const duration = Math.max(1, endMs - startMs);
+  const elapsed = clamp(nowMs - startMs, 0, duration);
+  return clamp(Math.round((elapsed / duration) * 100), 0, 100);
+}
+
+function estimateNetProfitSats(asset: DbAssetRow) {
+  const soldTokens = Math.max(0, asset.total_tokens - asset.available_tokens);
+  const principal = soldTokens * toWholeNumber(asset.token_price_sats);
+  return Math.max(0, Math.floor((principal * asset.estimated_apy_bps * asset.cycle_duration_days) / (10000 * 365)));
+}
+
+function estimateCurrentYieldSats(asset: DbAssetRow) {
+  const persisted = toWholeNumber(asset.current_yield_accrued_sats);
+  if (persisted > 0) return persisted;
+  const progress = calcProgressPct(asset);
+  const netProfit = toMaybeWholeNumber(asset.net_profit_sats) ?? estimateNetProfitSats(asset);
+  return Math.floor((Math.max(0, netProfit) * progress) / 100);
+}
+
+function buildApiState(row: DbAssetRow): AssetApiState {
+  if (row.lifecycle_status === "FUNDING") {
+    return {
+      status: "FUNDING",
+      funding_progress: calcProgressPct(row),
+      tokens_available: row.available_tokens,
+      total_supply: row.total_tokens,
+      estimated_apy: formatBpsAsPercent(row.estimated_apy_bps),
+    };
+  }
+  if (row.lifecycle_status === "OPERATING") {
+    const daysRemaining = Math.max(
+      0,
+      Math.ceil((+new Date(row.cycle_end_at) - Date.now()) / (1000 * 60 * 60 * 24)),
+    );
+    return {
+      status: "OPERATING",
+      days_remaining: daysRemaining,
+      current_yield_accrued: estimateCurrentYieldSats(row),
+      health_score: row.health_score,
+    };
+  }
+  return {
+    status: "SETTLED",
+    final_payout_sats:
+      toMaybeWholeNumber(row.final_payout_sats) ??
+      (Math.max(0, row.total_tokens - row.available_tokens) * toWholeNumber(row.token_price_sats)) +
+        (toMaybeWholeNumber(row.net_profit_sats) ?? estimateNetProfitSats(row)),
+    cycle_performance: `+${formatBpsAsPercent(row.historical_roi_bps)}`,
+    audit_hash: row.audit_hash ?? "tx_pending...hash",
+  };
+}
+
+function mapAssetRow(
+  row: DbAssetRow,
+  metrics?: {
+    participationPct?: number;
+    sellerRetentionPct?: number;
+    recurringInvestors?: number;
+  },
+): TokenizedAsset {
+  const soldTokens = row.total_tokens - row.available_tokens;
+  const capitalizationCurrent = soldTokens * toWholeNumber(row.token_price_sats);
+  const capitalizationGoal = row.total_tokens * toWholeNumber(row.token_price_sats);
+  const lifecycleProgress = calcProgressPct(row);
+
   return {
     id: row.id,
     title: row.title,
@@ -135,6 +257,35 @@ function mapAssetRow(row: DbAssetRow): TokenizedAsset {
     imageUrl: row.image_url ?? undefined,
     imageUrls: parseStringArray(row.image_urls),
     videoUrl: row.video_url ?? undefined,
+    mediaGallery: parseMediaGallery(row.media_gallery),
+    tokenPriceSats: toWholeNumber(row.token_price_sats),
+    cycleDurationDays: row.cycle_duration_days,
+    lifecycleStatus: row.lifecycle_status,
+    cycleStartAt: row.cycle_start_at ?? undefined,
+    cycleEndAt: row.cycle_end_at,
+    estimatedApyBps: row.estimated_apy_bps,
+    historicalRoiBps: row.historical_roi_bps,
+    proofOfAssetHash: row.proof_of_asset_hash,
+    auditHash: row.audit_hash ?? undefined,
+    healthScore: row.health_score,
+    currentYieldAccruedSats: estimateCurrentYieldSats(row),
+    netProfitSats: toMaybeWholeNumber(row.net_profit_sats),
+    finalPayoutSats: toMaybeWholeNumber(row.final_payout_sats),
+    snapshotLockedAt: row.snapshot_locked_at ?? undefined,
+    apiState: buildApiState(row),
+    investorMetrics: {
+      projectedRoi: formatBpsAsPercent(row.historical_roi_bps),
+      cycleProgressPct: lifecycleProgress,
+      participationPct: metrics?.participationPct ?? 0,
+      verificationHash: row.proof_of_asset_hash,
+    },
+    sellerMetrics: {
+      absorptionRatePct: clamp((soldTokens / Math.max(1, row.total_tokens)) * 100, 0, 100),
+      capitalizationCurrentSats: capitalizationCurrent,
+      capitalizationGoalSats: capitalizationGoal,
+      retentionPct: metrics?.sellerRetentionPct ?? 0,
+      recurringInvestors: metrics?.recurringInvestors ?? 0,
+    },
     createdAt: row.created_at,
   };
 }
@@ -187,10 +338,35 @@ function mapMessageRow(row: DbMessageRow): ChatMessage {
 
 export async function getMarketplaceState(userId?: string, options?: { includeChat?: boolean }) {
   const pool = getPostgresPool();
+  await pool.query(
+    `UPDATE marketplace_assets
+     SET
+       lifecycle_status = CASE
+         WHEN cycle_end_at <= timezone('utc', now()) THEN 'SETTLED'
+         WHEN cycle_start_at IS NOT NULL THEN 'OPERATING'
+         ELSE 'FUNDING'
+       END,
+       snapshot_locked_at = CASE
+         WHEN cycle_end_at <= timezone('utc', now()) THEN COALESCE(snapshot_locked_at, timezone('utc', now()))
+         ELSE snapshot_locked_at
+       END,
+       audit_hash = CASE
+         WHEN cycle_end_at <= timezone('utc', now()) THEN COALESCE(audit_hash, concat('tx_', substring(md5(id::text || timezone('utc', now())::text) from 1 for 10), '...abc'))
+         ELSE audit_hash
+       END
+     WHERE lifecycle_status <> CASE
+       WHEN cycle_end_at <= timezone('utc', now()) THEN 'SETTLED'
+       WHEN cycle_start_at IS NOT NULL THEN 'OPERATING'
+       ELSE 'FUNDING'
+     END
+     OR (cycle_end_at <= timezone('utc', now()) AND snapshot_locked_at IS NULL)`,
+  );
   const withDeleteColumns = await supportsMessageDeleteColumns();
   const includeChat = options?.includeChat ?? false;
   const assetsResult = await pool.query<DbAssetRow>(
-    `SELECT id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, created_at
+    `SELECT id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, media_gallery,
+            token_price_sats, cycle_duration_days, lifecycle_status, cycle_start_at, cycle_end_at, estimated_apy_bps, historical_roi_bps, proof_of_asset_hash,
+            audit_hash, health_score, current_yield_accrued_sats, net_profit_sats, final_payout_sats, snapshot_locked_at, created_at
      FROM marketplace_assets
      ORDER BY created_at DESC`,
   );
@@ -244,16 +420,60 @@ export async function getMarketplaceState(userId?: string, options?: { includeCh
      FROM marketplace_purchases`,
   );
   const grossVolume = toNumber(volumeResult.rows[0]?.gross_volume ?? 0);
+  const buyerParticipationByAsset = new Map<string, number>();
+  const sellerRetentionBySeller = new Map<string, { retentionPct: number; recurringInvestors: number }>();
+
+  if (userId) {
+    const buyerParticipationResult = await pool.query<{ asset_id: string; tokens: string | number }>(
+      `SELECT asset_id, COALESCE(SUM(quantity), 0) AS tokens
+       FROM marketplace_purchases
+       WHERE buyer_id = $1
+       GROUP BY asset_id`,
+      [userId],
+    );
+    for (const row of buyerParticipationResult.rows) {
+      buyerParticipationByAsset.set(row.asset_id, toNumber(row.tokens));
+    }
+
+    const sellerRetentionResult = await pool.query<{ seller_id: string; recurring: string | number; total_buyers: string | number }>(
+      `SELECT seller_id,
+              COALESCE(SUM(CASE WHEN purchase_count > 1 THEN 1 ELSE 0 END), 0) AS recurring,
+              COUNT(*) AS total_buyers
+       FROM (
+         SELECT seller_id, buyer_id, COUNT(*) AS purchase_count
+         FROM marketplace_purchases
+         GROUP BY seller_id, buyer_id
+       ) grouped
+       GROUP BY seller_id`,
+    );
+    for (const row of sellerRetentionResult.rows) {
+      const recurring = toNumber(row.recurring);
+      const totalBuyers = toNumber(row.total_buyers);
+      sellerRetentionBySeller.set(row.seller_id, {
+        recurringInvestors: recurring,
+        retentionPct: totalBuyers > 0 ? (recurring / totalBuyers) * 100 : 0,
+      });
+    }
+  }
 
   return {
-    assets: assetsResult.rows.map(mapAssetRow),
+    assets: assetsResult.rows.map((assetRow) => {
+      const buyerTokens = buyerParticipationByAsset.get(assetRow.id) ?? 0;
+      const participationPct = (buyerTokens / Math.max(1, assetRow.total_tokens)) * 100;
+      const retention = sellerRetentionBySeller.get(assetRow.seller_id);
+      return mapAssetRow(assetRow, {
+        participationPct,
+        sellerRetentionPct: retention?.retentionPct ?? 0,
+        recurringInvestors: retention?.recurringInvestors ?? 0,
+      });
+    }),
     purchases: purchasesResult.rows.map(mapPurchaseRow),
     threads: threadsResult.rows.map(mapThreadRow),
     messages: messagesRows.map(mapMessageRow),
     blendSnapshot: {
       grossVolume,
-      sentToBlend: grossVolume * 0.8,
-      reserveForPayouts: grossVolume * 0.2,
+      sentToBlend: Math.floor(grossVolume * 0.8),
+      reserveForPayouts: Math.ceil(grossVolume * 0.2),
       cycle: "mensual o bimestral",
     },
   };
@@ -265,25 +485,35 @@ export async function createMarketplaceAsset(input: {
   description: string;
   location: string;
   pricePerToken: number;
+  tokenPriceSats: number;
   totalTokens: number;
+  cycleDurationDays: 30 | 60 | 90;
+  estimatedApyBps: number;
+  historicalRoiBps: number;
   expectedYield: string;
+  proofOfAssetHash: string;
   sellerId: string;
   sellerName: string;
   imageUrl?: string;
   imageUrls?: string[];
   videoUrl?: string;
+  mediaGallery?: Array<{ id: string; kind: "image" | "video"; url: string }>;
 }) {
   const pool = getPostgresPool();
   const result = await pool.query<DbAssetRow>(
     `INSERT INTO marketplace_assets (
       id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield,
-      seller_id, seller_name, image_url, image_urls, video_url
+      seller_id, seller_name, image_url, image_urls, video_url, media_gallery, token_price_sats, cycle_duration_days, lifecycle_status, cycle_end_at,
+      estimated_apy_bps, historical_roi_bps, proof_of_asset_hash, health_score, current_yield_accrued_sats
     )
     VALUES (
       gen_random_uuid(), $1, $2, $3, $4, $5, $6, $6, $7,
-      $8, $9, $10, $11::jsonb, $12
+      $8, $9, $10, $11::jsonb, $12, $13::jsonb, $14, $15, 'FUNDING',
+      timezone('utc', now()) + make_interval(days => $15), $16, $17, $18, 'Optimal', 0
     )
-    RETURNING id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, created_at`,
+    RETURNING id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, media_gallery,
+              token_price_sats, cycle_duration_days, lifecycle_status, cycle_start_at, cycle_end_at, estimated_apy_bps, historical_roi_bps, proof_of_asset_hash,
+              audit_hash, health_score, current_yield_accrued_sats, net_profit_sats, final_payout_sats, snapshot_locked_at, created_at`,
     [
       input.title,
       input.category,
@@ -297,6 +527,12 @@ export async function createMarketplaceAsset(input: {
       input.imageUrl ?? null,
       JSON.stringify(input.imageUrls ?? []),
       input.videoUrl ?? null,
+      JSON.stringify(input.mediaGallery ?? []),
+      input.tokenPriceSats,
+      input.cycleDurationDays,
+      input.estimatedApyBps,
+      input.historicalRoiBps,
+      input.proofOfAssetHash,
     ],
   );
   return mapAssetRow(result.rows[0]);
@@ -311,11 +547,17 @@ export async function updateMarketplaceAsset(input: {
   description: string;
   location: string;
   pricePerToken: number;
+  tokenPriceSats: number;
   totalTokens: number;
+  cycleDurationDays: 30 | 60 | 90;
+  estimatedApyBps: number;
+  historicalRoiBps: number;
   expectedYield: string;
+  proofOfAssetHash: string;
   imageUrl?: string;
   imageUrls?: string[];
   videoUrl?: string;
+  mediaGallery?: Array<{ id: string; kind: "image" | "video"; url: string }>;
 }) {
   const pool = getPostgresPool();
   const result = await pool.query<DbAssetRow>(
@@ -333,9 +575,21 @@ export async function updateMarketplaceAsset(input: {
        image_url = $9,
        image_urls = $10::jsonb,
        video_url = $11,
+       media_gallery = $12::jsonb,
+       token_price_sats = $13,
+       cycle_duration_days = $14,
+       estimated_apy_bps = $15,
+       historical_roi_bps = $16,
+       proof_of_asset_hash = $17,
+       cycle_end_at = CASE
+         WHEN cycle_start_at IS NULL THEN timezone('utc', now()) + make_interval(days => $14)
+         ELSE cycle_start_at + make_interval(days => $14)
+       END,
        updated_at = timezone('utc', now())
-     WHERE id = $12 AND seller_id = $13
-     RETURNING id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, created_at`,
+     WHERE id = $18 AND seller_id = $19
+     RETURNING id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, media_gallery,
+               token_price_sats, cycle_duration_days, lifecycle_status, cycle_start_at, cycle_end_at, estimated_apy_bps, historical_roi_bps, proof_of_asset_hash,
+               audit_hash, health_score, current_yield_accrued_sats, net_profit_sats, final_payout_sats, snapshot_locked_at, created_at`,
     [
       input.title,
       input.category,
@@ -348,6 +602,12 @@ export async function updateMarketplaceAsset(input: {
       input.imageUrl ?? null,
       JSON.stringify(input.imageUrls ?? []),
       input.videoUrl ?? null,
+      JSON.stringify(input.mediaGallery ?? []),
+      input.tokenPriceSats,
+      input.cycleDurationDays,
+      input.estimatedApyBps,
+      input.historicalRoiBps,
+      input.proofOfAssetHash,
       input.assetId,
       input.sellerId,
     ],
@@ -400,7 +660,9 @@ export async function buyMarketplaceAsset(input: {
     await client.query("BEGIN");
 
     const assetResult = await client.query<DbAssetRow>(
-      `SELECT id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, created_at
+      `SELECT id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, media_gallery,
+              token_price_sats, cycle_duration_days, lifecycle_status, cycle_start_at, cycle_end_at, estimated_apy_bps, historical_roi_bps, proof_of_asset_hash,
+              audit_hash, health_score, current_yield_accrued_sats, net_profit_sats, final_payout_sats, snapshot_locked_at, created_at
        FROM marketplace_assets
        WHERE id = $1
        FOR UPDATE`,
@@ -415,10 +677,28 @@ export async function buyMarketplaceAsset(input: {
       await client.query("ROLLBACK");
       return { ok: false as const, message: "No hay suficientes tokens disponibles." };
     }
+    if (asset.lifecycle_status !== "FUNDING") {
+      await client.query("ROLLBACK");
+      return { ok: false as const, message: "Este activo ya no esta en etapa de recaudacion." };
+    }
 
     await client.query(
       `UPDATE marketplace_assets
-       SET available_tokens = available_tokens - $1, updated_at = timezone('utc', now())
+       SET
+         available_tokens = available_tokens - $1,
+         cycle_start_at = CASE
+           WHEN available_tokens - $1 = 0 AND cycle_start_at IS NULL THEN timezone('utc', now())
+           ELSE cycle_start_at
+         END,
+         cycle_end_at = CASE
+           WHEN available_tokens - $1 = 0 AND cycle_start_at IS NULL THEN timezone('utc', now()) + make_interval(days => cycle_duration_days)
+           ELSE cycle_end_at
+         END,
+         lifecycle_status = CASE
+           WHEN available_tokens - $1 = 0 THEN 'OPERATING'
+           ELSE lifecycle_status
+         END,
+         updated_at = timezone('utc', now())
        WHERE id = $2`,
       [input.quantity, input.assetId],
     );
@@ -437,8 +717,8 @@ export async function buyMarketplaceAsset(input: {
         input.buyerName,
         asset.seller_id,
         input.quantity,
-        asset.price_per_token,
-        toNumber(asset.price_per_token) * input.quantity,
+        asset.token_price_sats,
+        toWholeNumber(asset.token_price_sats) * input.quantity,
       ],
     );
 
@@ -479,7 +759,9 @@ export async function ensureMarketplaceThreadForBuyer(input: {
 }) {
   const pool = getPostgresPool();
   const assetResult = await pool.query<DbAssetRow>(
-    `SELECT id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, created_at
+    `SELECT id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, media_gallery,
+            token_price_sats, cycle_duration_days, lifecycle_status, cycle_start_at, cycle_end_at, estimated_apy_bps, historical_roi_bps, proof_of_asset_hash,
+            audit_hash, health_score, current_yield_accrued_sats, net_profit_sats, final_payout_sats, snapshot_locked_at, created_at
      FROM marketplace_assets
      WHERE id = $1
      LIMIT 1`,

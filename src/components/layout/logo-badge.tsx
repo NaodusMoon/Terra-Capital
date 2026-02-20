@@ -14,7 +14,9 @@ export function LogoBadge() {
       />
       <div>
         <p className="text-lg font-bold tracking-tight">{APP_NAME}</p>
-        <p className="text-xs uppercase tracking-[0.22em] text-[var(--color-muted)]">Tokenizacion</p>
+        <p className="mt-1 text-xs uppercase tracking-[0.22em] text-[color:color-mix(in_oklab,var(--color-nav-foreground)_65%,var(--color-muted))]">
+          Tokenizacion
+        </p>
       </div>
     </div>
   );

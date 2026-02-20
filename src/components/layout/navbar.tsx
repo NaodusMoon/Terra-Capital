@@ -30,21 +30,24 @@ export function Navbar() {
   const isAuthView = pathname.startsWith("/auth");
   const inHome = pathname === "/";
   const panelPath = activeMode === "seller" ? "/seller" : "/buyer";
+  const portfolioPath = activeMode === "seller" ? "/seller/assets" : "/portfolio";
+  const portfolioLabel = activeMode === "seller" ? "Mis publicaciones" : "Portafolio";
   const shortWallet = useMemo(() => (
     walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : "Wallet no conectada"
   ), [walletAddress]);
   const isActiveRoute = (route: string) => pathname === route || pathname.startsWith(`${route}/`);
-  const desktopActiveClass = "border-transparent bg-[var(--color-primary)] text-[var(--color-primary-contrast)]";
+  const desktopActiveClass = "border-transparent bg-primary text-primary-contrast";
+  const navOutlineClass = "border-[color:color-mix(in_oklab,var(--color-nav-foreground)_36%,var(--color-nav))] text-nav-foreground hover:bg-[color:color-mix(in_oklab,var(--color-nav-foreground)_12%,transparent)]";
   const mobileItemClass = "relative flex flex-col items-center justify-center gap-1 rounded-2xl border px-2 py-2 text-[11px] font-semibold transition-all duration-200";
-  const mobileActiveClass = "border-transparent bg-[var(--color-primary)] text-[var(--color-primary-contrast)] shadow-[0_8px_20px_rgba(0,0,0,0.22)] -translate-y-0.5";
-  const mobileIdleClass = "border-[var(--color-border)] bg-[var(--color-surface-soft)] text-[var(--color-foreground)] active:scale-[0.98]";
+  const mobileActiveClass = "border-transparent bg-primary text-primary-contrast shadow-[0_8px_20px_rgba(0,0,0,0.22)] -translate-y-0.5";
+  const mobileIdleClass = "border-border bg-surface-soft text-foreground active:scale-[0.98]";
 
   return (
     <>
       {!loading && !!user && (
         <>
           <div className="chat-mobile-topbar fixed left-1/2 top-3 z-50 -translate-x-1/2 md:hidden">
-            <div className="flex items-center gap-2 rounded-2xl border border-[var(--color-border)] bg-[color:color-mix(in_oklab,var(--color-surface)_95%,transparent)] p-1 shadow-lg backdrop-blur">
+            <div className="flex items-center gap-2 rounded-2xl border border-[color:color-mix(in_oklab,var(--color-nav)_45%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-nav)_88%,transparent)] p-1 text-nav-foreground shadow-lg backdrop-blur">
               <ModeToggle
                 mode={activeMode}
                 compact
@@ -62,7 +65,7 @@ export function Navbar() {
         </>
       )}
 
-      <header className="sticky top-0 z-40 hidden border-b border-[var(--color-border)] bg-[color:color-mix(in_oklab,var(--color-background)_92%,transparent)] backdrop-blur-md md:block">
+      <header className="sticky top-0 z-40 hidden border-b border-[color:color-mix(in_oklab,var(--color-nav)_42%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-nav)_92%,transparent)] text-nav-foreground backdrop-blur-md md:block">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-3">
           <Link href="/">
             <LogoBadge />
@@ -73,52 +76,67 @@ export function Navbar() {
 
             {!loading && !user && !isAuthView && (
               <>
-                <Link href="/auth/login"><Button>Iniciar con wallet</Button></Link>
+                <Link href="/auth/login"><Button variant="secondary">Iniciar con wallet</Button></Link>
               </>
             )}
 
             {!loading && !user && isAuthView && (
-              <Link href="/"><Button variant="ghost">Volver al inicio</Button></Link>
+              <Link href="/"><Button variant="ghost" className="text-nav-foreground hover:bg-[color:color-mix(in_oklab,var(--color-nav-foreground)_12%,transparent)]">Volver al inicio</Button></Link>
             )}
 
             {!loading && !!user && (
               <>
                 {inHome && (
                   <Link href={panelPath}>
-                    <Button variant="outline" className={isActiveRoute(panelPath) ? desktopActiveClass : ""}>Volver al panel</Button>
+                    <Button variant="outline" className={`${navOutlineClass} ${isActiveRoute(panelPath) ? desktopActiveClass : ""}`}>Volver al panel</Button>
                   </Link>
                 )}
 
                 <ModeToggle mode={activeMode} onChange={(mode) => switchMode(mode)} className="w-[222px]" layoutId="desktop-mode-pill" />
 
                 <div className="flex items-center gap-2">
-                  <Link href="/portfolio" title="Portafolio">
-                    <Button variant="outline" className={`h-11 w-11 rounded-2xl px-0 ${isActiveRoute("/portfolio") ? desktopActiveClass : ""}`}>
-                      <PieChart size={22} />
+                  <Link href={portfolioPath} title={portfolioLabel}>
+                    <Button variant="outline" className={`group h-11 w-11 rounded-2xl px-0 ${navOutlineClass} ${isActiveRoute(portfolioPath) ? desktopActiveClass : ""}`}>
+                      <PieChart
+                        size={24}
+                        className={isActiveRoute(portfolioPath)
+                          ? "text-primary-contrast"
+                          : "text-nav-foreground transition-colors group-hover:text-secondary"}
+                      />
                     </Button>
                   </Link>
                   <Link href="/chats" title="Mis chats">
-                    <Button variant="outline" className={`h-11 w-11 rounded-2xl px-0 ${isActiveRoute("/chats") ? desktopActiveClass : ""}`}>
-                      <MessageCircle size={22} />
+                    <Button variant="outline" className={`group h-11 w-11 rounded-2xl px-0 ${navOutlineClass} ${isActiveRoute("/chats") ? desktopActiveClass : ""}`}>
+                      <MessageCircle
+                        size={24}
+                        className={isActiveRoute("/chats")
+                          ? "text-primary-contrast"
+                          : "text-nav-foreground transition-colors group-hover:text-primary"}
+                      />
                     </Button>
                   </Link>
                   <Link href="/account" title="Cuenta">
-                    <Button variant="outline" className={`h-11 w-11 rounded-2xl px-0 ${isActiveRoute("/account") ? desktopActiveClass : ""}`}>
-                      <Settings size={22} />
+                    <Button variant="outline" className={`group h-11 w-11 rounded-2xl px-0 ${navOutlineClass} ${isActiveRoute("/account") ? desktopActiveClass : ""}`}>
+                      <Settings
+                        size={24}
+                        className={isActiveRoute("/account")
+                          ? "text-primary-contrast"
+                          : "text-nav-foreground transition-colors group-hover:text-accent"}
+                      />
                     </Button>
                   </Link>
                 </div>
 
                 <div className="relative">
-                  <Button variant="outline" className="gap-2" onClick={() => setWalletOpen((prev) => !prev)}>
+                  <Button variant="outline" className={`gap-2 ${navOutlineClass}`} onClick={() => setWalletOpen((prev) => !prev)}>
                     <Wallet size={14} />
                     <span className="hidden sm:inline">{walletProvider ? `${getWalletProviderLabel(walletProvider)} ${shortWallet}` : shortWallet}</span>
                     <ChevronDown size={14} />
                   </Button>
                   {walletOpen && (
-                    <div className="absolute right-0 top-12 z-50 w-80 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-lg">
-                      <p className="text-xs uppercase tracking-[0.12em] text-[var(--color-muted)]">Balance</p>
-                      <div className="mt-2 rounded-lg bg-[var(--color-surface-soft)] p-2 text-sm">
+                    <div className="absolute right-0 top-12 z-50 w-80 rounded-xl border border-border bg-surface p-3 text-foreground shadow-lg">
+                      <p className="text-xs uppercase tracking-[0.12em] text-muted">Balance</p>
+                      <div className="mt-2 rounded-lg bg-surface-soft p-2 text-sm">
                         {loadingBalances && <p>Cargando balances...</p>}
                         {!loadingBalances && balances.length === 0 && <p>Sin balances para mostrar.</p>}
                         {!loadingBalances && balances.map((row) => (
@@ -129,7 +147,7 @@ export function Navbar() {
                         ))}
                       </div>
 
-                      <p className="mt-3 text-xs uppercase tracking-[0.12em] text-[var(--color-muted)]">Cambiar wallet</p>
+                      <p className="mt-3 text-xs uppercase tracking-[0.12em] text-muted">Cambiar wallet</p>
                       <div className="mt-2 grid gap-2 sm:grid-cols-3">
                         {walletOptions.map((option) => (
                           <Button key={option.id} variant="outline" onClick={() => connectWallet(option.id)} disabled={connecting}>
@@ -147,7 +165,7 @@ export function Navbar() {
 
                 <Button
                   variant="outline"
-                  className="gap-2"
+                  className={`gap-2 ${navOutlineClass}`}
                   onClick={() => {
                     logout();
                     disconnectWallet();
@@ -165,7 +183,7 @@ export function Navbar() {
       </header>
 
       {!loading && (
-        <div className="chat-mobile-bottombar fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--color-border)] bg-[color:color-mix(in_oklab,var(--color-surface)_94%,transparent)] px-2 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 backdrop-blur md:hidden">
+        <div className="chat-mobile-bottombar fixed bottom-0 left-0 right-0 z-40 border-t border-[color:color-mix(in_oklab,var(--color-nav)_42%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-nav)_90%,transparent)] px-2 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 text-nav-foreground backdrop-blur md:hidden">
           <div className={`mx-auto grid w-full max-w-md gap-2 ${user ? "grid-cols-5" : "grid-cols-2"}`}>
             {!user && (
               <>
@@ -199,9 +217,9 @@ export function Navbar() {
                   </Link>
                 </motion.div>
                 <motion.div whileTap={{ scale: 0.97 }}>
-                  <Link href="/portfolio" className={`${mobileItemClass} ${pathname === "/portfolio" ? mobileActiveClass : mobileIdleClass}`} aria-current={pathname === "/portfolio" ? "page" : undefined}>
+                  <Link href={portfolioPath} className={`${mobileItemClass} ${isActiveRoute(portfolioPath) ? mobileActiveClass : mobileIdleClass}`} aria-current={isActiveRoute(portfolioPath) ? "page" : undefined}>
                     <PieChart size={16} />
-                    Portafolio
+                    {activeMode === "seller" ? "Activos" : "Portafolio"}
                   </Link>
                 </motion.div>
                 <motion.div whileTap={{ scale: 0.97 }}>

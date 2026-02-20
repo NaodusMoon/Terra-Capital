@@ -31,6 +31,8 @@ pub enum DataKey {
     Admin,
     TokenizationContract,
     PaymentToken,
+    PaymentTokenByNetwork(Symbol),
+    ActiveNetwork,
     Treasury,
     FeeBps,
     LiquidityDestination,
@@ -79,6 +81,10 @@ impl TerraMarketplace {
             .instance()
             .set(&DataKey::TokenizationContract, &tokenization_contract);
         env.storage().instance().set(&DataKey::PaymentToken, &payment_token);
+        env.storage().instance().set(&DataKey::ActiveNetwork, &Symbol::new(&env, "testnet"));
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentTokenByNetwork(Symbol::new(&env, "testnet")), &payment_token);
         env.storage().instance().set(&DataKey::Treasury, &treasury);
         env.storage().instance().set(&DataKey::FeeBps, &fee_bps);
         env.storage().instance().set(&DataKey::LiquidityShareBps, &0_i128);
@@ -100,6 +106,36 @@ impl TerraMarketplace {
         let admin = Self::get_admin(env.clone());
         admin.require_auth();
         env.storage().instance().set(&DataKey::PaymentToken, &payment_token);
+    }
+
+    pub fn set_network_payment_token(env: Env, network: Symbol, payment_token: Address) {
+        let admin = Self::get_admin(env.clone());
+        admin.require_auth();
+        if !Self::is_supported_network(env.clone(), network.clone()) {
+            panic!("unsupported network");
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentTokenByNetwork(network), &payment_token);
+    }
+
+    pub fn set_active_network(env: Env, network: Symbol) {
+        let admin = Self::get_admin(env.clone());
+        admin.require_auth();
+        if !Self::is_supported_network(env.clone(), network.clone()) {
+            panic!("unsupported network");
+        }
+        env.storage().instance().set(&DataKey::ActiveNetwork, &network);
+    }
+
+    pub fn get_active_network(env: Env) -> Option<Symbol> {
+        env.storage().instance().get::<DataKey, Symbol>(&DataKey::ActiveNetwork)
+    }
+
+    pub fn get_network_payment_token(env: Env, network: Symbol) -> Option<Address> {
+        env.storage()
+            .instance()
+            .get::<DataKey, Address>(&DataKey::PaymentTokenByNetwork(network))
     }
 
     pub fn set_liquidity_config(env: Env, destination: Option<Address>, share_bps: i128) {
@@ -279,6 +315,15 @@ impl TerraMarketplace {
     }
 
     fn get_payment_token(env: Env) -> Address {
+        if let Some(active_network) = env.storage().instance().get::<DataKey, Symbol>(&DataKey::ActiveNetwork) {
+            if let Some(token) = env
+                .storage()
+                .instance()
+                .get::<DataKey, Address>(&DataKey::PaymentTokenByNetwork(active_network))
+            {
+                return token;
+            }
+        }
         env.storage()
             .instance()
             .get::<DataKey, Address>(&DataKey::PaymentToken)
@@ -311,5 +356,9 @@ impl TerraMarketplace {
             .checked_mul(bps)
             .unwrap_or_else(|| panic!("bps overflow"))
             / Self::BPS_DENOMINATOR
+    }
+
+    fn is_supported_network(env: Env, network: Symbol) -> bool {
+        network == Symbol::new(&env, "testnet") || network == Symbol::new(&env, "mainnet")
     }
 }

@@ -1,0 +1,16 @@
+﻿{
+  "testnet": {
+    "network": "testnet",
+    "rpcUrl": "https://soroban-testnet.stellar.org",
+    "usdtPaymentTokenContract": "<TESTNET_USDT_CONTRACT_ID>",
+    "treasury": "<G...>",
+    "feeBps": 300
+  },
+  "mainnet": {
+    "network": "mainnet",
+    "rpcUrl": "https://soroban-mainnet.stellar.org",
+    "usdtPaymentTokenContract": "<MAINNET_USDT_CONTRACT_ID>",
+    "treasury": "<G...>",
+    "feeBps": 300
+  }
+}

@@ -69,12 +69,12 @@ export function LoginForm() {
   return (
     <Card className="w-full max-w-md">
       <h1 className="text-2xl font-bold">Iniciar sesion</h1>
-      <p className="mt-2 text-sm text-[var(--color-muted)]">
+      <p className="mt-2 text-sm text-muted">
         Entra directo con tu wallet. Solo en el primer ingreso te pedimos tu nombre.
       </p>
 
-      <div className="mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] p-3">
-        <p className="text-xs uppercase tracking-[0.12em] text-[var(--color-muted)]">Wallet requerida</p>
+      <div className="mt-4 rounded-xl border border-border bg-surface-soft p-3">
+        <p className="text-xs uppercase tracking-[0.12em] text-muted">Wallet requerida</p>
         <p className="mt-1 text-sm font-semibold">{walletAddress ? `${walletAddress.slice(0, 8)}...${walletAddress.slice(-6)}` : "No conectada"}</p>
         <div className="mt-3 grid gap-2 sm:grid-cols-3">
           {walletOptions.map((option) => (
@@ -83,17 +83,17 @@ export function LoginForm() {
             </Button>
           ))}
         </div>
-        {walletError && <p className="mt-3 text-sm text-red-500">{walletError}</p>}
+        {walletError && <p className="terra-alert mt-3">{walletError}</p>}
         {!walletAddress && (
-          <p className="mt-2 text-xs text-[var(--color-muted)]">
+          <p className="mt-2 text-xs text-muted">
             En movil, Freighter y xBull intentan abrir flujo compatible sin extension. Si no conecta, usa direccion publica.
           </p>
         )}
         {!walletAddress && (
           <label className="mt-3 block space-y-1 text-sm">
-            <span className="text-xs uppercase tracking-[0.12em] text-[var(--color-muted)]">O usar direccion publica</span>
+            <span className="text-xs uppercase tracking-[0.12em] text-muted">O usar direccion publica</span>
             <input
-              className="h-11 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3"
+              className="h-11 w-full rounded-xl border border-border bg-background px-3"
               value={manualWalletAddress}
               onChange={(event) => setManualWalletAddress(event.target.value)}
               placeholder="G..."
@@ -111,7 +111,7 @@ export function LoginForm() {
           <label className="block space-y-1 text-sm">
             <span>Nombre completo</span>
             <input
-              className="h-11 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3"
+              className="h-11 w-full rounded-xl border border-border bg-background px-3"
               value={fullName}
               onChange={(event) => setFullName(event.target.value)}
               required
@@ -119,7 +119,7 @@ export function LoginForm() {
           </label>
         )}
 
-        {error && <p className="text-sm text-red-500">{error}</p>}
+        {error && <p className="terra-alert">{error}</p>}
 
         <Button className="h-11 w-full" type="submit" disabled={submitting || (!walletAddress && !manualWalletAddress.trim())}>
           {submitting ? "Validando..." : needName ? "Guardar y entrar" : "Entrar"}

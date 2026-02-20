@@ -47,6 +47,10 @@ Todo es atomico: si falla una parte, revierte toda la operacion.
 - `init(admin, tokenization_contract, payment_token, treasury, fee_bps)`
 - `set_fee_config(treasury, fee_bps)`
 - `set_payment_token(payment_token)`
+- `set_network_payment_token(network, payment_token)` con `network = testnet | mainnet`
+- `set_active_network(network)`
+- `get_active_network()`
+- `get_network_payment_token(network)`
 - `set_liquidity_config(destination, share_bps)`
 - `preview_purchase(asset_id, quantity)`
 - `buy_tokens(buyer, asset_id, quantity)`
@@ -63,18 +67,24 @@ WASM:
 - `contracts/target/wasm32-unknown-unknown/release/terra_tokenization.wasm`
 - `contracts/target/wasm32-unknown-unknown/release/terra_marketplace.wasm`
 
-## Deploy sugerido (testnet)
+## Deploy sugerido (testnet y mainnet con USDT)
 
 1. Deploy tokenizacion.
 2. Inicializar tokenizacion.
 3. Deploy marketplace.
 4. Inicializar marketplace con:
    - contrato tokenizacion,
-   - token de pago (asset contract),
+   - token de pago USDT (asset contract),
    - direccion tesoreria de comisiones,
    - `fee_bps` (ej. 300 = 3%).
-5. En tokenizacion, setear `set_marketplace(<marketplace_contract_id>)`.
-6. Opcional: configurar destino de liquidez con `set_liquidity_config`.
+5. Configurar mapping de red:
+   - `set_network_payment_token("testnet", <USDT_TESTNET>)`
+   - `set_network_payment_token("mainnet", <USDT_MAINNET>)`
+   - `set_active_network("<red_objetivo>")`
+6. En tokenizacion, setear `set_marketplace(<marketplace_contract_id>)`.
+7. Opcional: configurar destino de liquidez con `set_liquidity_config`.
+
+Usa `contracts/deploy-config.example.json` como plantilla para separar direcciones por red.
 
 ## Nota Blend
 

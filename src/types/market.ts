@@ -1,4 +1,50 @@
 ﻿export type AssetCategory = "cultivo" | "tierra" | "ganaderia";
+export type AssetLifecycleStatus = "FUNDING" | "OPERATING" | "SETTLED";
+
+export interface FundingStatePayload {
+  status: "FUNDING";
+  funding_progress: number;
+  tokens_available: number;
+  total_supply: number;
+  estimated_apy: string;
+}
+
+export interface OperatingStatePayload {
+  status: "OPERATING";
+  days_remaining: number;
+  current_yield_accrued: number;
+  health_score: "Optimal" | "Warning" | "Critical";
+}
+
+export interface SettledStatePayload {
+  status: "SETTLED";
+  final_payout_sats: number;
+  cycle_performance: string;
+  audit_hash: string;
+}
+
+export type AssetApiState = FundingStatePayload | OperatingStatePayload | SettledStatePayload;
+
+export interface InvestorMetrics {
+  projectedRoi: string;
+  cycleProgressPct: number;
+  participationPct: number;
+  verificationHash: string;
+}
+
+export interface SellerMetrics {
+  absorptionRatePct: number;
+  capitalizationCurrentSats: number;
+  capitalizationGoalSats: number;
+  retentionPct: number;
+  recurringInvestors: number;
+}
+
+export interface AssetMediaItem {
+  id: string;
+  kind: "image" | "video";
+  url: string;
+}
 
 export interface TokenizedAsset {
   id: string;
@@ -15,6 +61,24 @@ export interface TokenizedAsset {
   imageUrl?: string;
   imageUrls?: string[];
   videoUrl?: string;
+  mediaGallery?: AssetMediaItem[];
+  tokenPriceSats: number;
+  cycleDurationDays: 30 | 60 | 90;
+  lifecycleStatus: AssetLifecycleStatus;
+  cycleStartAt?: string;
+  cycleEndAt: string;
+  estimatedApyBps: number;
+  historicalRoiBps: number;
+  proofOfAssetHash: string;
+  auditHash?: string;
+  healthScore: "Optimal" | "Warning" | "Critical";
+  currentYieldAccruedSats: number;
+  netProfitSats?: number;
+  finalPayoutSats?: number;
+  snapshotLockedAt?: string;
+  apiState: AssetApiState;
+  investorMetrics?: InvestorMetrics;
+  sellerMetrics?: SellerMetrics;
   createdAt: string;
 }
 

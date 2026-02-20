@@ -73,7 +73,7 @@ export function StellarStatusCard() {
     <Card>
       <h3 className="text-lg font-bold">Estado de Stellar</h3>
       {!data && !error && <p className="mt-2 text-sm text-[var(--color-muted)]">Consultando red...</p>}
-      {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
+      {error && <p className="terra-alert mt-2">{error}</p>}
       {data && (
         <dl className="mt-3 grid gap-2 text-sm text-[var(--color-muted)]">
           <div className="grid grid-cols-[110px_1fr] items-start gap-3">

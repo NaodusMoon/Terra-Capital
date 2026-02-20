@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { normalizeSafeText, toSafeHttpUrlOrUndefined } from "@/lib/security";
+import { normalizeSafeText, toSafeMediaUrlOrUndefined } from "@/lib/security";
 import {
   buyMarketplaceAsset,
   createMarketplaceAsset,
@@ -36,6 +36,19 @@ function parseStringArray(raw: unknown) {
   return raw.filter((value): value is string => typeof value === "string");
 }
 
+function parseMediaGallery(raw: unknown) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as { id?: unknown; kind?: unknown; url?: unknown };
+      if (typeof row.id !== "string" || typeof row.url !== "string") return null;
+      if (row.kind !== "image" && row.kind !== "video") return null;
+      return { id: row.id, kind: row.kind, url: row.url };
+    })
+    .filter((item): item is { id: string; kind: "image" | "video"; url: string } => Boolean(item));
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const rawUserId = searchParams.get("userId")?.trim() || "";
@@ -63,11 +76,17 @@ type CommandPayload =
     description?: string;
     location?: string;
     pricePerToken?: unknown;
+    tokenPriceSats?: unknown;
     totalTokens?: unknown;
+    cycleDurationDays?: unknown;
+    estimatedApyBps?: unknown;
+    historicalRoiBps?: unknown;
     expectedYield?: string;
+    proofOfAssetHash?: string;
     imageUrl?: string;
     imageUrls?: unknown;
     videoUrl?: string;
+    mediaGallery?: unknown;
   }
   | {
     action: "buyAsset";
@@ -86,11 +105,17 @@ type CommandPayload =
     description?: string;
     location?: string;
     pricePerToken?: unknown;
+    tokenPriceSats?: unknown;
     totalTokens?: unknown;
+    cycleDurationDays?: unknown;
+    estimatedApyBps?: unknown;
+    historicalRoiBps?: unknown;
     expectedYield?: string;
+    proofOfAssetHash?: string;
     imageUrl?: string;
     imageUrls?: unknown;
     videoUrl?: string;
+    mediaGallery?: unknown;
   }
   | {
     action: "deleteAsset";
@@ -146,19 +171,32 @@ export async function POST(request: Request) {
       const description = normalizeSafeText(payload.description ?? "", 500);
       const location = normalizeSafeText(payload.location ?? "", 80);
       const expectedYield = normalizeSafeText(payload.expectedYield ?? "", 80);
+      const proofOfAssetHash = normalizeSafeText(payload.proofOfAssetHash ?? "", 160);
       const sellerId = payload.sellerId?.trim() ?? "";
       const sellerName = normalizeSafeText(payload.sellerName ?? "", 120);
-      const pricePerToken = parsePrice(payload.pricePerToken);
+      const tokenPriceSats = parsePrice(payload.tokenPriceSats ?? payload.pricePerToken);
       const totalTokens = parseQuantity(payload.totalTokens);
-      const imageUrl = toSafeHttpUrlOrUndefined(payload.imageUrl);
-      const videoUrl = toSafeHttpUrlOrUndefined(payload.videoUrl);
-      const imageUrls = parseStringArray(payload.imageUrls).map((url) => toSafeHttpUrlOrUndefined(url)).filter(Boolean) as string[];
+      const cycleDurationDays = parseQuantity(payload.cycleDurationDays);
+      const estimatedApyBps = parseQuantity(payload.estimatedApyBps);
+      const historicalRoiBps = parseQuantity(payload.historicalRoiBps);
+      const imageUrl = toSafeMediaUrlOrUndefined(payload.imageUrl);
+      const videoUrl = toSafeMediaUrlOrUndefined(payload.videoUrl);
+      const imageUrls = parseStringArray(payload.imageUrls).map((url) => toSafeMediaUrlOrUndefined(url)).filter(Boolean) as string[];
+      const mediaGallery = parseMediaGallery(payload.mediaGallery)
+        .map((item) => ({ ...item, url: toSafeMediaUrlOrUndefined(item.url) ?? "" }))
+        .filter((item) => item.url.length > 0);
 
       if (!title || !description || !location || !expectedYield || !sellerId || !sellerName || !isAssetCategory(category)) {
         return NextResponse.json({ ok: false, message: "Campos invalidos para crear activo." }, { status: 400 });
       }
-      if (!Number.isFinite(pricePerToken) || !Number.isFinite(totalTokens) || pricePerToken <= 0 || totalTokens <= 0) {
+      if (!Number.isFinite(tokenPriceSats) || !Number.isFinite(totalTokens) || tokenPriceSats <= 0 || totalTokens <= 0) {
         return NextResponse.json({ ok: false, message: "Precio y tokens deben ser numericos y mayores a 0." }, { status: 400 });
+      }
+      if (![30, 60, 90].includes(cycleDurationDays)) {
+        return NextResponse.json({ ok: false, message: "La duracion del ciclo debe ser de 30, 60 o 90 dias." }, { status: 400 });
+      }
+      if (!Number.isFinite(estimatedApyBps) || estimatedApyBps < 0 || !Number.isFinite(historicalRoiBps) || historicalRoiBps < 0) {
+        return NextResponse.json({ ok: false, message: "APY y ROI historico deben ser enteros positivos." }, { status: 400 });
       }
 
       const asset = await createMarketplaceAsset({
@@ -168,12 +206,18 @@ export async function POST(request: Request) {
         category,
         description,
         location,
-        pricePerToken,
+        pricePerToken: tokenPriceSats,
+        tokenPriceSats,
         totalTokens,
+        cycleDurationDays: cycleDurationDays as 30 | 60 | 90,
+        estimatedApyBps,
+        historicalRoiBps,
         expectedYield,
+        proofOfAssetHash: proofOfAssetHash || crypto.randomUUID().replace(/-/g, ""),
         imageUrl,
         imageUrls,
         videoUrl,
+        mediaGallery,
       });
       return NextResponse.json({ ok: true, asset });
     }
@@ -209,17 +253,30 @@ export async function POST(request: Request) {
       const description = normalizeSafeText(payload.description ?? "", 500);
       const location = normalizeSafeText(payload.location ?? "", 80);
       const expectedYield = normalizeSafeText(payload.expectedYield ?? "", 80);
-      const pricePerToken = parsePrice(payload.pricePerToken);
+      const proofOfAssetHash = normalizeSafeText(payload.proofOfAssetHash ?? "", 160);
+      const tokenPriceSats = parsePrice(payload.tokenPriceSats ?? payload.pricePerToken);
       const totalTokens = parseQuantity(payload.totalTokens);
-      const imageUrl = toSafeHttpUrlOrUndefined(payload.imageUrl);
-      const videoUrl = toSafeHttpUrlOrUndefined(payload.videoUrl);
-      const imageUrls = parseStringArray(payload.imageUrls).map((url) => toSafeHttpUrlOrUndefined(url)).filter(Boolean) as string[];
+      const cycleDurationDays = parseQuantity(payload.cycleDurationDays);
+      const estimatedApyBps = parseQuantity(payload.estimatedApyBps);
+      const historicalRoiBps = parseQuantity(payload.historicalRoiBps);
+      const imageUrl = toSafeMediaUrlOrUndefined(payload.imageUrl);
+      const videoUrl = toSafeMediaUrlOrUndefined(payload.videoUrl);
+      const imageUrls = parseStringArray(payload.imageUrls).map((url) => toSafeMediaUrlOrUndefined(url)).filter(Boolean) as string[];
+      const mediaGallery = parseMediaGallery(payload.mediaGallery)
+        .map((item) => ({ ...item, url: toSafeMediaUrlOrUndefined(item.url) ?? "" }))
+        .filter((item) => item.url.length > 0);
 
       if (!assetId || !sellerId || !sellerName || !title || !description || !location || !expectedYield || !isAssetCategory(category)) {
         return NextResponse.json({ ok: false, message: "Campos invalidos para editar activo." }, { status: 400 });
       }
-      if (!Number.isFinite(pricePerToken) || !Number.isFinite(totalTokens) || pricePerToken <= 0 || totalTokens <= 0) {
+      if (!Number.isFinite(tokenPriceSats) || !Number.isFinite(totalTokens) || tokenPriceSats <= 0 || totalTokens <= 0) {
         return NextResponse.json({ ok: false, message: "Precio y tokens deben ser numericos y mayores a 0." }, { status: 400 });
+      }
+      if (![30, 60, 90].includes(cycleDurationDays)) {
+        return NextResponse.json({ ok: false, message: "La duracion del ciclo debe ser de 30, 60 o 90 dias." }, { status: 400 });
+      }
+      if (!Number.isFinite(estimatedApyBps) || estimatedApyBps < 0 || !Number.isFinite(historicalRoiBps) || historicalRoiBps < 0) {
+        return NextResponse.json({ ok: false, message: "APY y ROI historico deben ser enteros positivos." }, { status: 400 });
       }
 
       const result = await updateMarketplaceAsset({
@@ -230,12 +287,18 @@ export async function POST(request: Request) {
         category,
         description,
         location,
-        pricePerToken,
+        pricePerToken: tokenPriceSats,
+        tokenPriceSats,
         totalTokens,
+        cycleDurationDays: cycleDurationDays as 30 | 60 | 90,
+        estimatedApyBps,
+        historicalRoiBps,
         expectedYield,
+        proofOfAssetHash: proofOfAssetHash || crypto.randomUUID().replace(/-/g, ""),
         imageUrl,
         imageUrls,
         videoUrl,
+        mediaGallery,
       });
       if (!result.ok) {
         return NextResponse.json({ ok: false, message: result.message }, { status: 400 });

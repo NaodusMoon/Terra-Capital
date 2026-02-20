@@ -118,7 +118,7 @@ function formatLongDay(iso: string) {
 
 function StatusIcon({ message }: { message: ChatMessage }) {
   if (message.status === "failed") return <AlertCircle size={13} className="text-red-400" />;
-  if (message.status === "read") return <CheckCheck size={13} className="text-sky-400" />;
+  if (message.status === "read") return <CheckCheck size={13} className="text-[var(--color-accent)]" />;
   if (message.status === "sent") return <CheckCheck size={13} className="opacity-70" />;
   return <Check size={13} className="opacity-60" />;
 }
@@ -176,6 +176,13 @@ function MessageBody({
   if (message.kind === "audio") {
     return (
       <div className="space-y-2 w-[clamp(180px,62vw,320px)] max-w-full">
+        <p className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${
+          isOutgoing
+            ? "border-[color:color-mix(in_oklab,var(--color-primary-contrast)_45%,transparent)] text-[color:color-mix(in_oklab,var(--color-primary-contrast)_94%,white)]"
+            : "border-[color:color-mix(in_oklab,var(--color-accent)_52%,var(--color-border))] text-[color:color-mix(in_oklab,var(--color-warning)_70%,var(--color-foreground))]"
+        }`}>
+          <Mic size={11} /> Nota de voz
+        </p>
         <VoiceNotePlayer audioUrl={attachment.dataUrl} tone={isOutgoing ? "outgoing" : "incoming"} />
         {message.text && <p>{message.text}</p>}
       </div>
@@ -1430,6 +1437,8 @@ export function ChatsPage() {
   const panelBg = "bg-[var(--color-background)] text-[var(--color-foreground)]";
   const bubbleIn = "bg-[var(--color-surface-soft)] text-[var(--color-foreground)]";
   const bubbleOut = "bg-[var(--color-primary)] text-[var(--color-primary-contrast)]";
+  const bubbleAudioIn = "border border-[color:color-mix(in_oklab,var(--color-accent)_42%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-accent)_14%,var(--color-surface-soft))]";
+  const bubbleAudioOut = "border border-[color:color-mix(in_oklab,var(--color-primary-contrast)_34%,transparent)] bg-[color:color-mix(in_oklab,var(--color-primary)_88%,black)]";
   const iconBtn = "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-foreground)] hover:bg-[var(--color-surface-soft)]";
   const inputBg = "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-foreground)] placeholder:text-[var(--color-muted)]";
   const emojiPickerStyle = {
@@ -1636,7 +1645,7 @@ export function ChatsPage() {
               <div
                 ref={messagesViewportRef}
                 onScroll={handleMessagesScroll}
-                className={`relative flex-1 overflow-y-auto px-3 py-4 sm:px-4 ${isDark ? "bg-[radial-gradient(circle_at_15%_20%,rgba(34,53,62,.45),transparent_40%),radial-gradient(circle_at_80%_75%,rgba(21,32,39,.55),transparent_40%),#0b141a]" : "bg-[radial-gradient(circle_at_15%_20%,rgba(180,210,234,.45),transparent_40%),radial-gradient(circle_at_80%_75%,rgba(210,230,244,.55),transparent_40%),#eef6fc]"}`}
+                className="relative flex-1 overflow-y-auto bg-[radial-gradient(circle_at_15%_20%,color-mix(in_oklab,var(--color-primary)_18%,transparent),transparent_40%),radial-gradient(circle_at_80%_75%,color-mix(in_oklab,var(--color-accent)_20%,transparent),transparent_40%),color-mix(in_oklab,var(--color-background)_92%,var(--color-surface))] px-3 py-4 sm:px-4"
               >
                 {scrollDateHint && (
                   <div className="pointer-events-none sticky top-2 z-20 mx-auto mb-2 w-fit rounded-full bg-black/70 px-3 py-1 text-[11px] font-semibold text-white shadow-sm">
@@ -1663,7 +1672,11 @@ export function ChatsPage() {
                             message.kind === "audio"
                               ? "w-fit max-w-[82%] sm:max-w-[72%]"
                               : "w-fit max-w-[82%] sm:max-w-[78%]"
-                          } ${message.senderId === user.id ? bubbleOut : bubbleIn} ${isSelected ? "ring-2 ring-[#3cc8ff] ring-offset-1 ring-offset-transparent" : ""}`}
+                          } ${
+                            message.kind === "audio"
+                              ? (message.senderId === user.id ? `${bubbleOut} ${bubbleAudioOut}` : `${bubbleIn} ${bubbleAudioIn}`)
+                              : (message.senderId === user.id ? bubbleOut : bubbleIn)
+                          } ${isSelected ? "ring-2 ring-[var(--color-accent)] ring-offset-1 ring-offset-transparent" : ""}`}
                           onContextMenu={(event) => {
                             if (selectionMode) return;
                             event.preventDefault();
@@ -1686,7 +1699,7 @@ export function ChatsPage() {
                         >
                           {selectionMode && (
                             <div className="mb-1 flex justify-end">
-                              <span className={`grid h-4 w-4 place-items-center rounded-full border ${isSelected ? "border-[#3cc8ff] bg-[#3cc8ff]" : "border-current/40 bg-transparent"}`}>
+                              <span className={`grid h-4 w-4 place-items-center rounded-full border ${isSelected ? "border-[var(--color-accent)] bg-[var(--color-accent)]" : "border-current/40 bg-transparent"}`}>
                                 {isSelected && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
                               </span>
                             </div>
@@ -1862,7 +1875,7 @@ export function ChatsPage() {
                         </>
                       )}
                       {voiceState === "preview" && (
-                        <Button type="button" className="h-9 rounded-xl bg-[#63c35c] px-3 text-[#08260d] hover:bg-[#7ed877]" onClick={() => { void sendVoiceRecording(); }} disabled={voicePreparingPreview || voiceSending}>
+                        <Button type="button" className="h-9 rounded-xl bg-[var(--color-primary)] px-3 text-[var(--color-primary-contrast)] hover:brightness-110" onClick={() => { void sendVoiceRecording(); }} disabled={voicePreparingPreview || voiceSending}>
                           <ArrowUp size={14} className="mr-1" /> {voiceSending ? "Enviando..." : "Enviar audio"}
                         </Button>
                       )}
@@ -1970,7 +1983,7 @@ export function ChatsPage() {
   <AnimatePresence mode="wait" initial={false}>
     {hasTextToSend ? (
       <motion.div key="send" whileHover={{ y: -1 }} whileTap={{ scale: 0.92 }} initial={{ opacity: 0, scale: 0.86 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.86 }} transition={{ duration: 0.15 }}>
-        <Button type="submit" className="h-11 w-11 rounded-xl bg-[#63c35c] px-0 text-[#08260d] hover:bg-[#7ed877] sm:h-12 sm:w-12 sm:rounded-2xl" disabled={!activeThreadId}>
+        <Button type="submit" className="h-11 w-11 rounded-xl bg-[var(--color-primary)] px-0 text-[var(--color-primary-contrast)] hover:brightness-110 sm:h-12 sm:w-12 sm:rounded-2xl" disabled={!activeThreadId}>
           <ArrowUp size={sendIconSize} />
         </Button>
       </motion.div>
@@ -2027,7 +2040,7 @@ export function ChatsPage() {
                       <Button type="button" variant="outline" className={`h-10 rounded-xl px-3 ${iconBtn}`} onClick={closeImageDraft}>
                         Descartar
                       </Button>
-                      <Button type="button" className="h-10 rounded-xl bg-[#63c35c] px-3 text-[#08260d] hover:bg-[#7ed877]" onClick={() => { void handleSendPendingImage(); }}>
+                      <Button type="button" className="h-10 rounded-xl bg-[var(--color-primary)] px-3 text-[var(--color-primary-contrast)] hover:brightness-110" onClick={() => { void handleSendPendingImage(); }}>
                         <ArrowUp size={16} className="mr-2" /> Enviar imagen
                       </Button>
                     </div>
@@ -2077,7 +2090,7 @@ export function ChatsPage() {
                               <Button type="button" variant="outline" className={`h-10 rounded-xl px-3 ${iconBtn}`} onClick={() => setCapturedPhoto(null)}>
                                 Repetir
                               </Button>
-                              <Button type="button" className="h-10 rounded-xl bg-[#63c35c] px-3 text-[#08260d] hover:bg-[#7ed877]" onClick={handleSendCapturedMedia}>
+                              <Button type="button" className="h-10 rounded-xl bg-[var(--color-primary)] px-3 text-[var(--color-primary-contrast)] hover:brightness-110" onClick={handleSendCapturedMedia}>
                                 Enviar foto
                               </Button>
                             </>
@@ -2099,7 +2112,7 @@ export function ChatsPage() {
                               <Button type="button" variant="outline" className={`h-10 rounded-xl px-3 ${iconBtn}`} onClick={() => { setCapturedVideoBlob(null); if (capturedVideoUrl) URL.revokeObjectURL(capturedVideoUrl); setCapturedVideoUrl(null); }}>
                                 Repetir
                               </Button>
-                              <Button type="button" className="h-10 rounded-xl bg-[#63c35c] px-3 text-[#08260d] hover:bg-[#7ed877]" onClick={handleSendCapturedMedia}>
+                              <Button type="button" className="h-10 rounded-xl bg-[var(--color-primary)] px-3 text-[var(--color-primary-contrast)] hover:brightness-110" onClick={handleSendCapturedMedia}>
                                 Enviar video
                               </Button>
                             </>
@@ -2184,15 +2197,15 @@ export function ChatsPage() {
             </>
           ) : (
             <div className="grid flex-1 place-items-center px-5">
-              <div className={`max-w-md rounded-3xl px-8 py-10 text-center ${isDark ? "bg-[#111b21]" : "bg-white shadow-sm"}`}>
-                <div className={`mx-auto grid h-20 w-20 place-items-center rounded-2xl ${isDark ? "bg-[#1f2c34] text-[#00a884]" : "bg-[#eaf4fd] text-[#1f8c72]"}`}>
+              <div className="max-w-md rounded-3xl border border-[var(--color-border)] bg-[var(--color-surface)] px-8 py-10 text-center shadow-sm">
+                <div className="mx-auto grid h-20 w-20 place-items-center rounded-2xl bg-[color:color-mix(in_oklab,var(--color-primary)_18%,var(--color-surface-soft))] text-[var(--color-primary)]">
                   <MessageCircle size={34} />
                 </div>
-                <p className={`mt-4 text-4xl font-black ${isDark ? "text-white" : "text-[#142739]"}`}>Terra Chat</p>
-                <p className={`mt-2 text-sm ${isDark ? "text-[#8696a0]" : "text-[#627a8d]"}`}>
+                <p className="mt-4 text-4xl font-black text-[var(--color-foreground)]">Terra Chat</p>
+                <p className="mt-2 text-sm text-[var(--color-muted)]">
                   Selecciona una conversacion desde la columna izquierda para abrir el chat.
                 </p>
-                <Link href={activeMode === "seller" ? "/seller" : "/buyer"} className={`mt-5 inline-flex items-center gap-2 text-sm font-semibold ${isDark ? "text-[#7ce3c9]" : "text-[#1f8c72]"}`}>
+                <Link href={activeMode === "seller" ? "/seller" : "/buyer"} className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-primary)] hover:brightness-110">
                   <ArrowLeft size={14} /> Volver al panel
                 </Link>
               </div>
