@@ -44,6 +44,8 @@ jobs:
       - name: Run k6 test
         env:
           BASE_URL: ${{ steps.base_url.outputs.base_url }}
+          K6_P95_MS: ${{ vars.K6_P95_MS }}
+          K6_MAX_FAILED_RATE: ${{ vars.K6_MAX_FAILED_RATE }}
         run: |
           k6 run --summary-export=k6-summary.json test-vercel.js
 
