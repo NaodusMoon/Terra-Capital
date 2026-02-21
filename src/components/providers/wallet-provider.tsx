@@ -6,6 +6,7 @@ import { getWalletBalances, type WalletBalance } from "@/lib/stellar";
 import {
   clearPendingWallet,
   connectWalletByProvider,
+  connectWalletConnect,
   getPendingWallet,
   getWalletMap,
   removeUserWallet,
@@ -27,6 +28,8 @@ interface WalletContextValue {
   balances: WalletBalance[];
   error: string | null;
   connectWallet: (provider: ConnectableWalletProviderId) => Promise<boolean>;
+  connectWithWalletConnect: () => Promise<string | null>;
+  setConnectedWallet: (wallet: StoredWallet) => void;
   disconnectWallet: () => void;
 }
 
@@ -98,6 +101,32 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         }
         setRevision((prev) => prev + 1);
         return true;
+      },
+      connectWithWalletConnect: async () => {
+        setError(null);
+        setConnecting(true);
+        const result = await connectWalletConnect();
+        setConnecting(false);
+
+        if (!result.ok) {
+          setError(result.message);
+          return null;
+        }
+
+        setPendingWallet(result.wallet);
+        if (user) {
+          setUserWallet(user.id, result.wallet);
+        }
+        setRevision((prev) => prev + 1);
+        return result.wallet.address;
+      },
+      setConnectedWallet: (wallet: StoredWallet) => {
+        setError(null);
+        setPendingWallet(wallet);
+        if (user) {
+          setUserWallet(user.id, wallet);
+        }
+        setRevision((prev) => prev + 1);
       },
       disconnectWallet: () => {
         clearPendingWallet();

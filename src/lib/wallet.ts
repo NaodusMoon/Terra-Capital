@@ -239,3 +239,19 @@ export async function connectWalletByProvider(provider: ConnectableWalletProvide
   if (provider === "xbull") return connectXBullWallet();
   return connectAlbedoWallet();
 }
+
+export async function connectWalletConnect() {
+  const providers: ConnectableWalletProviderId[] = ["freighter", "xbull", "albedo"];
+  const failures: string[] = [];
+
+  for (const provider of providers) {
+    const result = await connectWalletByProvider(provider);
+    if (result.ok) return result;
+    failures.push(result.message);
+  }
+
+  return {
+    ok: false as const,
+    message: failures.find(Boolean) || "No se pudo conectar ninguna wallet.",
+  };
+}

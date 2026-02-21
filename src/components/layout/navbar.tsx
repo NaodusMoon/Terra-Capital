@@ -143,7 +143,15 @@ export function Navbar() {
                   </Button>
                   {walletOpen && (
                     <div className="absolute right-0 top-12 z-50 w-80 rounded-xl border border-border bg-surface p-3 text-foreground shadow-lg">
-                      <p className="text-xs uppercase tracking-[0.12em] text-muted">Balance</p>
+                      <p className="text-xs uppercase tracking-[0.12em] text-muted">Wallet conectada</p>
+                      <p className="mt-1 text-sm font-semibold">
+                        {walletProvider ? getWalletProviderLabel(walletProvider) : "No conectado"}
+                      </p>
+                      <p className="mt-1 break-all rounded-lg bg-surface-soft p-2 text-xs text-muted">
+                        {walletAddress ?? "Sin direccion conectada"}
+                      </p>
+
+                      <p className="mt-3 text-xs uppercase tracking-[0.12em] text-muted">Balance</p>
                       <div className="mt-2 rounded-lg bg-surface-soft p-2 text-sm">
                         {loadingBalances && <p>Cargando balances...</p>}
                         {!loadingBalances && balances.length === 0 && <p>Sin balances para mostrar.</p>}

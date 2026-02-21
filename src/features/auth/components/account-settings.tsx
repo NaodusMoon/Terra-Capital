@@ -7,9 +7,12 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { useTheme } from "@/components/providers/theme-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useWallet } from "@/components/providers/wallet-provider";
+import { getWalletProviderLabel } from "@/lib/wallet";
 
 export function AccountSettings() {
   const { user, updateAccount, submitSellerKyc, activeMode } = useAuth();
+  const { walletAddress, walletProvider } = useWallet();
   const { theme, resolvedTheme, setTheme } = useTheme();
   const [fullName, setFullName] = useState(user?.fullName ?? "");
   const [organization, setOrganization] = useState(user?.organization ?? "");
@@ -101,6 +104,16 @@ export function AccountSettings() {
       </section>
 
       <section className="mt-6 grid gap-5 lg:grid-cols-2">
+        <Card>
+          <h2 className="text-xl font-bold">Wallet conectada</h2>
+          <p className="mt-3 text-sm text-[var(--color-muted)]">
+            Proveedor: <strong>{walletProvider ? getWalletProviderLabel(walletProvider) : "No conectado"}</strong>
+          </p>
+          <p className="mt-2 break-all rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 py-2 text-sm">
+            {walletAddress ?? "Sin direccion conectada"}
+          </p>
+        </Card>
+
         <Card>
           <h2 className="text-xl font-bold">Perfil</h2>
           <form className="mt-4 grid gap-3" onSubmit={handleProfile}>
