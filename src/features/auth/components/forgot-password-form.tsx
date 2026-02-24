@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 export function ForgotPasswordForm() {
   return (
     <Card className="w-full max-w-md">
-      <h1 className="text-2xl font-bold">Sin contrasena</h1>
+      <h1 className="tc-heading text-2xl font-bold">Sin contrasena</h1>
       <p className="mt-2 text-sm text-[var(--color-muted)]">
         Este flujo ya no se usa. El acceso se realiza solo con wallet.
       </p>

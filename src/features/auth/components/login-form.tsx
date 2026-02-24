@@ -63,7 +63,7 @@ export function LoginForm() {
 
   useEffect(() => {
     if (!loading && user) {
-      router.replace("/buyer");
+      router.replace("/dashboard");
     }
   }, [loading, router, user]);
 
@@ -123,7 +123,7 @@ export function LoginForm() {
       return;
     }
 
-    router.push("/buyer");
+    router.push("/dashboard");
   };
 
   const handleWalletConnect = async () => {
@@ -194,8 +194,8 @@ export function LoginForm() {
 
   return (
     <Card className="w-full max-w-md">
-      <h1 className="text-2xl font-bold">Iniciar sesion</h1>
-      <p className="mt-2 text-sm text-muted">
+      <h1 className="tc-heading text-2xl font-bold">Iniciar sesion</h1>
+      <p className="tc-subtitle mt-2 text-sm">
         Conecta wallet primero. Luego presiona iniciar sesion. Si eres nuevo, te pedimos nombre una sola vez.
       </p>
 

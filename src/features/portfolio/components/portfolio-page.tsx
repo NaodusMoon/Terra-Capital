@@ -63,11 +63,11 @@ export function PortfolioPage() {
     <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-5 sm:py-9">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-black sm:text-3xl">Portafolio de activos tokenizados</h1>
-          <p className="mt-1 text-sm text-[var(--color-muted)]">Tus posiciones en ciclos de produccion y su rendimiento esperado.</p>
+          <h1 className="tc-heading text-2xl font-black sm:text-3xl">Portafolio de activos tokenizados</h1>
+          <p className="tc-subtitle mt-1 text-sm">Tus posiciones en ciclos de produccion y su rendimiento esperado.</p>
         </div>
         <div className="flex gap-2">
-          <Link href={activeMode === "seller" ? "/seller" : "/buyer"}>
+          <Link href={activeMode === "seller" ? "/seller" : "/dashboard"}>
             <Button variant="outline" className="gap-2"><ArrowLeft size={15} /> Volver</Button>
           </Link>
           <Link href="/chats">
@@ -94,7 +94,7 @@ export function PortfolioPage() {
       <section className="mt-6 grid gap-4 md:grid-cols-2">
         {portfolio.map((row) => (
           <article key={row.asset.id} className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-            <h3 className="text-lg font-bold">{row.asset.title}</h3>
+            <h3 className="tc-heading text-lg font-bold">{row.asset.title}</h3>
             <p className="text-xs uppercase tracking-[0.12em] text-[var(--color-muted)]">{row.asset.lifecycleStatus} · {row.asset.location}</p>
             <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
               <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2">Tokens: <strong>{row.tokensOwned.toLocaleString("es-AR")}</strong></p>

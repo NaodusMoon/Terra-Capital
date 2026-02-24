@@ -16,6 +16,7 @@ import type { TokenizedAsset } from "@/types/market";
 export const runtime = "nodejs";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const STELLAR_TX_HASH_REGEX = /^[0-9a-f]{64}$/i;
 
 function isAssetCategory(value: unknown): value is TokenizedAsset["category"] {
   return value === "cultivo" || value === "tierra" || value === "ganaderia";
@@ -94,6 +95,8 @@ type CommandPayload =
     buyerId?: string;
     buyerName?: string;
     quantity?: unknown;
+    stellarTxHash?: string;
+    stellarNetwork?: unknown;
   }
   | {
     action: "updateAsset";
@@ -227,8 +230,16 @@ export async function POST(request: Request) {
       const buyerId = payload.buyerId?.trim() ?? "";
       const buyerName = normalizeSafeText(payload.buyerName ?? "", 120);
       const quantity = parseQuantity(payload.quantity);
+      const stellarTxHash = payload.stellarTxHash?.trim() ?? "";
+      const stellarNetwork = payload.stellarNetwork === "public" ? "public" : payload.stellarNetwork === "testnet" ? "testnet" : null;
       if (!assetId || !buyerId || !buyerName || !Number.isFinite(quantity) || quantity <= 0) {
         return NextResponse.json({ ok: false, message: "Datos invalidos para compra." }, { status: 400 });
+      }
+      if (!stellarNetwork) {
+        return NextResponse.json({ ok: false, message: "Debes especificar la red Stellar de la transaccion." }, { status: 400 });
+      }
+      if (!STELLAR_TX_HASH_REGEX.test(stellarTxHash)) {
+        return NextResponse.json({ ok: false, message: "Hash de transaccion Stellar invalido." }, { status: 400 });
       }
 
       const result = await buyMarketplaceAsset({
@@ -236,6 +247,8 @@ export async function POST(request: Request) {
         buyerId,
         buyerName,
         quantity,
+        stellarTxHash,
+        stellarNetwork,
       });
       if (!result.ok) {
         return NextResponse.json({ ok: false, message: result.message }, { status: 400 });

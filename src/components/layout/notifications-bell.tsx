@@ -86,7 +86,7 @@ export function NotificationsBell({ mobile = false }: { mobile?: boolean }) {
         type: "asset" as const,
         text: `Nuevo token publicado: ${asset.title}`,
         createdAt: asset.createdAt,
-        href: "/buyer",
+        href: "/dashboard",
       }));
 
     const all = [...unreadMessageGroups, ...purchaseItems, ...assetItems].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));

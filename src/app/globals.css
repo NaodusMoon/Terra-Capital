@@ -81,6 +81,15 @@ h4 {
   letter-spacing: -0.01em;
 }
 
+.tc-heading {
+  color: color-mix(in oklab, var(--color-gold) 88%, var(--color-foreground));
+  text-shadow: 0 1px 0 color-mix(in oklab, var(--color-gold) 25%, transparent);
+}
+
+.tc-subtitle {
+  color: color-mix(in oklab, var(--color-accent) 48%, var(--color-muted));
+}
+
 .terra-badge {
   display: inline-flex;
   align-items: center;

@@ -7,7 +7,7 @@ import { getAssets, getPurchases, syncMarketplace } from "@/lib/marketplace";
 
 const STATIC_ROUTES = [
   "/",
-  "/buyer",
+  "/dashboard",
   "/seller",
   "/chats",
   "/portfolio",
@@ -40,7 +40,7 @@ export function AppPreload() {
 
     const warmMarketplace = async () => {
       try {
-        await syncMarketplace(user.id, { includeChat: true });
+        await syncMarketplace(user.id);
       } catch {
         // keep UI responsive even if warmup fails
       }
@@ -48,7 +48,7 @@ export function AppPreload() {
 
       const assets = getAssets();
       const assetRoutes = assets.flatMap((asset) => [
-        `/buyer/assets/${asset.id}`,
+        `/assets/${asset.id}`,
         `/seller/assets/${asset.id}`,
       ]);
       const portfolioAssetRoutes = Array.from(new Set(getPurchases().map((purchase) => `/portfolio/${purchase.assetId}`)));

@@ -52,8 +52,8 @@ export function SellerAssetsPage() {
     <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 sm:py-9">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-black">Mis activos publicados</h1>
-          <p className="mt-2 text-[var(--color-muted)]">Vista exclusiva del vendedor con performance y retencion por activo.</p>
+          <h1 className="tc-heading text-3xl font-black">Mis activos publicados</h1>
+          <p className="tc-subtitle mt-2">Vista exclusiva del vendedor con performance y retencion por activo.</p>
         </div>
         <Button variant="outline" onClick={() => router.push("/seller")}>Volver al panel vendedor</Button>
       </div>
@@ -85,7 +85,7 @@ export function SellerAssetsPage() {
       <section className="mt-6 grid gap-4 md:grid-cols-2">
         {rows.map((row) => (
           <article key={row.asset.id} className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-            <h3 className="text-lg font-bold">{row.asset.title}</h3>
+            <h3 className="tc-heading text-lg font-bold">{row.asset.title}</h3>
             <p className="text-xs uppercase tracking-[0.12em] text-[var(--color-muted)]">{row.asset.lifecycleStatus} · {row.asset.location}</p>
             <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
               <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2">Vendidos: <strong>{row.soldTokens.toLocaleString("es-AR")}</strong></p>

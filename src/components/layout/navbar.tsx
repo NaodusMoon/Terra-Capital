@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ChevronDown, House, LayoutDashboard, LogIn, LogOut, MessageCircle, PieChart, Settings, Wallet } from "lucide-react";
+import { Briefcase, ChevronDown, Copy, House, LayoutDashboard, LogIn, LogOut, MessageCircle, PieChart, Settings, Wallet } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useWallet } from "@/components/providers/wallet-provider";
@@ -14,24 +14,20 @@ import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { getWalletProviderLabel } from "@/lib/wallet";
 
-function formatBalance(amount: string) {
-  const parsed = Number(amount);
-  if (!Number.isFinite(parsed)) return amount;
-  return parsed.toLocaleString("en-US", { maximumFractionDigits: 4 });
-}
-
 export function Navbar() {
   const { user, loading, logout, activeMode, switchMode } = useAuth();
-  const { walletAddress, walletProvider, disconnectWallet, walletOptions, connectWallet, connecting, balances, loadingBalances } = useWallet();
+  const { walletAddress, walletProvider, network, setNetwork, disconnectWallet } = useWallet();
   const router = useRouter();
   const pathname = usePathname();
   const [walletOpen, setWalletOpen] = useState(false);
+  const [copiedAddress, setCopiedAddress] = useState(false);
 
   const isAuthView = pathname.startsWith("/auth");
   const inHome = pathname === "/";
-  const panelPath = activeMode === "seller" ? "/seller" : "/buyer";
+  const panelPath = activeMode === "seller" ? "/seller" : "/dashboard";
   const portfolioPath = activeMode === "seller" ? "/seller/assets" : "/portfolio";
   const portfolioLabel = activeMode === "seller" ? "Mis publicaciones" : "Portafolio";
+  const showQuickNav = !inHome;
   const shortWallet = useMemo(() => (
     walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : "Wallet no conectada"
   ), [walletAddress]);
@@ -55,7 +51,7 @@ export function Navbar() {
                 className="w-[250px]"
                 onChange={(mode) => {
                   switchMode(mode);
-                  router.push(mode === "seller" ? "/seller" : "/buyer");
+                  router.push(mode === "seller" ? "/seller" : "/dashboard");
                 }}
               />
               <NotificationsBell mobile />
@@ -96,44 +92,55 @@ export function Navbar() {
                   mode={activeMode}
                   onChange={(mode) => {
                     switchMode(mode);
-                    router.push(mode === "seller" ? "/seller" : "/buyer");
+                    router.push(mode === "seller" ? "/seller" : "/dashboard");
                   }}
                   className="w-[222px]"
                   layoutId="desktop-mode-pill"
                 />
 
-                <div className="flex items-center gap-2">
-                  <Link href={portfolioPath} title={portfolioLabel}>
-                    <Button variant="outline" className={`group h-11 w-11 rounded-2xl px-0 ${navOutlineClass} ${isActiveRoute(portfolioPath) ? desktopActiveClass : ""}`}>
-                      <PieChart
-                        size={24}
-                        className={isActiveRoute(portfolioPath)
-                          ? "text-primary-contrast"
-                          : "text-nav-foreground transition-colors group-hover:text-secondary"}
-                      />
-                    </Button>
-                  </Link>
-                  <Link href="/chats" title="Mis chats">
-                    <Button variant="outline" className={`group h-11 w-11 rounded-2xl px-0 ${navOutlineClass} ${isActiveRoute("/chats") ? desktopActiveClass : ""}`}>
-                      <MessageCircle
-                        size={24}
-                        className={isActiveRoute("/chats")
-                          ? "text-primary-contrast"
-                          : "text-nav-foreground transition-colors group-hover:text-primary"}
-                      />
-                    </Button>
-                  </Link>
-                  <Link href="/account" title="Cuenta">
-                    <Button variant="outline" className={`group h-11 w-11 rounded-2xl px-0 ${navOutlineClass} ${isActiveRoute("/account") ? desktopActiveClass : ""}`}>
-                      <Settings
-                        size={24}
-                        className={isActiveRoute("/account")
-                          ? "text-primary-contrast"
-                          : "text-nav-foreground transition-colors group-hover:text-accent"}
-                      />
-                    </Button>
-                  </Link>
-                </div>
+                {showQuickNav && (
+                  <div className="flex items-center gap-2">
+                    <Link href={portfolioPath} title={portfolioLabel}>
+                      <Button variant="outline" className={`group h-11 w-11 rounded-2xl px-0 ${navOutlineClass} ${isActiveRoute(portfolioPath) ? desktopActiveClass : ""}`}>
+                        {activeMode === "seller" ? (
+                          <Briefcase
+                            size={24}
+                            className={isActiveRoute(portfolioPath)
+                              ? "text-primary-contrast"
+                              : "text-nav-foreground transition-colors group-hover:text-secondary"}
+                          />
+                        ) : (
+                          <PieChart
+                            size={24}
+                            className={isActiveRoute(portfolioPath)
+                              ? "text-primary-contrast"
+                              : "text-nav-foreground transition-colors group-hover:text-secondary"}
+                          />
+                        )}
+                      </Button>
+                    </Link>
+                    <Link href="/chats" title="Mis chats">
+                      <Button variant="outline" className={`group h-11 w-11 rounded-2xl px-0 ${navOutlineClass} ${isActiveRoute("/chats") ? desktopActiveClass : ""}`}>
+                        <MessageCircle
+                          size={24}
+                          className={isActiveRoute("/chats")
+                            ? "text-primary-contrast"
+                            : "text-nav-foreground transition-colors group-hover:text-primary"}
+                        />
+                      </Button>
+                    </Link>
+                    <Link href="/account" title="Cuenta">
+                      <Button variant="outline" className={`group h-11 w-11 rounded-2xl px-0 ${navOutlineClass} ${isActiveRoute("/account") ? desktopActiveClass : ""}`}>
+                        <Settings
+                          size={24}
+                          className={isActiveRoute("/account")
+                            ? "text-primary-contrast"
+                            : "text-nav-foreground transition-colors group-hover:text-accent"}
+                        />
+                      </Button>
+                    </Link>
+                  </div>
+                )}
 
                 <div className="relative">
                   <Button variant="outline" className={`gap-2 ${navOutlineClass}`} onClick={() => setWalletOpen((prev) => !prev)}>
@@ -142,39 +149,61 @@ export function Navbar() {
                     <ChevronDown size={14} />
                   </Button>
                   {walletOpen && (
-                    <div className="absolute right-0 top-12 z-50 w-80 rounded-xl border border-border bg-surface p-3 text-foreground shadow-lg">
-                      <p className="text-xs uppercase tracking-[0.12em] text-muted">Wallet conectada</p>
-                      <p className="mt-1 text-sm font-semibold">
-                        {walletProvider ? getWalletProviderLabel(walletProvider) : "No conectado"}
-                      </p>
-                      <p className="mt-1 break-all rounded-lg bg-surface-soft p-2 text-xs text-muted">
-                        {walletAddress ?? "Sin direccion conectada"}
-                      </p>
-
-                      <p className="mt-3 text-xs uppercase tracking-[0.12em] text-muted">Balance</p>
-                      <div className="mt-2 rounded-lg bg-surface-soft p-2 text-sm">
-                        {loadingBalances && <p>Cargando balances...</p>}
-                        {!loadingBalances && balances.length === 0 && <p>Sin balances para mostrar.</p>}
-                        {!loadingBalances && balances.map((row) => (
-                          <p key={`${row.asset}-${row.amount}`} className="flex items-center justify-between">
-                            <span>{row.asset}</span>
-                            <strong>{formatBalance(row.amount)}</strong>
-                          </p>
-                        ))}
+                    <div className="absolute right-0 top-12 z-50 w-96 overflow-hidden rounded-xl border border-border bg-surface text-foreground shadow-lg">
+                      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                        <p className="text-2xl font-semibold">{walletProvider ? getWalletProviderLabel(walletProvider) : "Wallet"}</p>
+                        <span className="rounded-lg bg-surface-soft px-3 py-1 text-xs font-medium text-muted">{network === "public" ? "Mainnet" : "Testnet"}</span>
                       </div>
-
-                      <p className="mt-3 text-xs uppercase tracking-[0.12em] text-muted">Cambiar wallet</p>
-                      <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                        {walletOptions.map((option) => (
-                          <Button key={option.id} variant="outline" onClick={() => connectWallet(option.id)} disabled={connecting}>
-                            {option.label}
-                          </Button>
-                        ))}
+                      <div className="p-4">
+                        <div className="mb-3 grid grid-cols-2 gap-2 rounded-xl border border-border bg-surface-soft p-1">
+                          <button
+                            type="button"
+                            className={`rounded-lg px-2 py-1.5 text-sm font-semibold transition ${network === "testnet" ? "bg-primary text-primary-contrast" : "text-muted hover:bg-surface"}`}
+                            onClick={() => setNetwork("testnet")}
+                          >
+                            Testnet
+                          </button>
+                          <button
+                            type="button"
+                            className={`rounded-lg px-2 py-1.5 text-sm font-semibold transition ${network === "public" ? "bg-primary text-primary-contrast" : "text-muted hover:bg-surface"}`}
+                            onClick={() => setNetwork("public")}
+                          >
+                            Mainnet
+                          </button>
+                        </div>
+                        <div className="rounded-xl border border-border bg-surface-soft p-4">
+                          <p className="text-sm text-muted">Address</p>
+                          <p className="mt-2 break-all text-xl font-medium text-foreground">{walletAddress ?? "Sin direccion conectada"}</p>
+                        </div>
                       </div>
-
-                      <Button className="mt-3 w-full" variant="ghost" onClick={() => { disconnectWallet(); setWalletOpen(false); }}>
-                        Desconectar wallet
-                      </Button>
+                      <div className="grid grid-cols-2 gap-3 border-t border-border p-4">
+                        <Button
+                          variant="ghost"
+                          className="h-11 gap-2 rounded-xl border border-border bg-transparent text-base text-foreground hover:bg-surface-soft"
+                          onClick={async () => {
+                            if (!walletAddress) return;
+                            try {
+                              await navigator.clipboard.writeText(walletAddress);
+                              setCopiedAddress(true);
+                              window.setTimeout(() => setCopiedAddress(false), 1400);
+                            } catch {}
+                          }}
+                        >
+                          <Copy size={18} />
+                          {copiedAddress ? "Copied" : "Copy"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="h-11 gap-2 rounded-xl border-red-500 text-base text-red-500 hover:bg-red-500/10"
+                          onClick={() => {
+                            disconnectWallet();
+                            setWalletOpen(false);
+                          }}
+                        >
+                          <LogOut size={18} />
+                          Disconnect
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -200,7 +229,7 @@ export function Navbar() {
 
       {!loading && (
         <div className="chat-mobile-bottombar fixed bottom-0 left-0 right-0 z-40 border-t border-[color:color-mix(in_oklab,var(--color-nav)_42%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-nav)_90%,transparent)] px-2 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 text-nav-foreground backdrop-blur md:hidden">
-          <div className={`mx-auto grid w-full max-w-md gap-2 ${user ? "grid-cols-5" : "grid-cols-2"}`}>
+          <div className={`mx-auto grid w-full max-w-md gap-2 ${user ? (inHome ? "grid-cols-2" : "grid-cols-5") : "grid-cols-2"}`}>
             {!user && (
               <>
                 <motion.div whileTap={{ scale: 0.97 }}>
@@ -226,24 +255,28 @@ export function Navbar() {
                     Panel
                   </Link>
                 </motion.div>
-                <motion.div whileTap={{ scale: 0.97 }}>
-                  <Link href="/chats" className={`${mobileItemClass} ${pathname === "/chats" ? mobileActiveClass : mobileIdleClass}`} aria-current={pathname === "/chats" ? "page" : undefined}>
-                    <MessageCircle size={16} />
-                    Chats
-                  </Link>
-                </motion.div>
-                <motion.div whileTap={{ scale: 0.97 }}>
-                  <Link href={portfolioPath} className={`${mobileItemClass} ${isActiveRoute(portfolioPath) ? mobileActiveClass : mobileIdleClass}`} aria-current={isActiveRoute(portfolioPath) ? "page" : undefined}>
-                    <PieChart size={16} />
-                    {activeMode === "seller" ? "Activos" : "Portafolio"}
-                  </Link>
-                </motion.div>
-                <motion.div whileTap={{ scale: 0.97 }}>
-                  <Link href="/account" className={`${mobileItemClass} ${pathname === "/account" ? mobileActiveClass : mobileIdleClass}`} aria-current={pathname === "/account" ? "page" : undefined}>
-                    <Settings size={16} />
-                    Cuenta
-                  </Link>
-                </motion.div>
+                {showQuickNav && (
+                  <>
+                    <motion.div whileTap={{ scale: 0.97 }}>
+                      <Link href="/chats" className={`${mobileItemClass} ${pathname === "/chats" ? mobileActiveClass : mobileIdleClass}`} aria-current={pathname === "/chats" ? "page" : undefined}>
+                        <MessageCircle size={16} />
+                        Chats
+                      </Link>
+                    </motion.div>
+                    <motion.div whileTap={{ scale: 0.97 }}>
+                      <Link href={portfolioPath} className={`${mobileItemClass} ${isActiveRoute(portfolioPath) ? mobileActiveClass : mobileIdleClass}`} aria-current={isActiveRoute(portfolioPath) ? "page" : undefined}>
+                        {activeMode === "seller" ? <Briefcase size={16} /> : <PieChart size={16} />}
+                        {activeMode === "seller" ? "Activos" : "Portafolio"}
+                      </Link>
+                    </motion.div>
+                    <motion.div whileTap={{ scale: 0.97 }}>
+                      <Link href="/account" className={`${mobileItemClass} ${pathname === "/account" ? mobileActiveClass : mobileIdleClass}`} aria-current={pathname === "/account" ? "page" : undefined}>
+                        <Settings size={16} />
+                        Cuenta
+                      </Link>
+                    </motion.div>
+                  </>
+                )}
                 <motion.button
                   type="button"
                   whileTap={{ scale: 0.97 }}

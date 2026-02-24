@@ -15,8 +15,8 @@ export function WalletRequiredCard() {
           <Wallet size={20} />
         </div>
         <div>
-          <h2 className="text-2xl font-bold">Conecta tu wallet para continuar</h2>
-          <p className="text-sm text-[var(--color-muted)]">Para operar en Terra Capital debes conectar una wallet Stellar compatible.</p>
+          <h2 className="tc-heading text-2xl font-bold">Conecta tu wallet para continuar</h2>
+          <p className="tc-subtitle text-sm">Para operar en Terra Capital debes conectar una wallet Stellar compatible.</p>
         </div>
       </div>
 

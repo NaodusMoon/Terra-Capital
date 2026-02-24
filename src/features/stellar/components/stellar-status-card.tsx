@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
+import { useWallet } from "@/components/providers/wallet-provider";
 
 interface NetworkResponse {
   network: string;
@@ -12,6 +13,7 @@ interface NetworkResponse {
 }
 
 export function StellarStatusCard() {
+  const { network } = useWallet();
   const [data, setData] = useState<NetworkResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,7 +23,7 @@ export function StellarStatusCard() {
     const loadStatus = async () => {
       setError(null);
       try {
-        const res = await fetch("/api/stellar/network", {
+        const res = await fetch(`/api/stellar/network?network=${network}`, {
           method: "GET",
           headers: { Accept: "application/json" },
           cache: "no-store",
@@ -67,11 +69,11 @@ export function StellarStatusCard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [network]);
 
   return (
     <Card>
-      <h3 className="text-lg font-bold">Estado de Stellar</h3>
+      <h3 className="tc-heading text-lg font-bold">Estado de Stellar</h3>
       {!data && !error && <p className="mt-2 text-sm text-[var(--color-muted)]">Consultando red...</p>}
       {error && <p className="terra-alert mt-2">{error}</p>}
       {data && (

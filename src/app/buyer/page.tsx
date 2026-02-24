@@ -1,11 +1,5 @@
-﻿import { RoleGuard } from "@/components/auth/role-guard";
-import { BuyerDashboard } from "@/features/dashboard/components/buyer-dashboard";
+import { redirect } from "next/navigation";
 
 export default function BuyerPage() {
-  return (
-    <RoleGuard mode="buyer">
-      <BuyerDashboard />
-    </RoleGuard>
-  );
+  redirect("/dashboard");
 }
-

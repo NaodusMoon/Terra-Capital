@@ -53,21 +53,21 @@ export function AccountSettings() {
   return (
     <main className="mx-auto w-full max-w-5xl px-5 py-8">
       <div className="mb-3 flex items-center justify-between">
-        <Link href={activeMode === "seller" ? "/seller" : "/buyer"} className="inline-flex items-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-semibold hover:bg-[var(--color-surface-soft)]">
+        <Link href={activeMode === "seller" ? "/seller" : "/dashboard"} className="inline-flex items-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-semibold hover:bg-[var(--color-surface-soft)]">
           <ArrowLeft size={15} /> Volver al panel
         </Link>
-        <Link href={activeMode === "seller" ? "/seller" : "/buyer"} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--color-border)] hover:bg-[var(--color-surface-soft)]" aria-label="Cerrar">
+        <Link href={activeMode === "seller" ? "/seller" : "/dashboard"} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--color-border)] hover:bg-[var(--color-surface-soft)]" aria-label="Cerrar">
           <X size={15} />
         </Link>
       </div>
 
-      <h1 className="text-3xl font-black">Configuracion de la cuenta</h1>
-      <p className="mt-2 text-sm text-[var(--color-muted)]">Administra perfil y verificacion de vendedor.</p>
+      <h1 className="tc-heading text-3xl font-black">Configuracion de la cuenta</h1>
+      <p className="tc-subtitle mt-2 text-sm">Administra perfil y verificacion de vendedor.</p>
 
       <section className="mt-5 md:hidden">
         <Card>
-          <h2 className="text-xl font-bold">Tema</h2>
-          <p className="mt-1 text-sm text-[var(--color-muted)]">Disponible solo en telefono.</p>
+          <h2 className="tc-heading text-xl font-bold">Tema</h2>
+          <p className="tc-subtitle mt-1 text-sm">Disponible solo en telefono.</p>
           <div className="mt-4 grid grid-cols-3 gap-2">
             <Button
               type="button"
@@ -105,7 +105,7 @@ export function AccountSettings() {
 
       <section className="mt-6 grid gap-5 lg:grid-cols-2">
         <Card>
-          <h2 className="text-xl font-bold">Wallet conectada</h2>
+          <h2 className="tc-heading text-xl font-bold">Wallet conectada</h2>
           <p className="mt-3 text-sm text-[var(--color-muted)]">
             Proveedor: <strong>{walletProvider ? getWalletProviderLabel(walletProvider) : "No conectado"}</strong>
           </p>
@@ -115,7 +115,7 @@ export function AccountSettings() {
         </Card>
 
         <Card>
-          <h2 className="text-xl font-bold">Perfil</h2>
+          <h2 className="tc-heading text-xl font-bold">Perfil</h2>
           <form className="mt-4 grid gap-3" onSubmit={handleProfile}>
             <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Nombre completo" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
             <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Organizacion" value={organization} onChange={(e) => setOrganization(e.target.value)} />
@@ -133,8 +133,8 @@ export function AccountSettings() {
 
       <section className="mt-5">
         <Card>
-          <h2 className="text-xl font-bold">Verificacion para modo vendedor</h2>
-          <p className="mt-1 text-sm text-[var(--color-muted)]">Estado actual: <strong>{user.sellerVerificationStatus}</strong></p>
+          <h2 className="tc-heading text-xl font-bold">Verificacion para modo vendedor</h2>
+          <p className="tc-subtitle mt-1 text-sm">Estado actual: <strong>{user.sellerVerificationStatus}</strong></p>
           <form className="mt-4 grid gap-3 md:grid-cols-2" onSubmit={handleKyc}>
             <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Nombre legal" value={kyc.legalName} onChange={(e) => setKyc((prev) => ({ ...prev, legalName: e.target.value }))} required />
             <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Documento ultimos 4" maxLength={4} value={kyc.documentLast4} onChange={(e) => setKyc((prev) => ({ ...prev, documentLast4: e.target.value }))} required />

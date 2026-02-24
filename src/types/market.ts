@@ -58,6 +58,7 @@ export interface TokenizedAsset {
   expectedYield: string;
   sellerId: string;
   sellerName: string;
+  sellerStellarPublicKey?: string;
   imageUrl?: string;
   imageUrls?: string[];
   videoUrl?: string;
@@ -92,6 +93,10 @@ export interface PurchaseRecord {
   pricePerToken: number;
   totalPaid: number;
   purchasedAt: string;
+  stellarNetwork?: "testnet" | "public";
+  stellarTxHash?: string;
+  stellarSource?: string;
+  stellarDestination?: string;
 }
 
 export interface ChatThread {

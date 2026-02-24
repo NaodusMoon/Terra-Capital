@@ -1,9 +1,10 @@
-﻿"use client";
+"use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, MessageCircle } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useWallet } from "@/components/providers/wallet-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { MARKETPLACE_EVENT } from "@/lib/constants";
@@ -12,6 +13,7 @@ import { buyAsset, getAssets, syncMarketplace } from "@/lib/marketplace";
 
 export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
   const { user } = useAuth();
+  const { walletAddress, walletProvider, network } = useWallet();
   const router = useRouter();
 
   const [quantity, setQuantity] = useState(1);
@@ -51,7 +53,11 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
       setTradeMessage("La compra solo esta disponible en estado FUNDING.");
       return;
     }
-    const result = await buyAsset(asset.id, user, quantity);
+    const result = await buyAsset(asset, user, quantity, {
+      walletAddress,
+      walletProvider,
+      network,
+    });
     if (!result.ok) {
       setTradeMessage(result.message);
       return;
@@ -66,7 +72,7 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
       <main className="mx-auto grid min-h-[60vh] w-full max-w-6xl place-items-center px-4 text-center">
         <div>
           <p className="text-sm text-[var(--color-muted)]">No encontramos el activo solicitado.</p>
-          <Button className="mt-3" onClick={() => router.push("/buyer")}>Volver al marketplace</Button>
+          <Button className="mt-3" onClick={() => router.push("/dashboard")}>Volver al marketplace</Button>
         </div>
       </main>
     );
@@ -87,10 +93,10 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
     <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 sm:py-9">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-black">{asset.title}</h1>
-          <p className="mt-1 text-sm text-[var(--color-muted)]">{asset.sellerName} · {asset.location}</p>
+          <h1 className="tc-heading text-3xl font-black">{asset.title}</h1>
+          <p className="tc-subtitle mt-1 text-sm">{asset.sellerName} · {asset.location}</p>
         </div>
-        <Button variant="outline" onClick={() => router.push("/buyer")}>Volver al marketplace</Button>
+        <Button variant="outline" onClick={() => router.push("/dashboard")}>Volver al marketplace</Button>
       </div>
 
       <section className="mt-6 grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
@@ -101,7 +107,7 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
               // eslint-disable-next-line @next/next/no-img-element
               <img src={currentMedia.url} alt={asset.title} className="h-full w-full object-cover" />
             )}
-            {currentMedia?.kind === "video" && <video controls className="h-full w-full object-cover" src={currentMedia.url} />}
+            {currentMedia?.kind === "video" && <video controls className="h-full w-full object-contain" src={currentMedia.url} />}
           </div>
 
           {mediaGallery.length > 1 && (
@@ -160,8 +166,8 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
         </Card>
 
         <Card>
-          <h2 className="text-xl font-bold">Invertir en este ciclo</h2>
-          <p className="mt-2 text-sm text-[var(--color-muted)]">Participacion actual: {(asset.investorMetrics?.participationPct ?? 0).toFixed(2)}%</p>
+          <h2 className="tc-heading text-xl font-bold">Invertir en este ciclo</h2>
+          <p className="tc-subtitle mt-2 text-sm">Participacion actual: {(asset.investorMetrics?.participationPct ?? 0).toFixed(2)}%</p>
 
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--color-surface-soft)]">
             <div className="h-full rounded-full bg-[var(--color-primary)]" style={{ width: `${asset.investorMetrics?.cycleProgressPct ?? 0}%` }} />

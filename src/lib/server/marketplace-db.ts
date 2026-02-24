@@ -1,6 +1,7 @@
 import "server-only";
 import type { PoolClient } from "pg";
 import { getPostgresPool } from "@/lib/server/postgres";
+import { isValidStellarPublicKey } from "@/lib/security";
 import type { AssetApiState, ChatMessage, ChatThread, PurchaseRecord, TokenizedAsset } from "@/types/market";
 
 interface DbAssetRow {
@@ -15,6 +16,7 @@ interface DbAssetRow {
   expected_yield: string;
   seller_id: string;
   seller_name: string;
+  seller_stellar_public_key?: string | null;
   image_url: string | null;
   image_urls: unknown;
   video_url: string | null;
@@ -46,6 +48,10 @@ interface DbPurchaseRow {
   price_per_token: string | number;
   total_paid: string | number;
   purchased_at: string;
+  stellar_network?: "testnet" | "public" | null;
+  stellar_tx_hash?: string | null;
+  stellar_source?: string | null;
+  stellar_destination?: string | null;
 }
 
 interface DbThreadRow {
@@ -77,6 +83,13 @@ interface DbMessageRow {
 }
 
 let cachedSupportsDeleteColumns: boolean | null = null;
+const CHAT_SYNC_MESSAGES_LIMIT = 500;
+type StellarNetwork = "testnet" | "public";
+
+const HORIZON_URLS: Record<StellarNetwork, string> = {
+  testnet: "https://horizon-testnet.stellar.org",
+  public: "https://horizon.stellar.org",
+};
 
 async function supportsMessageDeleteColumns() {
   if (cachedSupportsDeleteColumns !== null) return cachedSupportsDeleteColumns;
@@ -152,6 +165,66 @@ function toWholeNumber(value: string | number | null | undefined) {
   if (value === null || value === undefined) return 0;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function verifyStellarPayment(input: {
+  network: StellarNetwork;
+  txHash: string;
+  source: string;
+  destination: string;
+  expectedAmount: number;
+}) {
+  const horizonUrl = HORIZON_URLS[input.network];
+  const [txRes, opsRes] = await Promise.all([
+    fetch(`${horizonUrl}/transactions/${input.txHash}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    }),
+    fetch(`${horizonUrl}/transactions/${input.txHash}/operations?limit=200&order=asc`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    }),
+  ]);
+
+  if (!txRes.ok) {
+    throw new Error("No se encontro la transaccion en Stellar/Horizon.");
+  }
+  if (!opsRes.ok) {
+    throw new Error("No se pudieron leer las operaciones de la transaccion Stellar.");
+  }
+
+  const tx = (await txRes.json()) as { successful?: boolean };
+  if (!tx.successful) {
+    throw new Error("La transaccion Stellar aun no esta confirmada como exitosa.");
+  }
+
+  const operations = (await opsRes.json()) as {
+    _embedded?: {
+      records?: Array<{
+        type?: string;
+        from?: string;
+        to?: string;
+        amount?: string;
+        asset_type?: string;
+      }>;
+    };
+  };
+  const records = operations._embedded?.records ?? [];
+  const expected = Number(input.expectedAmount.toFixed(7));
+  const matched = records.some((operation) => {
+    if (operation.type !== "payment") return false;
+    if (operation.asset_type !== "native") return false;
+    if ((operation.from ?? "").trim() !== input.source) return false;
+    if ((operation.to ?? "").trim() !== input.destination) return false;
+    const paid = Number(Number(operation.amount ?? 0).toFixed(7));
+    return Math.abs(paid - expected) < 0.0000001;
+  });
+
+  if (!matched) {
+    throw new Error("La transaccion Stellar no coincide con monto/origen/destino esperados.");
+  }
 }
 
 function toMaybeWholeNumber(value: string | number | null | undefined) {
@@ -254,6 +327,7 @@ function mapAssetRow(
     expectedYield: row.expected_yield,
     sellerId: row.seller_id,
     sellerName: row.seller_name,
+    sellerStellarPublicKey: row.seller_stellar_public_key ?? undefined,
     imageUrl: row.image_url ?? undefined,
     imageUrls: parseStringArray(row.image_urls),
     videoUrl: row.video_url ?? undefined,
@@ -301,6 +375,10 @@ function mapPurchaseRow(row: DbPurchaseRow): PurchaseRecord {
     pricePerToken: toNumber(row.price_per_token),
     totalPaid: toNumber(row.total_paid),
     purchasedAt: row.purchased_at,
+    stellarNetwork: row.stellar_network ?? undefined,
+    stellarTxHash: row.stellar_tx_hash ?? undefined,
+    stellarSource: row.stellar_source ?? undefined,
+    stellarDestination: row.stellar_destination ?? undefined,
   };
 }
 
@@ -364,16 +442,18 @@ export async function getMarketplaceState(userId?: string, options?: { includeCh
   const withDeleteColumns = await supportsMessageDeleteColumns();
   const includeChat = options?.includeChat ?? false;
   const assetsResult = await pool.query<DbAssetRow>(
-    `SELECT id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, media_gallery,
-            token_price_sats, cycle_duration_days, lifecycle_status, cycle_start_at, cycle_end_at, estimated_apy_bps, historical_roi_bps, proof_of_asset_hash,
-            audit_hash, health_score, current_yield_accrued_sats, net_profit_sats, final_payout_sats, snapshot_locked_at, created_at
-     FROM marketplace_assets
-     ORDER BY created_at DESC`,
+    `SELECT a.id, a.title, a.category, a.description, a.location, a.price_per_token, a.total_tokens, a.available_tokens, a.expected_yield, a.seller_id, a.seller_name, u.stellar_public_key AS seller_stellar_public_key, a.image_url, a.image_urls, a.video_url, a.media_gallery,
+            a.token_price_sats, a.cycle_duration_days, a.lifecycle_status, a.cycle_start_at, a.cycle_end_at, a.estimated_apy_bps, a.historical_roi_bps, a.proof_of_asset_hash,
+            a.audit_hash, a.health_score, a.current_yield_accrued_sats, a.net_profit_sats, a.final_payout_sats, a.snapshot_locked_at, a.created_at
+     FROM marketplace_assets a
+     LEFT JOIN app_users u ON u.id = a.seller_id
+     ORDER BY a.created_at DESC`,
   );
 
   const purchasesResult = userId
     ? await pool.query<DbPurchaseRow>(
-      `SELECT id, asset_id, buyer_id, buyer_name, seller_id, quantity, price_per_token, total_paid, purchased_at
+      `SELECT id, asset_id, buyer_id, buyer_name, seller_id, quantity, price_per_token, total_paid, purchased_at,
+              stellar_network, stellar_tx_hash, stellar_source, stellar_destination
        FROM marketplace_purchases
        WHERE buyer_id = $1 OR seller_id = $1
        ORDER BY purchased_at DESC`,
@@ -398,19 +478,31 @@ export async function getMarketplaceState(userId?: string, options?: { includeCh
       ? await pool.query<DbMessageRow>(
         `SELECT id, thread_id, sender_id, sender_name, sender_role, text, status, kind, attachment, error_message, read_at,
                 deleted_for_everyone, deleted_for_everyone_at, deleted_for_everyone_by, created_at
-         FROM marketplace_messages
-         WHERE thread_id = ANY($1::uuid[])
-           AND ($2::uuid IS NULL OR NOT ($2::uuid = ANY(deleted_for_user_ids)))
+         FROM (
+           SELECT id, thread_id, sender_id, sender_name, sender_role, text, status, kind, attachment, error_message, read_at,
+                  deleted_for_everyone, deleted_for_everyone_at, deleted_for_everyone_by, created_at
+           FROM marketplace_messages
+           WHERE thread_id = ANY($1::uuid[])
+             AND ($2::uuid IS NULL OR NOT ($2::uuid = ANY(deleted_for_user_ids)))
+           ORDER BY created_at DESC
+           LIMIT $3
+         ) recent_messages
          ORDER BY created_at ASC`,
-        [threadIds, userId ?? null],
+        [threadIds, userId ?? null, CHAT_SYNC_MESSAGES_LIMIT],
       )
       : await pool.query<DbMessageRow>(
         `SELECT id, thread_id, sender_id, sender_name, sender_role, text, status, kind, attachment, error_message, read_at,
                 created_at
-         FROM marketplace_messages
-         WHERE thread_id = ANY($1::uuid[])
+         FROM (
+           SELECT id, thread_id, sender_id, sender_name, sender_role, text, status, kind, attachment, error_message, read_at,
+                  created_at
+           FROM marketplace_messages
+           WHERE thread_id = ANY($1::uuid[])
+           ORDER BY created_at DESC
+           LIMIT $2
+         ) recent_messages
          ORDER BY created_at ASC`,
-        [threadIds],
+        [threadIds, CHAT_SYNC_MESSAGES_LIMIT],
       );
     messagesRows = messagesResult.rows;
   }
@@ -653,6 +745,8 @@ export async function buyMarketplaceAsset(input: {
   buyerId: string;
   buyerName: string;
   quantity: number;
+  stellarTxHash: string;
+  stellarNetwork: StellarNetwork;
 }) {
   const pool = getPostgresPool();
   const client = await pool.connect();
@@ -686,6 +780,36 @@ export async function buyMarketplaceAsset(input: {
       return { ok: false as const, message: "Este activo ya no esta en etapa de recaudacion." };
     }
 
+    const walletsResult = await client.query<{ id: string; stellar_public_key: string }>(
+      `SELECT id, stellar_public_key
+       FROM app_users
+       WHERE id = ANY($1::uuid[])`,
+      [[input.buyerId, asset.seller_id]],
+    );
+    const walletsById = new Map(walletsResult.rows.map((row) => [row.id, row.stellar_public_key]));
+    const buyerWallet = walletsById.get(input.buyerId) ?? "";
+    const sellerWallet = walletsById.get(asset.seller_id) ?? "";
+    if (!isValidStellarPublicKey(buyerWallet) || !isValidStellarPublicKey(sellerWallet)) {
+      await client.query("ROLLBACK");
+      return { ok: false as const, message: "Wallet de comprador o vendedor invalida para liquidar en Stellar." };
+    }
+    const expectedAmount = toWholeNumber(asset.token_price_sats) * input.quantity;
+    try {
+      await verifyStellarPayment({
+        network: input.stellarNetwork,
+        txHash: input.stellarTxHash,
+        source: buyerWallet,
+        destination: sellerWallet,
+        expectedAmount,
+      });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : "No se pudo verificar la transaccion Stellar.",
+      };
+    }
+
     await client.query(
       `UPDATE marketplace_assets
        SET
@@ -709,12 +833,15 @@ export async function buyMarketplaceAsset(input: {
 
     const purchaseResult = await client.query<DbPurchaseRow>(
       `INSERT INTO marketplace_purchases (
-        id, asset_id, buyer_id, buyer_name, seller_id, quantity, price_per_token, total_paid, purchased_at
+        id, asset_id, buyer_id, buyer_name, seller_id, quantity, price_per_token, total_paid, purchased_at,
+        stellar_network, stellar_tx_hash, stellar_source, stellar_destination
       )
       VALUES (
-        gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, timezone('utc', now())
+        gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, timezone('utc', now()),
+        $8, $9, $10, $11
       )
-      RETURNING id, asset_id, buyer_id, buyer_name, seller_id, quantity, price_per_token, total_paid, purchased_at`,
+      RETURNING id, asset_id, buyer_id, buyer_name, seller_id, quantity, price_per_token, total_paid, purchased_at,
+                stellar_network, stellar_tx_hash, stellar_source, stellar_destination`,
       [
         input.assetId,
         input.buyerId,
@@ -722,7 +849,11 @@ export async function buyMarketplaceAsset(input: {
         asset.seller_id,
         input.quantity,
         asset.token_price_sats,
-        toWholeNumber(asset.token_price_sats) * input.quantity,
+        expectedAmount,
+        input.stellarNetwork,
+        input.stellarTxHash,
+        buyerWallet,
+        sellerWallet,
       ],
     );
 

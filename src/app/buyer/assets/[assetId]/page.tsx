@@ -1,11 +1,6 @@
-import { RoleGuard } from "@/components/auth/role-guard";
-import { BuyerAssetDetailPage } from "@/features/marketplace/components/buyer-asset-detail-page";
+import { redirect } from "next/navigation";
 
-export default async function BuyerAssetPage({ params }: { params: Promise<{ assetId: string }> }) {
+export default async function BuyerAssetLegacyPage({ params }: { params: Promise<{ assetId: string }> }) {
   const { assetId } = await params;
-  return (
-    <RoleGuard mode="buyer">
-      <BuyerAssetDetailPage assetId={assetId} />
-    </RoleGuard>
-  );
+  redirect(`/assets/${assetId}`);
 }

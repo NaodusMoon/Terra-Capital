@@ -71,8 +71,8 @@ export default function QrConnectPage() {
   return (
     <main className="mx-auto grid min-h-[calc(100vh-74px)] w-full max-w-6xl place-items-center px-5 py-12">
       <Card className="w-full max-w-md">
-        <h1 className="text-2xl font-bold">Vincular wallet por QR</h1>
-        <p className="mt-2 text-sm text-muted">
+        <h1 className="tc-heading text-2xl font-bold">Vincular wallet por QR</h1>
+        <p className="tc-subtitle mt-2 text-sm">
           Conecta tu wallet aqui y quedara vinculada en la sesion de escritorio.
         </p>
         <p className="mt-2 text-xs text-muted">Sesion: {sessionId ? `${sessionId.slice(0, 8)}...` : "No disponible"}</p>

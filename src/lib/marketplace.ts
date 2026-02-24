@@ -1,6 +1,9 @@
 import { MARKETPLACE_EVENT, STORAGE_KEYS } from "@/lib/constants";
+import { executeMarketplacePayment } from "@/lib/stellar-payments";
+import type { StellarNetwork } from "@/lib/stellar";
 import { normalizeSafeText, toSafeMediaUrlOrUndefined } from "@/lib/security";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
+import type { WalletProviderId } from "@/lib/wallet";
 import type { AppUser } from "@/types/auth";
 import type { AssetMediaItem, ChatMessage, ChatThread, PurchaseRecord, TokenizedAsset } from "@/types/market";
 
@@ -109,7 +112,14 @@ export function getAssets() {
   if (volatileAssets.length === 0 && assets.length > 0) {
     volatileAssets = assets;
   }
-  return [...assets].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
+  const dedupedById = new Map<string, TokenizedAsset>();
+  for (const asset of assets) {
+    const current = dedupedById.get(asset.id);
+    if (!current || +new Date(asset.createdAt) >= +new Date(current.createdAt)) {
+      dedupedById.set(asset.id, asset);
+    }
+  }
+  return Array.from(dedupedById.values()).sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
 }
 
 export function getPurchases() {
@@ -325,10 +335,42 @@ export async function deleteAsset(seller: AppUser, assetId: string) {
   return { ok: true as const };
 }
 
-export async function buyAsset(assetId: string, buyer: AppUser, quantity: number) {
+export async function buyAsset(
+  asset: TokenizedAsset,
+  buyer: AppUser,
+  quantity: number,
+  payment: {
+    walletAddress: string | null;
+    walletProvider: WalletProviderId | null;
+    network: StellarNetwork;
+  },
+) {
   const normalizedQuantity = Math.floor(quantity);
   if (!Number.isInteger(normalizedQuantity) || normalizedQuantity <= 0) {
     return { ok: false as const, message: "La cantidad debe ser mayor a 0." };
+  }
+  const buyerWallet = payment.walletAddress?.trim() ?? "";
+  if (!buyerWallet) {
+    return { ok: false as const, message: "Conecta una wallet para firmar la transaccion." };
+  }
+  const sellerWallet = asset.sellerStellarPublicKey?.trim() ?? "";
+  if (!sellerWallet) {
+    return { ok: false as const, message: "El vendedor no tiene wallet Stellar configurada." };
+  }
+  if (!payment.walletProvider) {
+    return { ok: false as const, message: "No se detecto proveedor de wallet para firmar." };
+  }
+
+  const totalToPay = Number(asset.tokenPriceSats) * normalizedQuantity;
+  const paymentResult = await executeMarketplacePayment({
+    provider: payment.walletProvider,
+    sourceAddress: buyerWallet,
+    destinationAddress: sellerWallet,
+    amount: totalToPay,
+    network: payment.network,
+  });
+  if (!paymentResult.ok) {
+    return { ok: false as const, message: paymentResult.message };
   }
 
   const response = await fetch("/api/marketplace", {
@@ -336,16 +378,18 @@ export async function buyAsset(assetId: string, buyer: AppUser, quantity: number
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       action: "buyAsset",
-      assetId,
+      assetId: asset.id,
       buyerId: buyer.id,
       buyerName: buyer.fullName,
       quantity: normalizedQuantity,
+      stellarTxHash: paymentResult.txHash,
+      stellarNetwork: payment.network,
     }),
   });
 
   const payload = await parseResponse<{ ok: boolean; purchase?: PurchaseRecord; message?: string }>(response);
   if (!payload || !payload.ok || !payload.purchase) {
-    return { ok: false as const, message: payload?.message ?? "No se pudo completar la compra." };
+    return { ok: false as const, message: payload?.message ?? `Pago enviado pero compra no registrada. Hash: ${paymentResult.txHash}` };
   }
 
   await syncMarketplace(buyer.id);

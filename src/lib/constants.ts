@@ -8,6 +8,7 @@
   recoveryCodes: "terra_capital_recovery_codes",
   theme: "terra_capital_theme",
   wallets: "terra_capital_wallets",
+  stellarNetwork: "terra_capital_stellar_network",
   assets: "terra_capital_assets",
   purchases: "terra_capital_purchases",
   chatThreads: "terra_capital_chat_threads",

@@ -24,8 +24,33 @@ function getStateLabel(status: TokenizedAsset["lifecycleStatus"]) {
   return "Liquidado";
 }
 
-function TokenPreview({ category }: { category: AssetCategory }) {
-  const Icon = categoryMeta[category].icon;
+function TokenPreview({ asset }: { asset: TokenizedAsset }) {
+  const Icon = categoryMeta[asset.category].icon;
+  const previewMedia = asset.mediaGallery && asset.mediaGallery.length > 0
+    ? asset.mediaGallery[0]
+    : asset.imageUrl
+      ? { kind: "image" as const, url: asset.imageUrl }
+      : asset.videoUrl
+        ? { kind: "video" as const, url: asset.videoUrl }
+        : null;
+
+  if (previewMedia?.kind === "image") {
+    return (
+      <div className="h-11 w-11 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] shadow-md shadow-black/20">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={previewMedia.url} alt={asset.title} className="h-full w-full object-cover" />
+      </div>
+    );
+  }
+
+  if (previewMedia?.kind === "video") {
+    return (
+      <div className="h-11 w-11 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] shadow-md shadow-black/20">
+        <video className="h-full w-full object-cover" src={previewMedia.url} muted playsInline />
+      </div>
+    );
+  }
+
   return (
     <div className="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-[var(--color-primary)] via-[var(--color-accent)] to-[var(--color-gold)] text-[var(--color-primary-contrast)] shadow-md shadow-black/20">
       <Icon size={20} />
@@ -110,10 +135,10 @@ export function BuyerDashboard() {
       <FadeIn>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-black">Marketplace de Activos Productivos</h1>
-            <p className="mt-2 text-[var(--color-muted)]">Modelo por ciclos de produccion en USDT: funding, operacion y liquidacion.</p>
+            <h1 className="tc-heading text-3xl font-black">Marketplace de Activos Productivos</h1>
+            <p className="tc-subtitle mt-2">Modelo por ciclos de produccion en USDT: funding, operacion y liquidacion.</p>
           </div>
-          <Button type="button" variant="outline" onClick={() => router.push("/portfolio")}>Mi portafolio</Button>
+          <Button type="button" className="bg-[#c4a037] text-[#1f2328] hover:brightness-110" onClick={() => router.push("/portfolio")}>Mi portafolio</Button>
         </div>
       </FadeIn>
 
@@ -175,7 +200,7 @@ export function BuyerDashboard() {
               className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-sm shadow-black/5"
             >
               <div className="mb-3 flex items-start justify-between gap-3">
-                <TokenPreview category={asset.category} />
+                <TokenPreview asset={asset} />
                 <div className="flex flex-col items-end gap-1">
                   <span className="rounded-full bg-[var(--color-surface-soft)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.13em] text-[var(--color-muted)]">
                     {categoryMeta[asset.category].label}
@@ -186,7 +211,7 @@ export function BuyerDashboard() {
                 </div>
               </div>
 
-              <h3 className="text-lg font-bold leading-tight">{asset.title}</h3>
+              <h3 className="tc-heading text-lg font-bold leading-tight">{asset.title}</h3>
               <p className="mt-1 text-xs uppercase tracking-[0.15em] text-[var(--color-muted)]">{asset.location}</p>
               <p className="mt-3 line-clamp-2 text-sm text-[var(--color-muted)]">{asset.description}</p>
 
@@ -209,10 +234,10 @@ export function BuyerDashboard() {
               </p>
 
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <Button type="button" className="w-full" onClick={() => router.push(`/buyer/assets/${asset.id}`)}>
+                <Button type="button" className="w-full" onClick={() => router.push(`/assets/${asset.id}`)}>
                   Ver activo
                 </Button>
-                <Button type="button" variant="outline" className="w-full gap-2" onClick={() => router.push(`/chats?assetId=${asset.id}`)}>
+                <Button type="button" variant="outline" className="w-full gap-2 border-[#c4a037] text-[#c4a037] hover:bg-[#c4a037]/10" onClick={() => router.push(`/chats?assetId=${asset.id}`)}>
                   <MessageCircle size={15} /> Chat vendedor
                 </Button>
               </div>

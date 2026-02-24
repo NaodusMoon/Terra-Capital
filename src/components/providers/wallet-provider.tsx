@@ -2,7 +2,9 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useAuth } from "@/components/providers/auth-provider";
-import { getWalletBalances, type WalletBalance } from "@/lib/stellar";
+import { STORAGE_KEYS } from "@/lib/constants";
+import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
+import { getWalletBalances, type StellarNetwork, type WalletBalance } from "@/lib/stellar";
 import {
   clearPendingWallet,
   connectWalletByProvider,
@@ -21,12 +23,14 @@ import {
 interface WalletContextValue {
   walletAddress: string | null;
   walletProvider: WalletProviderId | null;
+  network: StellarNetwork;
   walletOptions: typeof WALLET_OPTIONS;
   walletReady: boolean;
   connecting: boolean;
   loadingBalances: boolean;
   balances: WalletBalance[];
   error: string | null;
+  setNetwork: (network: StellarNetwork) => void;
   connectWallet: (provider: ConnectableWalletProviderId) => Promise<boolean>;
   connectWithWalletConnect: () => Promise<string | null>;
   setConnectedWallet: (wallet: StoredWallet) => void;
@@ -41,6 +45,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [balances, setBalances] = useState<WalletBalance[]>([]);
+  const [loadingBalances, setLoadingBalances] = useState(false);
+  const [network, setNetworkState] = useState<StellarNetwork>(() => {
+    const persisted = readLocalStorage<StellarNetwork>(STORAGE_KEYS.stellarNetwork, "testnet");
+    return persisted === "public" ? "public" : "testnet";
+  });
   const hydrated = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -58,32 +67,43 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     if (!walletAddress) return;
 
     let active = true;
-    getWalletBalances(walletAddress)
-      .then((rows) => {
+    const loadBalances = async () => {
+      setLoadingBalances(true);
+      try {
+        const rows = await getWalletBalances(walletAddress, network);
         if (!active) return;
         const shortlisted = rows.filter((row) => row.asset === "XLM" || row.asset.toUpperCase().includes("USDT") || row.asset.toUpperCase().includes("USDC"));
         setBalances(shortlisted);
-      })
-      .catch(() => {
+        setLoadingBalances(false);
+      } catch {
         if (!active) return;
         setBalances([]);
-      });
+        setLoadingBalances(false);
+      }
+    };
+    void loadBalances();
 
     return () => {
       active = false;
     };
-  }, [walletAddress]);
+  }, [network, walletAddress]);
 
   const value = useMemo(
     () => ({
       walletAddress,
       walletProvider,
+      network,
       walletOptions: WALLET_OPTIONS,
       connecting,
       walletReady,
       balances: walletAddress ? balances : [],
-      loadingBalances: false,
+      loadingBalances: walletAddress ? loadingBalances : false,
       error,
+      setNetwork: (nextNetwork: StellarNetwork) => {
+        const safeNetwork = nextNetwork === "public" ? "public" : "testnet";
+        setNetworkState(safeNetwork);
+        writeLocalStorage(STORAGE_KEYS.stellarNetwork, safeNetwork);
+      },
       connectWallet: async (provider: ConnectableWalletProviderId) => {
         setError(null);
         setConnecting(true);
@@ -137,7 +157,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         setRevision((prev) => prev + 1);
       },
     }),
-    [balances, connecting, error, user, walletAddress, walletProvider, walletReady],
+    [balances, connecting, error, loadingBalances, network, user, walletAddress, walletProvider, walletReady],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

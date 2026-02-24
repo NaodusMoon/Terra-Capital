@@ -438,7 +438,7 @@ export function ChatsPage() {
     const startSync = () => {
       runSync();
       if (interval) window.clearInterval(interval);
-      interval = window.setInterval(runSync, 2500);
+      interval = window.setInterval(runSync, 12000);
     };
 
     if (document.visibilityState === "visible") {
@@ -2275,7 +2275,7 @@ export function ChatsPage() {
                 <p className="mt-2 text-sm text-[var(--color-muted)]">
                   Selecciona una conversacion desde la columna izquierda para abrir el chat.
                 </p>
-                <Link href={activeMode === "seller" ? "/seller" : "/buyer"} className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-primary)] hover:brightness-110">
+                <Link href={activeMode === "seller" ? "/seller" : "/dashboard"} className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-primary)] hover:brightness-110">
                   <ArrowLeft size={14} /> Volver al panel
                 </Link>
               </div>

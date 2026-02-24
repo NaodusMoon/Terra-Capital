@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Eye, FileImage, FileVideo, MoveDown, MoveUp, Trash2, Upload } from "lucide-react";
@@ -58,6 +58,7 @@ export function SellerDashboard() {
   const [previewIndex, setPreviewIndex] = useState(0);
   const [formMessage, setFormMessage] = useState("");
   const [summary, setSummary] = useState({ soldTokens: 0, grossAmount: 0, operations: 0 });
+  const [awaitingClipboardKind, setAwaitingClipboardKind] = useState<"image" | "video" | null>(null);
 
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
@@ -87,7 +88,7 @@ export function SellerDashboard() {
     };
   }, [syncData, user]);
 
-  const addMediaFile = async (file: File, kind: "image" | "video") => {
+  async function addMediaFile(file: File, kind: "image" | "video") {
     if (file.size > MAX_MEDIA_SIZE_MB * 1024 * 1024) {
       setFormMessage(`El archivo supera ${MAX_MEDIA_SIZE_MB}MB.`);
       return;
@@ -95,7 +96,28 @@ export function SellerDashboard() {
     const dataUrl = await toDataUrl(file);
     setMediaItems((prev) => [...prev, { id: crypto.randomUUID(), kind, url: dataUrl }]);
     setFormMessage(`${kind === "image" ? "Imagen" : "Video"} agregado.`);
-  };
+  }
+
+  useEffect(() => {
+    if (!awaitingClipboardKind) return;
+
+    const onPaste = (event: ClipboardEvent) => {
+      const items = Array.from(event.clipboardData?.items ?? []);
+      const files = items
+        .filter((item) => item.kind === "file")
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => Boolean(file));
+
+      const file = files.find((candidate) => candidate.type.startsWith(`${awaitingClipboardKind}/`));
+      if (!file) return;
+      event.preventDefault();
+      setAwaitingClipboardKind(null);
+      void addMediaFile(file, awaitingClipboardKind);
+    };
+
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [awaitingClipboardKind]);
 
   const handleMediaFile = async (event: ChangeEvent<HTMLInputElement>, kind: "image" | "video") => {
     const files = Array.from(event.target.files ?? []);
@@ -114,8 +136,14 @@ export function SellerDashboard() {
     try {
       const file = await readMediaFromClipboard(kind);
       await addMediaFile(file, kind);
+      setAwaitingClipboardKind(null);
     } catch (error) {
-      setFormMessage(error instanceof Error ? error.message : "No se pudo leer el clipboard.");
+      setAwaitingClipboardKind(kind);
+      setFormMessage(
+        error instanceof Error
+          ? `${error.message} Si tu navegador bloquea lectura directa, presiona Ctrl+V para pegar ${kind === "image" ? "la imagen" : "el video"}.`
+          : `No se pudo leer el clipboard. Presiona Ctrl+V para pegar ${kind === "image" ? "la imagen" : "el video"}.`,
+      );
     }
   };
 
@@ -224,8 +252,8 @@ export function SellerDashboard() {
       <FadeIn>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-black">Panel de emision y tokenizacion</h1>
-            <p className="mt-2 text-[var(--color-muted)]">Publica ciclos productivos en USDT y ordena tu carrusel multimedia.</p>
+            <h1 className="tc-heading text-3xl font-black">Panel de emision y tokenizacion</h1>
+            <p className="tc-subtitle mt-2">Publica ciclos productivos en USDT y ordena tu carrusel multimedia.</p>
           </div>
           <Button variant="outline" onClick={() => router.push("/seller/assets")}>Ver mis activos publicados</Button>
         </div>
@@ -257,7 +285,7 @@ export function SellerDashboard() {
 
       <section className="mt-7 grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
         <Card>
-          <h2 className="flex items-center gap-2 text-xl font-bold"><Upload size={18} /> Nueva publicacion</h2>
+          <h2 className="tc-heading flex items-center gap-2 text-xl font-bold"><Upload size={18} /> Nueva publicacion</h2>
 
           <form className="mt-4 grid gap-3" onSubmit={handleCreateAsset}>
             <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Titulo del activo" value={title} onChange={(event) => setTitle(event.target.value)} required disabled={!sellerVerified} />
@@ -330,13 +358,18 @@ export function SellerDashboard() {
             </Card>
 
             {formMessage && <p className="text-sm text-[var(--color-primary)]">{formMessage}</p>}
+            {awaitingClipboardKind && (
+              <p className="text-xs text-[var(--color-muted)]">
+                Esperando pegado desde clipboard ({awaitingClipboardKind === "image" ? "imagen" : "video"}). Usa Ctrl+V.
+              </p>
+            )}
             <Button type="submit" className="w-full" disabled={!sellerVerified}>{sellerVerified ? "Publicar activo" : "Bloqueado por verificacion"}</Button>
           </form>
         </Card>
 
         <Card>
-          <h2 className="flex items-center gap-2 text-xl font-bold"><Eye size={18} /> Previsualizacion comprador</h2>
-          <p className="mt-2 text-sm text-[var(--color-muted)]">Carrusel ordenado como se mostrara en la ficha del activo.</p>
+          <h2 className="tc-heading flex items-center gap-2 text-xl font-bold"><Eye size={18} /> Previsualizacion comprador</h2>
+          <p className="tc-subtitle mt-2 text-sm">Carrusel ordenado como se mostrara en la ficha del activo.</p>
 
           <div className="mt-4 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-background)]">
             <div className="h-56 bg-[var(--color-surface-soft)]">
@@ -345,7 +378,7 @@ export function SellerDashboard() {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={previewMedia.url} alt="Preview" className="h-full w-full object-cover" />
               )}
-              {previewMedia?.kind === "video" && <video controls className="h-full w-full object-cover" src={previewMedia.url} />}
+              {previewMedia?.kind === "video" && <video controls className="h-full w-full object-contain" src={previewMedia.url} />}
             </div>
             <div className="flex gap-2 overflow-x-auto border-t border-[var(--color-border)] p-2">
               {mediaItems.map((item, index) => (
@@ -361,7 +394,7 @@ export function SellerDashboard() {
             </div>
             <div className="space-y-2 p-3 text-sm">
               <p className="text-xs uppercase tracking-[0.12em] text-[var(--color-muted)]">{category} · {location || "Ubicacion pendiente"}</p>
-              <h3 className="text-lg font-bold">{title || "Titulo del activo"}</h3>
+              <h3 className="tc-heading text-lg font-bold">{title || "Titulo del activo"}</h3>
               <p className="text-[var(--color-muted)]">{description || "Descripcion del activo para compradores."}</p>
               <div className="grid gap-2 sm:grid-cols-2">
                 <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2">Precio token: <strong>{formatUSDT(Number(tokenPriceSats) || 0)}</strong></p>

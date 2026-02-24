@@ -7,6 +7,10 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { useWallet } from "@/components/providers/wallet-provider";
 import type { UserMode } from "@/types/auth";
 
+function getModePath(mode: UserMode) {
+  return mode === "seller" ? "/seller" : "/dashboard";
+}
+
 export function RoleGuard({ mode, children }: { mode: UserMode; children: React.ReactNode }) {
   const { user, loading, activeMode } = useAuth();
   const { walletAddress, walletReady } = useWallet();
@@ -26,7 +30,7 @@ export function RoleGuard({ mode, children }: { mode: UserMode; children: React.
     }
 
     if (activeMode !== mode) {
-      router.replace(`/${activeMode}`);
+      router.replace(getModePath(activeMode));
     }
   }, [activeMode, loading, mode, router, user, walletAddress, walletReady]);
 
