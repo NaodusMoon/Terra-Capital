@@ -10,10 +10,12 @@ import {
   submitSellerVerification,
   updateProfile,
 } from "@/lib/auth";
+import type { WalletProviderId } from "@/lib/wallet";
 import type { AppUser, UserMode } from "@/types/auth";
 
 interface LoginInput {
   walletAddress: string;
+  walletProvider: WalletProviderId;
   fullName?: string;
 }
 
@@ -76,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
       updateAccount: async (input: UpdateProfileInput) => {
         if (!user) return { ok: false as const, message: "No hay sesion activa." };
-        const result = await updateProfile(user.id, input);
+        const result = await updateProfile(input);
         if (result.ok) setRevision((prev) => prev + 1);
         return result;
       },
@@ -88,7 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         supportUrl?: string;
       }) => {
         if (!user) return { ok: false as const, message: "No hay sesion activa." };
-        const result = await submitSellerVerification(user.id, input);
+        const result = await submitSellerVerification(input);
         if (result.ok) setRevision((prev) => prev + 1);
         return result;
       },

@@ -57,6 +57,9 @@ export function claimWalletQrSession(input: {
   cleanupExpired();
   const session = getStore().get(input.id);
   if (!session) return null;
+  if (session.walletAddress || session.walletProvider) {
+    return null;
+  }
 
   const updated: WalletQrRecord = {
     ...session,

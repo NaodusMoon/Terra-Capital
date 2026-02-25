@@ -1,12 +1,34 @@
 import { NextResponse } from "next/server";
+import { toSafeHttpUrlOrUndefined } from "@/lib/security";
+import { enforceRateLimit, isTrustedOrigin } from "@/lib/server/request-security";
 import { createWalletQrSession, getWalletQrSession } from "@/lib/server/wallet-qr-store";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  if (!isTrustedOrigin(request)) {
+    return NextResponse.json({ ok: false, message: "Origen no permitido." }, { status: 403 });
+  }
+  const rate = enforceRateLimit({
+    request,
+    key: "api_auth_wallet_qr_session_post",
+    max: 15,
+    windowMs: 60 * 1000,
+  });
+  if (!rate.ok) {
+    return NextResponse.json({ ok: false, message: "Demasiadas solicitudes. Intenta nuevamente." }, { status: 429 });
+  }
+
   const session = createWalletQrSession();
-  const origin = request.headers.get("origin") ?? "";
-  const baseUrl = origin || process.env.NEXT_PUBLIC_APP_URL || "";
+  const requestOrigin = (() => {
+    try {
+      return new URL(request.url).origin;
+    } catch {
+      return "";
+    }
+  })();
+  const configuredBaseUrl = toSafeHttpUrlOrUndefined(process.env.NEXT_PUBLIC_APP_URL);
+  const baseUrl = requestOrigin || configuredBaseUrl || "";
 
   if (!baseUrl) {
     return NextResponse.json(
@@ -25,6 +47,16 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
+  const rate = enforceRateLimit({
+    request,
+    key: "api_auth_wallet_qr_session_get",
+    max: 120,
+    windowMs: 60 * 1000,
+  });
+  if (!rate.ok) {
+    return NextResponse.json({ ok: false, message: "Demasiadas solicitudes. Intenta nuevamente." }, { status: 429 });
+  }
+
   const { searchParams } = new URL(request.url);
   const sessionId = searchParams.get("session")?.trim() ?? "";
   if (!sessionId) {

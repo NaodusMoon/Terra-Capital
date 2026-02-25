@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isValidStellarPublicKey } from "@/lib/security";
+import { enforceRateLimit, isTrustedOrigin, parseJsonWithLimit } from "@/lib/server/request-security";
 import { claimWalletQrSession } from "@/lib/server/wallet-qr-store";
 
 export const runtime = "nodejs";
@@ -15,12 +16,23 @@ function isValidProvider(value: unknown): value is "freighter" | "xbull" | "albe
 }
 
 export async function POST(request: Request) {
-  let payload: RequestPayload;
-  try {
-    payload = (await request.json()) as RequestPayload;
-  } catch {
-    return NextResponse.json({ ok: false, message: "Payload invalido." }, { status: 400 });
+  if (!isTrustedOrigin(request)) {
+    return NextResponse.json({ ok: false, message: "Origen no permitido." }, { status: 403 });
   }
+  const rate = enforceRateLimit({
+    request,
+    key: "api_auth_wallet_qr_claim_post",
+    max: 30,
+    windowMs: 60 * 1000,
+  });
+  if (!rate.ok) {
+    return NextResponse.json({ ok: false, message: "Demasiados intentos. Intenta nuevamente." }, { status: 429 });
+  }
+  const parsed = await parseJsonWithLimit<RequestPayload>(request, 8_192);
+  if (!parsed.ok) {
+    return NextResponse.json({ ok: false, message: parsed.message }, { status: parsed.status });
+  }
+  const payload = parsed.data;
 
   const session = payload.session?.trim() ?? "";
   const walletAddress = payload.walletAddress?.trim() ?? "";

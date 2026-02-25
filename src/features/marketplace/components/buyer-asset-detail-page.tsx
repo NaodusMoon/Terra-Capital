@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, MessageCircle } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useWallet } from "@/components/providers/wallet-provider";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { MARKETPLACE_EVENT } from "@/lib/constants";
 import { formatUSDT } from "@/lib/format";
 import { buyAsset, getAssets, syncMarketplace } from "@/lib/marketplace";
+import { AssetMediaViewer } from "@/features/marketplace/components/asset-media-viewer";
 
 export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
   const { user } = useAuth();
@@ -19,7 +20,6 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
   const [quantity, setQuantity] = useState(1);
   const [tradeMessage, setTradeMessage] = useState("");
   const [asset, setAsset] = useState(() => getAssets().find((row) => row.id === assetId) ?? null);
-  const [mediaIndex, setMediaIndex] = useState(0);
 
   const syncData = useCallback(async () => {
     if (!user) return;
@@ -86,9 +86,6 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
       ...(asset.videoUrl ? [{ id: "legacy-video", kind: "video" as const, url: asset.videoUrl }] : []),
     ];
 
-  const safeIndex = Math.min(mediaIndex, Math.max(0, mediaGallery.length - 1));
-  const currentMedia = mediaGallery[safeIndex];
-
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 sm:py-9">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -101,37 +98,7 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
 
       <section className="mt-6 grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
         <Card>
-          <div className="h-72 overflow-hidden rounded-xl bg-[var(--color-surface-soft)]">
-            {!currentMedia && <div className="grid h-full place-items-center text-sm text-[var(--color-muted)]">Sin multimedia</div>}
-            {currentMedia?.kind === "image" && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={currentMedia.url} alt={asset.title} className="h-full w-full object-cover" />
-            )}
-            {currentMedia?.kind === "video" && <video controls className="h-full w-full object-contain" src={currentMedia.url} />}
-          </div>
-
-          {mediaGallery.length > 1 && (
-            <div className="mt-2 flex items-center gap-2">
-              <Button type="button" variant="outline" className="h-9 px-3" onClick={() => setMediaIndex((prev) => (prev - 1 + mediaGallery.length) % mediaGallery.length)}>
-                <ChevronLeft size={15} />
-              </Button>
-              <div className="flex flex-1 gap-2 overflow-x-auto">
-                {mediaGallery.map((item, idx) => (
-                  <button key={item.id} type="button" onClick={() => setMediaIndex(idx)} className={`h-14 w-20 shrink-0 overflow-hidden rounded-lg border ${idx === safeIndex ? "border-[var(--color-primary)]" : "border-[var(--color-border)]"}`}>
-                    {item.kind === "image" ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={item.url} alt={`${asset.title}-${idx + 1}`} className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="grid h-full w-full place-items-center bg-[var(--color-surface-soft)] text-xs">VIDEO</div>
-                    )}
-                  </button>
-                ))}
-              </div>
-              <Button type="button" variant="outline" className="h-9 px-3" onClick={() => setMediaIndex((prev) => (prev + 1) % mediaGallery.length)}>
-                <ChevronRight size={15} />
-              </Button>
-            </div>
-          )}
+          <AssetMediaViewer media={mediaGallery} title={asset.title} />
 
           <p className="mt-4 text-sm text-[var(--color-muted)]">{asset.description}</p>
 

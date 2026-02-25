@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Asset, Horizon, Networks, Operation, Transaction, TransactionBuilder } from "@stellar/stellar-sdk";
 import { isValidStellarPublicKey } from "@/lib/security";
+import { enforceRateLimit, isTrustedOrigin, parseJsonWithLimit } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 
@@ -27,7 +28,20 @@ function formatPaymentAmount(value: number) {
 }
 
 export async function POST(request: Request) {
-  let payload: {
+  if (!isTrustedOrigin(request)) {
+    return NextResponse.json({ ok: false, message: "Origen no permitido." }, { status: 403 });
+  }
+  const rate = enforceRateLimit({
+    request,
+    key: "api_stellar_payment_post",
+    max: 40,
+    windowMs: 60 * 1000,
+  });
+  if (!rate.ok) {
+    return NextResponse.json({ ok: false, message: "Demasiadas solicitudes. Intenta nuevamente." }, { status: 429 });
+  }
+
+  type PaymentPayload = {
     action?: "prepare" | "submit";
     network?: unknown;
     source?: unknown;
@@ -35,12 +49,11 @@ export async function POST(request: Request) {
     amount?: unknown;
     signedTxXdr?: unknown;
   };
-
-  try {
-    payload = (await request.json()) as typeof payload;
-  } catch {
-    return NextResponse.json({ ok: false, message: "Payload invalido." }, { status: 400 });
+  const parsed = await parseJsonWithLimit<PaymentPayload>(request, 200_000);
+  if (!parsed.ok) {
+    return NextResponse.json({ ok: false, message: parsed.message }, { status: parsed.status });
   }
+  const payload = parsed.data;
 
   const network = parseNetwork(payload.network);
   if (!network) {
@@ -61,6 +74,9 @@ export async function POST(request: Request) {
       }
       if (!Number.isFinite(amount) || amount <= 0) {
         return NextResponse.json({ ok: false, message: "Monto invalido." }, { status: 400 });
+      }
+      if (amount > 1000000000) {
+        return NextResponse.json({ ok: false, message: "Monto excede limite permitido." }, { status: 400 });
       }
 
       const account = await server.loadAccount(source);

@@ -87,19 +87,21 @@ export function BuyerDashboard() {
     }, 0);
 
     const marketListener = () => {
-      void syncData();
+      setAssets(getAssets());
     };
     const storageListener = (event: StorageEvent) => {
       if (!event.key || event.key.startsWith("terra_capital_")) {
-        void syncData();
+        setAssets(getAssets());
       }
     };
 
     window.addEventListener(MARKETPLACE_EVENT, marketListener);
     window.addEventListener("storage", storageListener);
     const interval = window.setInterval(() => {
-      void syncData();
-    }, 4000);
+      if (document.visibilityState === "visible") {
+        void syncData();
+      }
+    }, 20000);
 
     return () => {
       window.clearTimeout(boot);

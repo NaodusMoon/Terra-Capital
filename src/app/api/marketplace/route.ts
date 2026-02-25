@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { normalizeSafeText, toSafeMediaUrlOrUndefined } from "@/lib/security";
+import { getDataUrlByteSize, isSafeMediaDataUrl, normalizeSafeText, toSafeMediaUrlOrUndefined } from "@/lib/security";
+import { getAuthUserFromRequest } from "@/lib/server/auth-session";
+import { enforceRateLimit, isTrustedOrigin, parseJsonWithLimit } from "@/lib/server/request-security";
 import {
   buyMarketplaceAsset,
   createMarketplaceAsset,
@@ -15,8 +17,9 @@ import type { TokenizedAsset } from "@/types/market";
 
 export const runtime = "nodejs";
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STELLAR_TX_HASH_REGEX = /^[0-9a-f]{64}$/i;
+const MAX_GALLERY_ITEMS = 12;
+const MAX_MESSAGE_IDS = 200;
 
 function isAssetCategory(value: unknown): value is TokenizedAsset["category"] {
   return value === "cultivo" || value === "tierra" || value === "ganaderia";
@@ -34,27 +37,40 @@ function parsePrice(raw: unknown) {
 
 function parseStringArray(raw: unknown) {
   if (!Array.isArray(raw)) return [];
-  return raw.filter((value): value is string => typeof value === "string");
+  return raw.filter((value): value is string => typeof value === "string").slice(0, MAX_GALLERY_ITEMS);
 }
 
 function parseMediaGallery(raw: unknown) {
   if (!Array.isArray(raw)) return [];
   return raw
+    .slice(0, MAX_GALLERY_ITEMS)
     .map((item) => {
       if (!item || typeof item !== "object") return null;
       const row = item as { id?: unknown; kind?: unknown; url?: unknown };
       if (typeof row.id !== "string" || typeof row.url !== "string") return null;
       if (row.kind !== "image" && row.kind !== "video") return null;
-      return { id: row.id, kind: row.kind, url: row.url };
+      const normalizedId = normalizeSafeText(row.id, 80);
+      if (!normalizedId) return null;
+      return { id: normalizedId, kind: row.kind, url: row.url };
     })
     .filter((item): item is { id: string; kind: "image" | "video"; url: string } => Boolean(item));
 }
 
 export async function GET(request: Request) {
+  const rate = enforceRateLimit({
+    request,
+    key: "api_marketplace_get",
+    max: 120,
+    windowMs: 60 * 1000,
+  });
+  if (!rate.ok) {
+    return NextResponse.json({ ok: false, message: "Demasiadas solicitudes. Intenta nuevamente." }, { status: 429 });
+  }
+
   const { searchParams } = new URL(request.url);
-  const rawUserId = searchParams.get("userId")?.trim() || "";
-  const userId = UUID_REGEX.test(rawUserId) ? rawUserId : undefined;
   const includeChat = searchParams.get("includeChat") === "1";
+  const authUser = await getAuthUserFromRequest();
+  const userId = authUser?.id;
 
   try {
     const state = await getMarketplaceState(userId, { includeChat });
@@ -70,8 +86,6 @@ export async function GET(request: Request) {
 type CommandPayload =
   | {
     action: "createAsset";
-    sellerId?: string;
-    sellerName?: string;
     title?: string;
     category?: unknown;
     description?: string;
@@ -92,8 +106,6 @@ type CommandPayload =
   | {
     action: "buyAsset";
     assetId?: string;
-    buyerId?: string;
-    buyerName?: string;
     quantity?: unknown;
     stellarTxHash?: string;
     stellarNetwork?: unknown;
@@ -101,8 +113,6 @@ type CommandPayload =
   | {
     action: "updateAsset";
     assetId?: string;
-    sellerId?: string;
-    sellerName?: string;
     title?: string;
     category?: unknown;
     description?: string;
@@ -123,20 +133,14 @@ type CommandPayload =
   | {
     action: "deleteAsset";
     assetId?: string;
-    sellerId?: string;
   }
   | {
     action: "ensureThread";
     assetId?: string;
-    buyerId?: string;
-    buyerName?: string;
   }
   | {
     action: "sendMessage";
     threadId?: string;
-    senderId?: string;
-    senderName?: string;
-    senderRole?: "buyer" | "seller";
     text?: string;
     kind?: "text" | "image" | "video" | "audio" | "document";
     attachment?: {
@@ -149,34 +153,49 @@ type CommandPayload =
   | {
     action: "markRead";
     threadId?: string;
-    readerRole?: "buyer" | "seller";
   }
   | {
     action: "deleteMessages";
     threadId?: string;
-    actorId?: string;
     messageIds?: unknown;
     mode?: "me" | "everyone";
   };
 
 export async function POST(request: Request) {
-  let payload: CommandPayload;
-  try {
-    payload = (await request.json()) as CommandPayload;
-  } catch {
-    return NextResponse.json({ ok: false, message: "Payload invalido." }, { status: 400 });
+  if (!isTrustedOrigin(request)) {
+    return NextResponse.json({ ok: false, message: "Origen no permitido." }, { status: 403 });
   }
+  const rate = enforceRateLimit({
+    request,
+    key: "api_marketplace_post",
+    max: 60,
+    windowMs: 60 * 1000,
+  });
+  if (!rate.ok) {
+    return NextResponse.json({ ok: false, message: "Demasiadas solicitudes. Intenta nuevamente." }, { status: 429 });
+  }
+
+  const parsed = await parseJsonWithLimit<CommandPayload>(request, 1_500_000);
+  if (!parsed.ok) {
+    return NextResponse.json({ ok: false, message: parsed.message }, { status: parsed.status });
+  }
+  const payload = parsed.data;
 
   try {
     if (payload.action === "createAsset") {
+      const authUser = await getAuthUserFromRequest();
+      if (!authUser) {
+        return NextResponse.json({ ok: false, message: "No autenticado." }, { status: 401 });
+      }
+
       const title = normalizeSafeText(payload.title ?? "", 120);
       const category = payload.category;
       const description = normalizeSafeText(payload.description ?? "", 500);
       const location = normalizeSafeText(payload.location ?? "", 80);
       const expectedYield = normalizeSafeText(payload.expectedYield ?? "", 80);
       const proofOfAssetHash = normalizeSafeText(payload.proofOfAssetHash ?? "", 160);
-      const sellerId = payload.sellerId?.trim() ?? "";
-      const sellerName = normalizeSafeText(payload.sellerName ?? "", 120);
+      const sellerId = authUser.id;
+      const sellerName = normalizeSafeText(authUser.fullName ?? "", 120);
       const tokenPriceSats = parsePrice(payload.tokenPriceSats ?? payload.pricePerToken);
       const totalTokens = parseQuantity(payload.totalTokens);
       const cycleDurationDays = parseQuantity(payload.cycleDurationDays);
@@ -226,9 +245,14 @@ export async function POST(request: Request) {
     }
 
     if (payload.action === "buyAsset") {
+      const authUser = await getAuthUserFromRequest();
+      if (!authUser) {
+        return NextResponse.json({ ok: false, message: "No autenticado." }, { status: 401 });
+      }
+
       const assetId = payload.assetId?.trim() ?? "";
-      const buyerId = payload.buyerId?.trim() ?? "";
-      const buyerName = normalizeSafeText(payload.buyerName ?? "", 120);
+      const buyerId = authUser.id;
+      const buyerName = normalizeSafeText(authUser.fullName ?? "", 120);
       const quantity = parseQuantity(payload.quantity);
       const stellarTxHash = payload.stellarTxHash?.trim() ?? "";
       const stellarNetwork = payload.stellarNetwork === "public" ? "public" : payload.stellarNetwork === "testnet" ? "testnet" : null;
@@ -258,9 +282,14 @@ export async function POST(request: Request) {
     }
 
     if (payload.action === "updateAsset") {
+      const authUser = await getAuthUserFromRequest();
+      if (!authUser) {
+        return NextResponse.json({ ok: false, message: "No autenticado." }, { status: 401 });
+      }
+
       const assetId = payload.assetId?.trim() ?? "";
-      const sellerId = payload.sellerId?.trim() ?? "";
-      const sellerName = normalizeSafeText(payload.sellerName ?? "", 120);
+      const sellerId = authUser.id;
+      const sellerName = normalizeSafeText(authUser.fullName ?? "", 120);
       const title = normalizeSafeText(payload.title ?? "", 120);
       const category = payload.category;
       const description = normalizeSafeText(payload.description ?? "", 500);
@@ -320,8 +349,13 @@ export async function POST(request: Request) {
     }
 
     if (payload.action === "deleteAsset") {
+      const authUser = await getAuthUserFromRequest();
+      if (!authUser) {
+        return NextResponse.json({ ok: false, message: "No autenticado." }, { status: 401 });
+      }
+
       const assetId = payload.assetId?.trim() ?? "";
-      const sellerId = payload.sellerId?.trim() ?? "";
+      const sellerId = authUser.id;
       if (!assetId || !sellerId) {
         return NextResponse.json({ ok: false, message: "Datos invalidos para eliminar activo." }, { status: 400 });
       }
@@ -333,9 +367,14 @@ export async function POST(request: Request) {
     }
 
     if (payload.action === "ensureThread") {
+      const authUser = await getAuthUserFromRequest();
+      if (!authUser) {
+        return NextResponse.json({ ok: false, message: "No autenticado." }, { status: 401 });
+      }
+
       const assetId = payload.assetId?.trim() ?? "";
-      const buyerId = payload.buyerId?.trim() ?? "";
-      const buyerName = normalizeSafeText(payload.buyerName ?? "", 120);
+      const buyerId = authUser.id;
+      const buyerName = normalizeSafeText(authUser.fullName ?? "", 120);
       if (!assetId || !buyerId || !buyerName) {
         return NextResponse.json({ ok: false, message: "Datos invalidos para abrir chat." }, { status: 400 });
       }
@@ -351,17 +390,25 @@ export async function POST(request: Request) {
     }
 
     if (payload.action === "sendMessage") {
+      const authUser = await getAuthUserFromRequest();
+      if (!authUser) {
+        return NextResponse.json({ ok: false, message: "No autenticado." }, { status: 401 });
+      }
+
       const threadId = payload.threadId?.trim() ?? "";
-      const senderId = payload.senderId?.trim() ?? "";
-      const senderName = normalizeSafeText(payload.senderName ?? "", 120);
-      const senderRole = payload.senderRole;
+      const senderId = authUser.id;
+      const senderName = normalizeSafeText(authUser.fullName ?? "", 120);
       const kind = payload.kind ?? "text";
+      const allowedKinds = new Set(["text", "image", "video", "audio", "document"]);
       const text = normalizeSafeText(payload.text ?? "", 500);
       const attachment = payload.attachment;
       const hasAttachment = Boolean(attachment?.dataUrl);
 
-      if (!threadId || !senderId || !senderName || (senderRole !== "buyer" && senderRole !== "seller")) {
+      if (!threadId || !senderId || !senderName) {
         return NextResponse.json({ ok: false, message: "Datos invalidos para mensaje." }, { status: 400 });
+      }
+      if (!allowedKinds.has(kind)) {
+        return NextResponse.json({ ok: false, message: "Tipo de mensaje invalido." }, { status: 400 });
       }
       if (!text && !hasAttachment) {
         return NextResponse.json({ ok: false, message: "Escribe un mensaje." }, { status: 400 });
@@ -374,13 +421,23 @@ export async function POST(request: Request) {
         if (!attachment?.name || !attachment?.mimeType || !attachment?.dataUrl) {
           return NextResponse.json({ ok: false, message: "Adjunto invalido." }, { status: 400 });
         }
+        if (!isSafeMediaDataUrl(attachment.dataUrl)) {
+          return NextResponse.json({ ok: false, message: "Formato de adjunto no permitido." }, { status: 400 });
+        }
+        const decodedSize = getDataUrlByteSize(attachment.dataUrl);
+        if (!decodedSize || Math.abs(decodedSize - size) > 2048 || decodedSize > 25 * 1024 * 1024) {
+          return NextResponse.json({ ok: false, message: "Tamano de adjunto inconsistente o invalido." }, { status: 400 });
+        }
+        const mimeType = attachment.mimeType.trim().toLowerCase();
+        if (!/^(image|video|audio)\//.test(mimeType) && mimeType !== "application/pdf" && mimeType !== "text/plain") {
+          return NextResponse.json({ ok: false, message: "MIME type de adjunto no permitido." }, { status: 400 });
+        }
       }
 
       const result = await sendMarketplaceMessage({
         threadId,
         senderId,
         senderName,
-        senderRole,
         kind,
         text,
         attachment: hasAttachment
@@ -399,26 +456,36 @@ export async function POST(request: Request) {
     }
 
     if (payload.action === "markRead") {
+      const authUser = await getAuthUserFromRequest();
+      if (!authUser) {
+        return NextResponse.json({ ok: false, message: "No autenticado." }, { status: 401 });
+      }
+
       const threadId = payload.threadId?.trim() ?? "";
-      const readerRole = payload.readerRole;
-      if (!threadId || (readerRole !== "buyer" && readerRole !== "seller")) {
+      if (!threadId) {
         return NextResponse.json({ ok: false, message: "Datos invalidos para marcar lectura." }, { status: 400 });
       }
-      const result = await markMarketplaceMessagesRead({ threadId, readerRole });
+      const result = await markMarketplaceMessagesRead({ threadId, actorId: authUser.id });
       return NextResponse.json(result);
     }
 
     if (payload.action === "deleteMessages") {
+      const authUser = await getAuthUserFromRequest();
+      if (!authUser) {
+        return NextResponse.json({ ok: false, message: "No autenticado." }, { status: 401 });
+      }
+
       const threadId = payload.threadId?.trim() ?? "";
-      const actorId = payload.actorId?.trim() ?? "";
+      const actorId = authUser.id;
       const mode = payload.mode;
       const messageIds = Array.isArray(payload.messageIds)
         ? payload.messageIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
         : [];
-      if (!threadId || !actorId || (mode !== "me" && mode !== "everyone") || messageIds.length === 0) {
+      const normalizedMessageIds = Array.from(new Set(messageIds)).slice(0, MAX_MESSAGE_IDS);
+      if (!threadId || !actorId || (mode !== "me" && mode !== "everyone") || normalizedMessageIds.length === 0) {
         return NextResponse.json({ ok: false, message: "Datos invalidos para eliminar mensajes." }, { status: 400 });
       }
-      const result = await deleteMarketplaceMessages({ threadId, actorId, messageIds, mode });
+      const result = await deleteMarketplaceMessages({ threadId, actorId, messageIds: normalizedMessageIds, mode });
       if (!result.ok) {
         return NextResponse.json({ ok: false, message: result.message }, { status: 400 });
       }

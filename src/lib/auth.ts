@@ -2,9 +2,11 @@ import type { AppUser, Session, UserMode } from "@/types/auth";
 import { STORAGE_KEYS } from "@/lib/constants";
 import { isValidStellarPublicKey, normalizeSafeText } from "@/lib/security";
 import { readLocalStorage, removeLocalStorage, writeLocalStorage } from "@/lib/storage";
+import { signWalletLoginChallenge, type WalletProviderId } from "@/lib/wallet";
 
 interface LoginInput {
   walletAddress: string;
+  walletProvider: WalletProviderId;
   fullName?: string;
 }
 
@@ -34,9 +36,17 @@ type LoginApiFailure = {
   requiresName?: boolean;
 };
 
-interface LocalUsersMap {
-  [walletAddress: string]: AppUser;
-}
+type ChallengeApiSuccess = {
+  ok: true;
+  challengeId: string;
+  message: string;
+  expiresAt: number;
+};
+
+type ChallengeApiFailure = {
+  ok: false;
+  message: string;
+};
 
 function writeSession(userId: string, activeMode: UserMode) {
   const session: Session = { userId, activeMode };
@@ -45,55 +55,6 @@ function writeSession(userId: string, activeMode: UserMode) {
 
 function writeCurrentUser(user: AppUser) {
   writeLocalStorage(STORAGE_KEYS.authUser, user);
-}
-
-function readLocalUsers() {
-  return readLocalStorage<LocalUsersMap>(STORAGE_KEYS.users, {});
-}
-
-function writeLocalUsers(users: LocalUsersMap) {
-  writeLocalStorage(STORAGE_KEYS.users, users);
-}
-
-function loginWithLocalFallback(walletAddress: string, fullName: string) {
-  const users = readLocalUsers();
-  const existing = users[walletAddress];
-  const now = new Date().toISOString();
-
-  if (existing) {
-    const updatedUser: AppUser = fullName && fullName !== existing.fullName
-      ? { ...existing, fullName, updatedAt: now }
-      : existing;
-    users[walletAddress] = updatedUser;
-    writeLocalUsers(users);
-    writeCurrentUser(updatedUser);
-    writeSession(updatedUser.id, "buyer");
-    return { ok: true as const, user: updatedUser, activeMode: "buyer" as const, isNewUser: false as const };
-  }
-
-  if (!fullName) {
-    return {
-      ok: false as const,
-      requiresName: true as const,
-      message: "Primer acceso: indica tu nombre para crear el perfil.",
-    };
-  }
-
-  const newUser: AppUser = {
-    id: crypto.randomUUID(),
-    fullName,
-    organization: undefined,
-    stellarPublicKey: walletAddress,
-    sellerVerificationStatus: "unverified",
-    sellerVerificationData: undefined,
-    createdAt: now,
-    updatedAt: now,
-  };
-  users[walletAddress] = newUser;
-  writeLocalUsers(users);
-  writeCurrentUser(newUser);
-  writeSession(newUser.id, "buyer");
-  return { ok: true as const, user: newUser, activeMode: "buyer" as const, isNewUser: true as const };
 }
 
 export function getCurrentSession() {
@@ -121,20 +82,51 @@ async function parseResponse<T>(response: Response): Promise<T | null> {
 
 export async function loginUser(input: LoginInput) {
   const walletAddress = input.walletAddress.trim();
+  const walletProvider = input.walletProvider;
   const fullName = normalizeSafeText(input.fullName ?? "", 120);
   if (!isValidStellarPublicKey(walletAddress)) {
     return { ok: false as const, message: "Primero debes conectar una wallet valida." };
   }
+  if (walletProvider !== "freighter" && walletProvider !== "albedo") {
+    return { ok: false as const, message: "Para login seguro usa Freighter o Albedo." };
+  }
   try {
-    const response = await fetch("/api/auth/wallet-login", {
+    const challengeResponse = await fetch("/api/auth/wallet-login", {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        action: "challenge",
         walletAddress,
-        fullName: fullName || undefined,
+        walletProvider,
       }),
     });
+    const challengePayload = await parseResponse<ChallengeApiSuccess | ChallengeApiFailure>(challengeResponse);
+    if (!challengePayload?.ok) {
+      return { ok: false as const, message: challengePayload?.message ?? "No se pudo iniciar challenge de login." };
+    }
 
+    const signatureResult = await signWalletLoginChallenge({
+      wallet: { address: walletAddress, provider: walletProvider },
+      challengeMessage: challengePayload.message,
+    });
+    if (!signatureResult.ok) {
+      return { ok: false as const, message: signatureResult.message };
+    }
+
+    const response = await fetch("/api/auth/wallet-login", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "verify",
+        walletAddress,
+        walletProvider,
+        challengeId: challengePayload.challengeId,
+        fullName: fullName || undefined,
+        signature: signatureResult.signature,
+      }),
+    });
     const payload = await parseResponse<LoginApiSuccess | LoginApiFailure>(response);
     if (!payload) {
       return { ok: false as const, message: "Respuesta invalida del servidor." };
@@ -160,7 +152,7 @@ export async function loginUser(input: LoginInput) {
     writeSession(payload.user.id, activeMode);
     return { ok: true as const, user: payload.user, activeMode, isNewUser: payload.isNewUser };
   } catch {
-    return loginWithLocalFallback(walletAddress, fullName);
+    return { ok: false as const, message: "No se pudo conectar al servidor para validar la firma del login." };
   }
 }
 
@@ -171,7 +163,7 @@ export function setActiveMode(mode: UserMode) {
   return true;
 }
 
-export async function updateProfile(userId: string, input: UpdateProfileInput) {
+export async function updateProfile(input: UpdateProfileInput) {
   const fullName = normalizeSafeText(input.fullName, 120);
   const organization = input.organization ? normalizeSafeText(input.organization, 120) : "";
   const stellarPublicKey = input.stellarPublicKey.trim();
@@ -181,9 +173,9 @@ export async function updateProfile(userId: string, input: UpdateProfileInput) {
 
   const response = await fetch("/api/auth/profile", {
     method: "PATCH",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      userId,
       fullName,
       organization: organization || undefined,
       stellarPublicKey,
@@ -202,11 +194,12 @@ export async function updateProfile(userId: string, input: UpdateProfileInput) {
   return { ok: true as const, user: payload.user };
 }
 
-export async function submitSellerVerification(userId: string, input: SellerVerificationInput) {
+export async function submitSellerVerification(input: SellerVerificationInput) {
   const response = await fetch("/api/auth/seller-verification", {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userId, ...input }),
+    body: JSON.stringify({ ...input }),
   });
 
   const payload = await parseResponse<{ ok: boolean; user?: AppUser; message?: string }>(response);
@@ -222,6 +215,10 @@ export async function submitSellerVerification(userId: string, input: SellerVeri
 }
 
 export function logoutUser() {
+  fetch("/api/auth/logout", {
+    method: "POST",
+    credentials: "include",
+  }).catch(() => undefined);
   removeLocalStorage(STORAGE_KEYS.session);
   removeLocalStorage(STORAGE_KEYS.authUser);
 }

@@ -14,7 +14,6 @@ interface BlendSnapshot {
   cycle: string;
 }
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 interface MarketplaceStateResponse {
   ok: boolean;
@@ -54,7 +53,7 @@ function writeMarketplaceState(state: {
   threads?: ChatThread[];
   messages?: ChatMessage[];
   blendSnapshot?: BlendSnapshot;
-}) {
+}, options?: { emitEvent?: boolean }) {
   if (state.assets) {
     volatileAssets = state.assets;
     try { writeLocalStorage(STORAGE_KEYS.assets, state.assets); } catch {}
@@ -75,16 +74,15 @@ function writeMarketplaceState(state: {
     volatileBlendSnapshot = state.blendSnapshot;
     try { writeLocalStorage(STORAGE_KEYS.blendSnapshot, state.blendSnapshot); } catch {}
   }
-  emitMarketUpdate();
+  if (options?.emitEvent ?? true) {
+    emitMarketUpdate();
+  }
 }
 
-export async function syncMarketplace(userId?: string, options?: { includeChat?: boolean }) {
+export async function syncMarketplace(_userId?: string, options?: { includeChat?: boolean }) {
   const requestId = latestMarketplaceSyncRequest + 1;
   latestMarketplaceSyncRequest = requestId;
   const params = new URLSearchParams();
-  if (userId && UUID_REGEX.test(userId)) {
-    params.set("userId", userId);
-  }
   if (options?.includeChat) {
     params.set("includeChat", "1");
   }
@@ -103,7 +101,7 @@ export async function syncMarketplace(userId?: string, options?: { includeChat?:
     threads: payload.threads ?? [],
     messages: payload.messages ?? [],
     blendSnapshot: payload.blendSnapshot,
-  });
+  }, { emitEvent: false });
   return payload;
 }
 
@@ -199,8 +197,6 @@ export async function createAsset(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       action: "createAsset",
-      sellerId: seller.id,
-      sellerName: seller.organization || seller.fullName,
       title,
       category: input.category,
       description,
@@ -287,8 +283,6 @@ export async function updateAsset(
     body: JSON.stringify({
       action: "updateAsset",
       assetId,
-      sellerId: seller.id,
-      sellerName: seller.organization || seller.fullName,
       title,
       category: input.category,
       description,
@@ -324,7 +318,6 @@ export async function deleteAsset(seller: AppUser, assetId: string) {
     body: JSON.stringify({
       action: "deleteAsset",
       assetId,
-      sellerId: seller.id,
     }),
   });
   const payload = await parseResponse<{ ok: boolean; message?: string }>(response);
@@ -379,8 +372,6 @@ export async function buyAsset(
     body: JSON.stringify({
       action: "buyAsset",
       assetId: asset.id,
-      buyerId: buyer.id,
-      buyerName: buyer.fullName,
       quantity: normalizedQuantity,
       stellarTxHash: paymentResult.txHash,
       stellarNetwork: payment.network,
@@ -396,15 +387,13 @@ export async function buyAsset(
   return { ok: true as const, purchase: payload.purchase };
 }
 
-export async function ensureBuyerThreadForAsset(assetId: string, buyer: AppUser) {
+export async function ensureBuyerThreadForAsset(assetId: string) {
   const response = await fetch("/api/marketplace", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       action: "ensureThread",
       assetId,
-      buyerId: buyer.id,
-      buyerName: buyer.fullName,
     }),
   });
   const payload = await parseResponse<{ ok: boolean; message?: string; thread?: ChatThread }>(response);
@@ -549,7 +538,6 @@ export async function markThreadMessagesRead(threadId: string, readerRole: "buye
     body: JSON.stringify({
       action: "markRead",
       threadId,
-      readerRole,
     }),
   });
   const payload = await parseResponse<{ ok: boolean; changed?: boolean; message?: string }>(response);
@@ -572,7 +560,7 @@ export async function markThreadMessagesRead(threadId: string, readerRole: "buye
 export async function sendThreadMessage(
   threadId: string,
   sender: AppUser,
-  senderRole: "buyer" | "seller",
+  _senderRole: "buyer" | "seller",
   text: string,
   options?: {
     kind?: "text" | "image" | "video" | "audio" | "document";
@@ -598,9 +586,6 @@ export async function sendThreadMessage(
     body: JSON.stringify({
       action: "sendMessage",
       threadId,
-      senderId: sender.id,
-      senderName: sender.fullName,
-      senderRole,
       text: messageText,
       kind: messageKind,
       attachment: options?.attachment,
@@ -655,7 +640,6 @@ export async function deleteThreadMessages(
     body: JSON.stringify({
       action: "deleteMessages",
       threadId,
-      actorId: actor.id,
       messageIds: uniqueIds,
       mode,
     }),

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { enforceRateLimit, isTrustedOrigin, parseJsonWithLimit } from "@/lib/server/request-security";
 
 interface RequestPayload {
   email?: string;
@@ -10,16 +11,28 @@ async function writeDeliveryAudit() {
 }
 
 export async function POST(request: Request) {
-  let payload: RequestPayload;
-  try {
-    payload = (await request.json()) as RequestPayload;
-  } catch {
-    return NextResponse.json({ ok: false, message: "Payload invalido." }, { status: 400 });
+  if (!isTrustedOrigin(request)) {
+    return NextResponse.json({ ok: false, message: "Origen no permitido." }, { status: 403 });
   }
+  const rate = enforceRateLimit({
+    request,
+    key: "api_auth_recovery_code_post",
+    max: 10,
+    windowMs: 60 * 1000,
+  });
+  if (!rate.ok) {
+    return NextResponse.json({ ok: false, message: "Demasiados intentos. Intenta nuevamente." }, { status: 429 });
+  }
+
+  const parsed = await parseJsonWithLimit<RequestPayload>(request, 8_192);
+  if (!parsed.ok) {
+    return NextResponse.json({ ok: false, message: parsed.message }, { status: parsed.status });
+  }
+  const payload = parsed.data;
 
   const email = payload.email?.trim().toLowerCase();
   const code = payload.code?.trim();
-  if (!email || !code) {
+  if (!email || !code || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^[0-9]{4,12}$/.test(code)) {
     return NextResponse.json({ ok: false, message: "Faltan datos para envio de codigo." }, { status: 400 });
   }
 

@@ -1,5 +1,10 @@
 import type { NextConfig } from "next";
 
+const isProd = process.env.NODE_ENV === "production";
+const scriptSrc = isProd
+  ? "script-src 'self' 'unsafe-inline'"
+  : "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
+
 const csp = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -10,7 +15,7 @@ const csp = [
   "img-src 'self' data: blob: https:",
   "media-src 'self' blob: data:",
   "object-src 'none'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  scriptSrc,
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "connect-src 'self' https://horizon-testnet.stellar.org https://horizon.stellar.org https://albedo.link",
   "upgrade-insecure-requests",

@@ -380,7 +380,7 @@ export function ChatsPage() {
       }
       if (assetIdParam && handledAssetIdRef.current !== assetIdParam) {
         handledAssetIdRef.current = assetIdParam;
-        const ensuredThread = await ensureBuyerThreadForAsset(assetIdParam, user);
+        const ensuredThread = await ensureBuyerThreadForAsset(assetIdParam);
         if (!ensuredThread.ok) {
           setChatError(ensuredThread.message);
         } else {

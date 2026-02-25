@@ -57,6 +57,7 @@ export function SellerDashboard() {
   const [mediaItems, setMediaItems] = useState<AssetMediaItem[]>([]);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [formMessage, setFormMessage] = useState("");
+  const [isPublishing, setIsPublishing] = useState(false);
   const [summary, setSummary] = useState({ soldTokens: 0, grossAmount: 0, operations: 0 });
   const [awaitingClipboardKind, setAwaitingClipboardKind] = useState<"image" | "video" | null>(null);
 
@@ -183,6 +184,7 @@ export function SellerDashboard() {
 
   const handleCreateAsset = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isPublishing) return;
     setFormMessage("");
 
     if (!user) return;
@@ -206,6 +208,7 @@ export function SellerDashboard() {
     }
 
     try {
+      setIsPublishing(true);
       const firstImage = mediaItems.find((item) => item.kind === "image")?.url;
       const firstVideo = mediaItems.find((item) => item.kind === "video")?.url;
       await createAsset(user, {
@@ -227,6 +230,7 @@ export function SellerDashboard() {
       });
     } catch (error) {
       setFormMessage(error instanceof Error ? error.message : "No se pudo guardar el activo.");
+      setIsPublishing(false);
       return;
     }
 
@@ -245,6 +249,7 @@ export function SellerDashboard() {
     setPreviewIndex(0);
     setFormMessage("Activo publicado correctamente.");
     await syncData();
+    setIsPublishing(false);
   };
 
   return (
@@ -288,53 +293,53 @@ export function SellerDashboard() {
           <h2 className="tc-heading flex items-center gap-2 text-xl font-bold"><Upload size={18} /> Nueva publicacion</h2>
 
           <form className="mt-4 grid gap-3" onSubmit={handleCreateAsset}>
-            <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Titulo del activo" value={title} onChange={(event) => setTitle(event.target.value)} required disabled={!sellerVerified} />
+            <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Titulo del activo" value={title} onChange={(event) => setTitle(event.target.value)} required disabled={!sellerVerified || isPublishing} />
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <select className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" value={category} onChange={(event) => setCategory(event.target.value as AssetCategory)} disabled={!sellerVerified}>
+              <select className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" value={category} onChange={(event) => setCategory(event.target.value as AssetCategory)} disabled={!sellerVerified || isPublishing}>
                 <option value="cultivo">Cultivo</option>
                 <option value="tierra">Tierra</option>
                 <option value="ganaderia">Ganaderia</option>
               </select>
-              <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Ubicacion" value={location} onChange={(event) => setLocation(event.target.value)} required disabled={!sellerVerified} />
+              <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Ubicacion" value={location} onChange={(event) => setLocation(event.target.value)} required disabled={!sellerVerified || isPublishing} />
             </div>
 
-            <textarea className="h-24 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] p-3" placeholder="Descripcion legal y productiva" value={description} onChange={(event) => setDescription(event.target.value)} required disabled={!sellerVerified} />
+            <textarea className="h-24 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] p-3" placeholder="Descripcion legal y productiva" value={description} onChange={(event) => setDescription(event.target.value)} required disabled={!sellerVerified || isPublishing} />
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <input type="number" step="0.01" className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Precio por token (USDT)" value={tokenPriceSats} onChange={(event) => setTokenPriceSats(event.target.value)} required disabled={!sellerVerified} />
-              <input type="number" className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Total tokens" value={totalTokens} onChange={(event) => setTotalTokens(event.target.value)} required disabled={!sellerVerified} />
+              <input type="number" step="0.01" className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Precio por token (USDT)" value={tokenPriceSats} onChange={(event) => setTokenPriceSats(event.target.value)} required disabled={!sellerVerified || isPublishing} />
+              <input type="number" className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Total tokens" value={totalTokens} onChange={(event) => setTotalTokens(event.target.value)} required disabled={!sellerVerified || isPublishing} />
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
-              <select className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" value={cycleDurationDays} onChange={(event) => setCycleDurationDays(Number(event.target.value) as 30 | 60 | 90)} disabled={!sellerVerified}>
+              <select className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" value={cycleDurationDays} onChange={(event) => setCycleDurationDays(Number(event.target.value) as 30 | 60 | 90)} disabled={!sellerVerified || isPublishing}>
                 <option value={30}>Ciclo 30 dias</option>
                 <option value={60}>Ciclo 60 dias</option>
                 <option value={90}>Ciclo 90 dias</option>
               </select>
-              <input type="number" step="0.01" className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="APY estimado (%)" value={estimatedApyPct} onChange={(event) => setEstimatedApyPct(event.target.value)} required disabled={!sellerVerified} />
-              <input type="number" step="0.01" className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="ROI historico (%)" value={historicalRoiPct} onChange={(event) => setHistoricalRoiPct(event.target.value)} required disabled={!sellerVerified} />
+              <input type="number" step="0.01" className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="APY estimado (%)" value={estimatedApyPct} onChange={(event) => setEstimatedApyPct(event.target.value)} required disabled={!sellerVerified || isPublishing} />
+              <input type="number" step="0.01" className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="ROI historico (%)" value={historicalRoiPct} onChange={(event) => setHistoricalRoiPct(event.target.value)} required disabled={!sellerVerified || isPublishing} />
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Rendimiento esperado (texto)" value={expectedYield} onChange={(event) => setExpectedYield(event.target.value)} required disabled={!sellerVerified} />
-              <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Hash de prueba del activo (opcional)" value={proofOfAssetHash} onChange={(event) => setProofOfAssetHash(event.target.value)} disabled={!sellerVerified} />
+              <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Rendimiento esperado (texto)" value={expectedYield} onChange={(event) => setExpectedYield(event.target.value)} required disabled={!sellerVerified || isPublishing} />
+              <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Hash de prueba del activo (opcional)" value={proofOfAssetHash} onChange={(event) => setProofOfAssetHash(event.target.value)} disabled={!sellerVerified || isPublishing} />
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <Card>
                 <p className="text-sm font-semibold">Agregar imagenes</p>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  <Button type="button" variant="outline" className="gap-2" disabled={!sellerVerified} onClick={() => imageInputRef.current?.click()}><FileImage size={15} /> Buscar en PC</Button>
-                  <Button type="button" variant="outline" disabled={!sellerVerified} onClick={() => { void pickFromClipboard("image"); }}>Desde clipboard</Button>
+                  <Button type="button" variant="outline" className="gap-2" disabled={!sellerVerified || isPublishing} onClick={() => imageInputRef.current?.click()}><FileImage size={15} /> Buscar en PC</Button>
+                  <Button type="button" variant="outline" disabled={!sellerVerified || isPublishing} onClick={() => { void pickFromClipboard("image"); }}>Desde clipboard</Button>
                 </div>
                 <input ref={imageInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(event) => { void handleMediaFile(event, "image"); }} />
               </Card>
               <Card>
                 <p className="text-sm font-semibold">Agregar videos</p>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  <Button type="button" variant="outline" className="gap-2" disabled={!sellerVerified} onClick={() => videoInputRef.current?.click()}><FileVideo size={15} /> Buscar en PC</Button>
-                  <Button type="button" variant="outline" disabled={!sellerVerified} onClick={() => { void pickFromClipboard("video"); }}>Desde clipboard</Button>
+                  <Button type="button" variant="outline" className="gap-2" disabled={!sellerVerified || isPublishing} onClick={() => videoInputRef.current?.click()}><FileVideo size={15} /> Buscar en PC</Button>
+                  <Button type="button" variant="outline" disabled={!sellerVerified || isPublishing} onClick={() => { void pickFromClipboard("video"); }}>Desde clipboard</Button>
                 </div>
                 <input ref={videoInputRef} type="file" accept="video/*" multiple className="hidden" onChange={(event) => { void handleMediaFile(event, "video"); }} />
               </Card>
@@ -363,7 +368,9 @@ export function SellerDashboard() {
                 Esperando pegado desde clipboard ({awaitingClipboardKind === "image" ? "imagen" : "video"}). Usa Ctrl+V.
               </p>
             )}
-            <Button type="submit" className="w-full" disabled={!sellerVerified}>{sellerVerified ? "Publicar activo" : "Bloqueado por verificacion"}</Button>
+            <Button type="submit" className="w-full" disabled={!sellerVerified || isPublishing}>
+              {sellerVerified ? (isPublishing ? "Publicando..." : "Publicar activo") : "Bloqueado por verificacion"}
+            </Button>
           </form>
         </Card>
 

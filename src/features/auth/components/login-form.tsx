@@ -102,7 +102,7 @@ export function LoginForm() {
     };
   }, [qrSessionId, setConnectedWallet]);
 
-  const finalizeLogin = async (selectedWalletAddress: string) => {
+  const finalizeLogin = async (selectedWalletAddress: string, selectedProvider: WalletProviderId) => {
     if (needName && !fullName.trim()) {
       setError("Ingresa tu nombre para completar el primer acceso.");
       return;
@@ -111,6 +111,7 @@ export function LoginForm() {
     setSubmitting(true);
     const result = await login({
       walletAddress: selectedWalletAddress,
+      walletProvider: selectedProvider,
       fullName: needName ? fullName : undefined,
     });
     setSubmitting(false);
@@ -148,7 +149,12 @@ export function LoginForm() {
       setError("La wallet conectada no es valida para Stellar.");
       return;
     }
-    await finalizeLogin(selectedWalletAddress);
+    const selectedProvider = walletProvider ?? "manual";
+    if (selectedProvider !== "freighter" && selectedProvider !== "albedo") {
+      setError("Para login seguro usa Freighter o Albedo.");
+      return;
+    }
+    await finalizeLogin(selectedWalletAddress, selectedProvider);
   };
 
   const handleFallbackSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -166,11 +172,16 @@ export function LoginForm() {
       return;
     }
 
+    const selectedProvider = walletProvider ?? "manual";
     if (!walletAddress) {
       setPendingWallet({ address: selectedWalletAddress, provider: "manual" });
     }
+    if (selectedProvider !== "freighter" && selectedProvider !== "albedo") {
+      setError("El login seguro requiere firma criptografica. Usa Freighter o Albedo.");
+      return;
+    }
 
-    await finalizeLogin(selectedWalletAddress);
+    await finalizeLogin(selectedWalletAddress, selectedProvider);
   };
 
   const handleCreateQrSession = async () => {

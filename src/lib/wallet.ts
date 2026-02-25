@@ -1,5 +1,5 @@
 import albedo from "@albedo-link/intent";
-import { getAddress, isConnected, requestAccess } from "@stellar/freighter-api";
+import { getAddress, isConnected, requestAccess, signMessage as freighterSignMessage } from "@stellar/freighter-api";
 import { STORAGE_KEYS } from "@/lib/constants";
 import { isValidStellarPublicKey } from "@/lib/security";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
@@ -11,6 +11,19 @@ export interface StoredWallet {
   address: string;
   provider: WalletProviderId;
 }
+
+export type WalletLoginSignature =
+  | {
+    provider: "freighter";
+    signerAddress: string;
+    signedMessage: string;
+  }
+  | {
+    provider: "albedo";
+    signedMessage: string;
+    originalMessage: string;
+    messageSignature: string;
+  };
 
 interface WalletMap {
   [userId: string]: StoredWallet;
@@ -48,6 +61,14 @@ export function getWalletProviderLabel(provider: WalletProviderId) {
 
 function normalizeAddress(raw: string) {
   return raw.trim();
+}
+
+function bytesToBase64(value: Uint8Array) {
+  let binary = "";
+  for (const byte of value) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 }
 
 function isMobileLikeDevice() {
@@ -254,4 +275,58 @@ export async function connectWalletConnect() {
     ok: false as const,
     message: failures.find(Boolean) || "No se pudo conectar ninguna wallet.",
   };
+}
+
+export async function signWalletLoginChallenge(input: {
+  wallet: StoredWallet;
+  challengeMessage: string;
+}) {
+  const address = normalizeAddress(input.wallet.address).toUpperCase();
+  const message = input.challengeMessage.trim();
+  if (!isValidStellarPublicKey(address)) {
+    return { ok: false as const, message: "Wallet invalida para firmar login." };
+  }
+  if (!message) {
+    return { ok: false as const, message: "Challenge invalido para firma." };
+  }
+
+  if (input.wallet.provider === "freighter") {
+    const signed = await freighterSignMessage(message, { address });
+    const rawSigned = signed.signedMessage;
+    if (signed.error || !rawSigned) {
+      return { ok: false as const, message: signed.error?.message ?? "No se pudo firmar el challenge en Freighter." };
+    }
+    const normalized = typeof rawSigned === "string"
+      ? rawSigned
+      : bytesToBase64(rawSigned);
+    return {
+      ok: true as const,
+      signature: {
+        provider: "freighter" as const,
+        signerAddress: signed.signerAddress || address,
+        signedMessage: normalized,
+      },
+    };
+  }
+
+  if (input.wallet.provider === "albedo") {
+    const signed = await albedo.signMessage({
+      message,
+      pubkey: address,
+    });
+    if (!signed.message_signature || !signed.signed_message || !signed.original_message) {
+      return { ok: false as const, message: "No se pudo firmar el challenge en Albedo." };
+    }
+    return {
+      ok: true as const,
+      signature: {
+        provider: "albedo" as const,
+        signedMessage: signed.signed_message,
+        originalMessage: signed.original_message,
+        messageSignature: signed.message_signature,
+      },
+    };
+  }
+
+  return { ok: false as const, message: "Proveedor no soportado para login seguro. Usa Freighter o Albedo." };
 }

@@ -592,42 +592,124 @@ export async function createMarketplaceAsset(input: {
   mediaGallery?: Array<{ id: string; kind: "image" | "video"; url: string }>;
 }) {
   const pool = getPostgresPool();
-  const result = await pool.query<DbAssetRow>(
-    `INSERT INTO marketplace_assets (
-      id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield,
-      seller_id, seller_name, image_url, image_urls, video_url, media_gallery, token_price_sats, cycle_duration_days, lifecycle_status, cycle_end_at,
-      estimated_apy_bps, historical_roi_bps, proof_of_asset_hash, health_score, current_yield_accrued_sats
-    )
-    VALUES (
-      gen_random_uuid(), $1, $2, $3, $4, $5, $6, $6, $7,
-      $8, $9, $10, $11::jsonb, $12, $13::jsonb, $14, $15, 'FUNDING',
-      timezone('utc', now()) + make_interval(days => $15), $16, $17, $18, 'Optimal', 0
-    )
-    RETURNING id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, media_gallery,
+  const serializedImageUrls = JSON.stringify(input.imageUrls ?? []);
+  const serializedMediaGallery = JSON.stringify(input.mediaGallery ?? []);
+  const duplicateWindowSeconds = 120;
+  const fingerprint = [
+    input.sellerId,
+    input.title,
+    input.category,
+    input.description,
+    input.location,
+    String(input.pricePerToken),
+    String(input.totalTokens),
+    input.expectedYield,
+    String(input.tokenPriceSats),
+    String(input.cycleDurationDays),
+    String(input.estimatedApyBps),
+    String(input.historicalRoiBps),
+    input.imageUrl ?? "",
+    input.videoUrl ?? "",
+    serializedImageUrls,
+    serializedMediaGallery,
+  ].join("|");
+  const client: PoolClient = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [fingerprint]);
+
+    const existing = await client.query<DbAssetRow>(
+      `SELECT id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, media_gallery,
               token_price_sats, cycle_duration_days, lifecycle_status, cycle_start_at, cycle_end_at, estimated_apy_bps, historical_roi_bps, proof_of_asset_hash,
-              audit_hash, health_score, current_yield_accrued_sats, net_profit_sats, final_payout_sats, snapshot_locked_at, created_at`,
-    [
-      input.title,
-      input.category,
-      input.description,
-      input.location,
-      input.pricePerToken,
-      input.totalTokens,
-      input.expectedYield,
-      input.sellerId,
-      input.sellerName,
-      input.imageUrl ?? null,
-      JSON.stringify(input.imageUrls ?? []),
-      input.videoUrl ?? null,
-      JSON.stringify(input.mediaGallery ?? []),
-      input.tokenPriceSats,
-      input.cycleDurationDays,
-      input.estimatedApyBps,
-      input.historicalRoiBps,
-      input.proofOfAssetHash,
-    ],
-  );
-  return mapAssetRow(result.rows[0]);
+              audit_hash, health_score, current_yield_accrued_sats, net_profit_sats, final_payout_sats, snapshot_locked_at, created_at
+       FROM marketplace_assets
+       WHERE seller_id = $1
+         AND title = $2
+         AND category = $3
+         AND description = $4
+         AND location = $5
+         AND price_per_token = $6
+         AND total_tokens = $7
+         AND expected_yield = $8
+         AND token_price_sats = $9
+         AND cycle_duration_days = $10
+         AND estimated_apy_bps = $11
+         AND historical_roi_bps = $12
+         AND coalesce(image_url, '') = coalesce($13, '')
+         AND coalesce(video_url, '') = coalesce($14, '')
+         AND image_urls = $15::jsonb
+         AND media_gallery = $16::jsonb
+         AND created_at >= timezone('utc', now()) - make_interval(secs => $17)
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [
+        input.sellerId,
+        input.title,
+        input.category,
+        input.description,
+        input.location,
+        input.pricePerToken,
+        input.totalTokens,
+        input.expectedYield,
+        input.tokenPriceSats,
+        input.cycleDurationDays,
+        input.estimatedApyBps,
+        input.historicalRoiBps,
+        input.imageUrl ?? null,
+        input.videoUrl ?? null,
+        serializedImageUrls,
+        serializedMediaGallery,
+        duplicateWindowSeconds,
+      ],
+    );
+    if (existing.rows[0]) {
+      await client.query("COMMIT");
+      return mapAssetRow(existing.rows[0]);
+    }
+
+    const result = await client.query<DbAssetRow>(
+      `INSERT INTO marketplace_assets (
+        id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield,
+        seller_id, seller_name, image_url, image_urls, video_url, media_gallery, token_price_sats, cycle_duration_days, lifecycle_status, cycle_end_at,
+        estimated_apy_bps, historical_roi_bps, proof_of_asset_hash, health_score, current_yield_accrued_sats
+      )
+      VALUES (
+        gen_random_uuid(), $1, $2, $3, $4, $5, $6, $6, $7,
+        $8, $9, $10, $11::jsonb, $12, $13::jsonb, $14, $15, 'FUNDING',
+        timezone('utc', now()) + make_interval(days => $15), $16, $17, $18, 'Optimal', 0
+      )
+      RETURNING id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, media_gallery,
+                token_price_sats, cycle_duration_days, lifecycle_status, cycle_start_at, cycle_end_at, estimated_apy_bps, historical_roi_bps, proof_of_asset_hash,
+                audit_hash, health_score, current_yield_accrued_sats, net_profit_sats, final_payout_sats, snapshot_locked_at, created_at`,
+      [
+        input.title,
+        input.category,
+        input.description,
+        input.location,
+        input.pricePerToken,
+        input.totalTokens,
+        input.expectedYield,
+        input.sellerId,
+        input.sellerName,
+        input.imageUrl ?? null,
+        serializedImageUrls,
+        input.videoUrl ?? null,
+        serializedMediaGallery,
+        input.tokenPriceSats,
+        input.cycleDurationDays,
+        input.estimatedApyBps,
+        input.historicalRoiBps,
+        input.proofOfAssetHash,
+      ],
+    );
+    await client.query("COMMIT");
+    return mapAssetRow(result.rows[0]);
+  } catch {
+    await client.query("ROLLBACK");
+    throw new Error("No se pudo publicar el activo.");
+  } finally {
+    client.release();
+  }
 }
 
 export async function updateMarketplaceAsset(input: {
@@ -935,7 +1017,6 @@ export async function sendMarketplaceMessage(input: {
   threadId: string;
   senderId: string;
   senderName: string;
-  senderRole: "buyer" | "seller";
   text: string;
   kind: "text" | "image" | "video" | "audio" | "document";
   attachment?: {
@@ -962,6 +1043,17 @@ export async function sendMarketplaceMessage(input: {
       await client.query("ROLLBACK");
       return { ok: false as const, message: "Conversacion no encontrada." };
     }
+    const thread = threadResult.rows[0];
+    const senderRole = thread.buyer_id === input.senderId
+      ? "buyer"
+      : thread.seller_id === input.senderId
+        ? "seller"
+        : null;
+    if (!senderRole) {
+      await client.query("ROLLBACK");
+      return { ok: false as const, message: "No autorizado para enviar mensajes en esta conversacion." };
+    }
+    const canonicalSenderName = senderRole === "buyer" ? thread.buyer_name : thread.seller_name;
 
     const messageResult = await client.query<DbMessageRow>(
       `INSERT INTO marketplace_messages (
@@ -978,8 +1070,8 @@ export async function sendMarketplaceMessage(input: {
       [
         input.threadId,
         input.senderId,
-        input.senderName,
-        input.senderRole,
+        canonicalSenderName || input.senderName,
+        senderRole,
         input.text,
         input.kind,
         input.attachment ? JSON.stringify(input.attachment) : null,
@@ -1008,9 +1100,37 @@ export async function sendMarketplaceMessage(input: {
 
 export async function markMarketplaceMessagesRead(input: {
   threadId: string;
-  readerRole: "buyer" | "seller";
+  actorId: string;
 }) {
   const pool = getPostgresPool();
+  const threadResult = await pool.query<DbThreadRow>(
+    `SELECT id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at
+     FROM marketplace_threads
+     WHERE id = $1
+     LIMIT 1`,
+    [input.threadId],
+  );
+  const thread = threadResult.rows[0];
+  if (!thread) {
+    return {
+      ok: false as const,
+      changed: false,
+      message: "Conversacion no encontrada.",
+    };
+  }
+  const readerRole = thread.buyer_id === input.actorId
+    ? "buyer"
+    : thread.seller_id === input.actorId
+      ? "seller"
+      : null;
+  if (!readerRole) {
+    return {
+      ok: false as const,
+      changed: false,
+      message: "No autorizado para marcar lectura en esta conversacion.",
+    };
+  }
+
   const result = await pool.query<{ id: string }>(
     `UPDATE marketplace_messages
      SET status = 'read', read_at = timezone('utc', now())
@@ -1019,7 +1139,7 @@ export async function markMarketplaceMessagesRead(input: {
        AND status <> 'read'
        AND status <> 'failed'
      RETURNING id`,
-    [input.threadId, input.readerRole],
+    [input.threadId, readerRole],
   );
 
   const changed = (result.rowCount ?? 0) > 0;
@@ -1058,6 +1178,27 @@ export async function deleteMarketplaceMessages(input: {
   }
 
   const pool = getPostgresPool();
+  const threadResult = await pool.query<DbThreadRow>(
+    `SELECT id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at
+     FROM marketplace_threads
+     WHERE id = $1
+     LIMIT 1`,
+    [input.threadId],
+  );
+  const thread = threadResult.rows[0];
+  if (!thread) {
+    return {
+      ok: false as const,
+      message: "Conversacion no encontrada.",
+    };
+  }
+  if (thread.buyer_id !== input.actorId && thread.seller_id !== input.actorId) {
+    return {
+      ok: false as const,
+      message: "No autorizado para modificar mensajes en esta conversacion.",
+    };
+  }
+
   if (input.mode === "me") {
     const result = await pool.query<{ id: string }>(
       `UPDATE marketplace_messages

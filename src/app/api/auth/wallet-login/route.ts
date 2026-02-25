@@ -1,63 +1,291 @@
+import { Keypair } from "@stellar/stellar-sdk";
 import { NextResponse } from "next/server";
 import { normalizeSafeText, isValidStellarPublicKey } from "@/lib/security";
+import { setAuthSessionCookie } from "@/lib/server/auth-session";
 import { findUserByWallet, mapDbUser } from "@/lib/server/auth-users";
+import { createWalletLoginChallenge, consumeWalletLoginChallenge } from "@/lib/server/wallet-login-challenge-store";
 import { getPostgresPool } from "@/lib/server/postgres";
+import { enforceRateLimit, getClientIp, isTrustedOrigin, parseJsonWithLimit } from "@/lib/server/request-security";
 
 export const runtime = "nodejs";
 
-interface RequestPayload {
+type LoginProvider = "freighter" | "albedo";
+
+interface ChallengePayload {
+  action?: "challenge";
   walletAddress?: string;
+  walletProvider?: LoginProvider | "xbull" | "manual";
+}
+
+interface VerifyPayload {
+  action?: "verify";
+  walletAddress?: string;
+  walletProvider?: LoginProvider | "xbull" | "manual";
+  challengeId?: string;
   fullName?: string;
+  signature?: {
+    signerAddress?: string;
+    signedMessage?: string;
+    originalMessage?: string;
+    messageSignature?: string;
+  };
+}
+
+type RequestPayload = ChallengePayload | VerifyPayload;
+
+function parseProvider(value: unknown): LoginProvider | null {
+  if (value === "freighter" || value === "albedo") return value;
+  return null;
+}
+
+function decodeMaybeBinary(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return [] as Buffer[];
+  const out: Buffer[] = [];
+
+  if (/^[0-9a-f]+$/i.test(trimmed) && trimmed.length % 2 === 0) {
+    out.push(Buffer.from(trimmed, "hex"));
+  }
+
+  try {
+    const asBase64 = Buffer.from(trimmed, "base64");
+    if (asBase64.length > 0) out.push(asBase64);
+  } catch {}
+
+  try {
+    const asBase64Url = Buffer.from(trimmed, "base64url");
+    if (asBase64Url.length > 0) out.push(asBase64Url);
+  } catch {}
+
+  const unique = new Map<string, Buffer>();
+  for (const row of out) {
+    unique.set(row.toString("hex"), row);
+  }
+  return Array.from(unique.values());
+}
+
+function verifyEd25519Signature(input: {
+  walletAddress: string;
+  payloadCandidates: Buffer[];
+  signatureCandidates: Buffer[];
+}) {
+  try {
+    const keypair = Keypair.fromPublicKey(input.walletAddress);
+    for (const payload of input.payloadCandidates) {
+      for (const signature of input.signatureCandidates) {
+        if (keypair.verify(payload, signature)) {
+          return true;
+        }
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function verifyFreighterSignature(input: {
+  walletAddress: string;
+  challengeMessage: string;
+  signature: VerifyPayload["signature"];
+}) {
+  const signerAddress = input.signature?.signerAddress?.trim() ?? "";
+  if (signerAddress && signerAddress !== input.walletAddress) {
+    return false;
+  }
+
+  const signedMessageRaw = input.signature?.signedMessage?.trim() ?? "";
+  if (!signedMessageRaw) return false;
+
+  const payloadCandidates = [Buffer.from(input.challengeMessage, "utf8")];
+  const signatureCandidates = decodeMaybeBinary(signedMessageRaw);
+
+  return verifyEd25519Signature({
+    walletAddress: input.walletAddress,
+    payloadCandidates,
+    signatureCandidates,
+  });
+}
+
+function verifyAlbedoSignature(input: {
+  walletAddress: string;
+  challengeMessage: string;
+  signature: VerifyPayload["signature"];
+}) {
+  const originalMessage = input.signature?.originalMessage?.trim() ?? "";
+  const signedMessageRaw = input.signature?.signedMessage?.trim() ?? "";
+  const messageSignatureRaw = input.signature?.messageSignature?.trim() ?? "";
+
+  if (!originalMessage || originalMessage !== input.challengeMessage) {
+    return false;
+  }
+  if (!signedMessageRaw || !messageSignatureRaw) {
+    return false;
+  }
+
+  const signatureCandidates = decodeMaybeBinary(messageSignatureRaw);
+  const payloadCandidates: Buffer[] = [Buffer.from(originalMessage, "utf8")];
+  payloadCandidates.push(...decodeMaybeBinary(signedMessageRaw));
+
+  return verifyEd25519Signature({
+    walletAddress: input.walletAddress,
+    payloadCandidates,
+    signatureCandidates,
+  });
+}
+
+async function upsertWalletUserAndCreateSession(input: {
+  walletAddress: string;
+  fullName?: string;
+}) {
+  const existing = await findUserByWallet(input.walletAddress);
+  if (existing) {
+    const normalizedName = normalizeSafeText(input.fullName ?? "", 120);
+    if (normalizedName && normalizedName !== existing.fullName) {
+      const pool = getPostgresPool();
+      const updated = await pool.query(
+        `UPDATE app_users
+         SET full_name = $1, updated_at = timezone('utc', now())
+         WHERE id = $2
+         RETURNING id, full_name, organization, stellar_public_key, seller_verification_status, seller_verification_data, created_at, updated_at`,
+        [normalizedName, existing.id],
+      );
+      const mapped = mapDbUser(updated.rows[0]);
+      const response = NextResponse.json({ ok: true, user: mapped, isNewUser: false });
+      setAuthSessionCookie(response, mapped);
+      return response;
+    }
+    const response = NextResponse.json({ ok: true, user: existing, isNewUser: false });
+    setAuthSessionCookie(response, existing);
+    return response;
+  }
+
+  const normalizedName = normalizeSafeText(input.fullName ?? "", 120);
+  if (!normalizedName) {
+    return NextResponse.json(
+      { ok: false, requiresName: true, message: "Primer acceso: indica tu nombre para crear el perfil." },
+      { status: 400 },
+    );
+  }
+
+  const pool = getPostgresPool();
+  const created = await pool.query(
+    `INSERT INTO app_users (id, full_name, stellar_public_key, seller_verification_status)
+     VALUES ($1, $2, $3, 'unverified')
+     RETURNING id, full_name, organization, stellar_public_key, seller_verification_status, seller_verification_data, created_at, updated_at`,
+    [crypto.randomUUID(), normalizedName, input.walletAddress],
+  );
+
+  const mapped = mapDbUser(created.rows[0]);
+  const response = NextResponse.json({ ok: true, user: mapped, isNewUser: true });
+  setAuthSessionCookie(response, mapped);
+  return response;
 }
 
 export async function POST(request: Request) {
-  let payload: RequestPayload;
-  try {
-    payload = (await request.json()) as RequestPayload;
-  } catch {
-    return NextResponse.json({ ok: false, message: "Payload invalido." }, { status: 400 });
+  if (!isTrustedOrigin(request)) {
+    return NextResponse.json({ ok: false, message: "Origen no permitido." }, { status: 403 });
   }
 
-  const walletAddress = payload.walletAddress?.trim() ?? "";
+  const parsed = await parseJsonWithLimit<RequestPayload>(request, 16_384);
+  if (!parsed.ok) {
+    return NextResponse.json({ ok: false, message: parsed.message }, { status: parsed.status });
+  }
+  const payload = parsed.data;
+  const action = payload.action ?? "challenge";
+
+  const walletAddress = (payload.walletAddress ?? "").trim().toUpperCase();
   if (!isValidStellarPublicKey(walletAddress)) {
     return NextResponse.json({ ok: false, message: "Wallet Stellar invalida." }, { status: 400 });
   }
 
-  try {
-    const existing = await findUserByWallet(walletAddress);
-    if (existing) {
-      const normalizedName = normalizeSafeText(payload.fullName ?? "", 120);
-      if (normalizedName && normalizedName !== existing.fullName) {
-        const pool = getPostgresPool();
-        const updated = await pool.query(
-          `UPDATE app_users
-           SET full_name = $1, updated_at = timezone('utc', now())
-           WHERE id = $2
-           RETURNING id, full_name, organization, stellar_public_key, seller_verification_status, seller_verification_data, created_at, updated_at`,
-          [normalizedName, existing.id],
-        );
-        return NextResponse.json({ ok: true, user: mapDbUser(updated.rows[0]), isNewUser: false });
-      }
-      return NextResponse.json({ ok: true, user: existing, isNewUser: false });
-    }
-
-    const normalizedName = normalizeSafeText(payload.fullName ?? "", 120);
-    if (!normalizedName) {
-      return NextResponse.json(
-        { ok: false, requiresName: true, message: "Primer acceso: indica tu nombre para crear el perfil." },
-        { status: 400 },
-      );
-    }
-
-    const pool = getPostgresPool();
-    const created = await pool.query(
-      `INSERT INTO app_users (id, full_name, stellar_public_key, seller_verification_status)
-       VALUES ($1, $2, $3, 'unverified')
-       RETURNING id, full_name, organization, stellar_public_key, seller_verification_status, seller_verification_data, created_at, updated_at`,
-      [crypto.randomUUID(), normalizedName, walletAddress],
+  const walletProvider = parseProvider(payload.walletProvider);
+  if (!walletProvider) {
+    return NextResponse.json(
+      { ok: false, message: "Proveedor no soportado para login seguro. Usa Freighter o Albedo." },
+      { status: 400 },
     );
+  }
 
-    return NextResponse.json({ ok: true, user: mapDbUser(created.rows[0]), isNewUser: true });
+  if (action === "challenge") {
+    const rate = enforceRateLimit({
+      request,
+      key: "api_auth_wallet_login_challenge",
+      max: 20,
+      windowMs: 60 * 1000,
+    });
+    if (!rate.ok) {
+      return NextResponse.json({ ok: false, message: "Demasiados intentos. Intenta nuevamente." }, { status: 429 });
+    }
+
+    const clientIp = getClientIp(request);
+    const requestOrigin = (() => {
+      try {
+        return new URL(request.url).origin;
+      } catch {
+        return "";
+      }
+    })();
+
+    const challenge = createWalletLoginChallenge({
+      walletAddress,
+      walletProvider,
+      clientIp,
+      requestOrigin,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      challengeId: challenge.id,
+      message: challenge.message,
+      expiresAt: challenge.expiresAt,
+    });
+  }
+
+  if (action !== "verify") {
+    return NextResponse.json({ ok: false, message: "Accion no soportada." }, { status: 400 });
+  }
+  const verifyPayload = payload as VerifyPayload;
+
+  const rate = enforceRateLimit({
+    request,
+    key: "api_auth_wallet_login_verify",
+    max: 20,
+    windowMs: 60 * 1000,
+  });
+  if (!rate.ok) {
+    return NextResponse.json({ ok: false, message: "Demasiados intentos. Intenta nuevamente." }, { status: 429 });
+  }
+
+  const challengeId = (verifyPayload.challengeId ?? "").trim();
+  if (!challengeId) {
+    return NextResponse.json({ ok: false, message: "Falta challengeId." }, { status: 400 });
+  }
+
+  const challenge = consumeWalletLoginChallenge({
+    id: challengeId,
+    walletAddress,
+    walletProvider,
+    clientIp: getClientIp(request),
+  });
+  if (!challenge) {
+    return NextResponse.json({ ok: false, message: "Challenge invalido, expirado o ya usado." }, { status: 401 });
+  }
+
+  const signature = verifyPayload.signature;
+  const verified = walletProvider === "freighter"
+    ? verifyFreighterSignature({ walletAddress, challengeMessage: challenge.message, signature })
+    : verifyAlbedoSignature({ walletAddress, challengeMessage: challenge.message, signature });
+
+  if (!verified) {
+    return NextResponse.json({ ok: false, message: "Firma invalida para el challenge de login." }, { status: 401 });
+  }
+
+  try {
+    return await upsertWalletUserAndCreateSession({
+      walletAddress,
+      fullName: verifyPayload.fullName,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "No se pudo iniciar sesion.";
     const isDbConfigIssue = message.toLowerCase().includes("database_url");

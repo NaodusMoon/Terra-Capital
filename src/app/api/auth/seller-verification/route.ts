@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { isSafeHttpUrl, normalizeSafeText } from "@/lib/security";
+import { getAuthUserFromRequest } from "@/lib/server/auth-session";
+import { enforceRateLimit, isTrustedOrigin, parseJsonWithLimit } from "@/lib/server/request-security";
 import { mapDbUser } from "@/lib/server/auth-users";
 import { getPostgresPool } from "@/lib/server/postgres";
 
 export const runtime = "nodejs";
 
 interface RequestPayload {
-  userId?: string;
   legalName?: string;
   documentLast4?: string;
   taxId?: string;
@@ -15,21 +16,37 @@ interface RequestPayload {
 }
 
 export async function POST(request: Request) {
-  let payload: RequestPayload;
-  try {
-    payload = (await request.json()) as RequestPayload;
-  } catch {
-    return NextResponse.json({ ok: false, message: "Payload invalido." }, { status: 400 });
+  if (!isTrustedOrigin(request)) {
+    return NextResponse.json({ ok: false, message: "Origen no permitido." }, { status: 403 });
+  }
+  const rate = enforceRateLimit({
+    request,
+    key: "api_auth_seller_verification_post",
+    max: 20,
+    windowMs: 60 * 1000,
+  });
+  if (!rate.ok) {
+    return NextResponse.json({ ok: false, message: "Demasiadas solicitudes. Intenta nuevamente." }, { status: 429 });
   }
 
-  const userId = payload.userId?.trim() ?? "";
+  const parsed = await parseJsonWithLimit<RequestPayload>(request, 16_384);
+  if (!parsed.ok) {
+    return NextResponse.json({ ok: false, message: parsed.message }, { status: parsed.status });
+  }
+  const payload = parsed.data;
+
   const legalName = normalizeSafeText(payload.legalName ?? "", 120);
   const documentLast4 = normalizeSafeText(payload.documentLast4 ?? "", 4);
   const taxId = normalizeSafeText(payload.taxId ?? "", 40);
   const country = normalizeSafeText(payload.country ?? "", 60);
   const supportUrl = payload.supportUrl?.trim() || undefined;
 
-  if (!userId || !legalName || documentLast4.length !== 4 || !taxId || !country) {
+  const authUser = await getAuthUserFromRequest();
+  if (!authUser) {
+    return NextResponse.json({ ok: false, message: "No autenticado." }, { status: 401 });
+  }
+
+  if (!legalName || documentLast4.length !== 4 || !taxId || !country) {
     return NextResponse.json({ ok: false, message: "Completa todos los datos de verificacion requeridos." }, { status: 400 });
   }
   if (supportUrl && !isSafeHttpUrl(supportUrl)) {
@@ -54,7 +71,7 @@ export async function POST(request: Request) {
            updated_at = timezone('utc', now())
        WHERE id = $2
        RETURNING id, full_name, organization, stellar_public_key, seller_verification_status, seller_verification_data, created_at, updated_at`,
-      [JSON.stringify(verificationPayload), userId],
+      [JSON.stringify(verificationPayload), authUser.id],
     );
 
     if (result.rowCount === 0) {

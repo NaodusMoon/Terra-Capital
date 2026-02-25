@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { MARKETPLACE_EVENT } from "@/lib/constants";
 import { formatShortDate, formatUSDT } from "@/lib/format";
 import { deleteAsset, getPurchases, getSellerAssets, syncMarketplace, updateAsset } from "@/lib/marketplace";
+import { AssetMediaViewer } from "@/features/marketplace/components/asset-media-viewer";
 import type { AssetCategory, AssetMediaItem } from "@/types/market";
 
 type ChartPoint = {
@@ -111,7 +112,6 @@ export function SellerAssetDetailPage({ assetId }: { assetId: string }) {
   const [expectedYield, setExpectedYield] = useState("");
   const [proofOfAssetHash, setProofOfAssetHash] = useState("");
   const [mediaItems, setMediaItems] = useState<AssetMediaItem[]>([]);
-  const [previewIndex, setPreviewIndex] = useState(0);
   const [awaitingClipboardKind, setAwaitingClipboardKind] = useState<"image" | "video" | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
@@ -258,7 +258,6 @@ export function SellerAssetDetailPage({ assetId }: { assetId: string }) {
         ...(data.asset.videoUrl ? [{ id: "legacy-video", kind: "video" as const, url: data.asset.videoUrl }] : []),
       ];
     setMediaItems(fallbackGallery);
-    setPreviewIndex(0);
     setAwaitingClipboardKind(null);
   }, [data, editOpen]);
 
@@ -328,19 +327,10 @@ export function SellerAssetDetailPage({ assetId }: { assetId: string }) {
       copy[nextIndex] = temp;
       return copy;
     });
-    setPreviewIndex((prev) => {
-      if (prev === index) return index + direction;
-      if (prev === index + direction) return index;
-      return prev;
-    });
   };
 
   const removeMedia = (index: number) => {
-    setMediaItems((prev) => {
-      const next = prev.filter((_, idx) => idx !== index);
-      setPreviewIndex((current) => Math.max(0, Math.min(current, next.length - 1)));
-      return next;
-    });
+    setMediaItems((prev) => prev.filter((_, idx) => idx !== index));
   };
 
   const handleSave = async () => {
@@ -420,7 +410,13 @@ export function SellerAssetDetailPage({ assetId }: { assetId: string }) {
     );
   }
 
-  const previewMedia = mediaItems[previewIndex];
+  const assetMedia = data.asset.mediaGallery && data.asset.mediaGallery.length > 0
+    ? data.asset.mediaGallery
+    : [
+      ...(data.asset.imageUrl ? [{ id: "legacy-image", kind: "image" as const, url: data.asset.imageUrl }] : []),
+      ...((data.asset.imageUrls ?? []).map((url, idx) => ({ id: `legacy-gallery-${idx}`, kind: "image" as const, url }))),
+      ...(data.asset.videoUrl ? [{ id: "legacy-video", kind: "video" as const, url: data.asset.videoUrl }] : []),
+    ];
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-5 sm:py-9">
@@ -515,28 +511,7 @@ export function SellerAssetDetailPage({ assetId }: { assetId: string }) {
 
               <Card>
                 <p className="text-sm font-semibold">Previsualizacion multimedia</p>
-                <div className="mt-3 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-background)]">
-                  <div className="h-56 bg-[var(--color-surface-soft)]">
-                    {!previewMedia && <div className="grid h-full place-items-center text-sm text-[var(--color-muted)]">Sin multimedia</div>}
-                    {previewMedia?.kind === "image" && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={previewMedia.url} alt="Preview" className="h-full w-full object-cover" />
-                    )}
-                    {previewMedia?.kind === "video" && <video controls className="h-full w-full object-contain" src={previewMedia.url} />}
-                  </div>
-                  <div className="flex gap-2 overflow-x-auto border-t border-[var(--color-border)] p-2">
-                    {mediaItems.map((item, index) => (
-                      <button key={item.id} type="button" onClick={() => setPreviewIndex(index)} className={`h-14 w-20 shrink-0 overflow-hidden rounded-lg border ${index === previewIndex ? "border-[var(--color-primary)]" : "border-[var(--color-border)]"}`}>
-                        {item.kind === "image" ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={item.url} alt={`thumb-${index}`} className="h-full w-full object-cover" />
-                        ) : (
-                          <div className="grid h-full w-full place-items-center bg-[var(--color-surface-soft)] text-xs">VIDEO</div>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <AssetMediaViewer className="mt-3" media={mediaItems} title={title || "Previsualizacion"} />
               </Card>
 
               {awaitingClipboardKind && (
@@ -552,6 +527,13 @@ export function SellerAssetDetailPage({ assetId }: { assetId: string }) {
           </Card>
         </section>
       )}
+
+      <section className="mt-6">
+        <Card>
+          <h2 className="tc-heading text-lg font-bold">Multimedia de la publicacion</h2>
+          <AssetMediaViewer className="mt-4" media={assetMedia} title={data.asset.title} />
+        </Card>
+      </section>
 
       <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
