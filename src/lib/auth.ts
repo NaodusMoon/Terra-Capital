@@ -18,10 +18,30 @@ interface UpdateProfileInput {
 
 interface SellerVerificationInput {
   legalName: string;
+  documentType: "national_id" | "passport" | "license";
   documentLast4: string;
   taxId: string;
   country: string;
   supportUrl?: string;
+  documentFrontDigest: {
+    mimeType: string;
+    bytes: number;
+    sha256: string;
+  };
+  documentBackDigest?: {
+    mimeType: string;
+    bytes: number;
+    sha256: string;
+  };
+  livenessVideoDigest: {
+    mimeType: string;
+    bytes: number;
+    sha256: string;
+  };
+  livenessScore: number;
+  livenessDetectedFrames: number;
+  livenessMovementRatio: number;
+  livenessChallenge: string;
 }
 
 type LoginApiSuccess = {

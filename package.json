@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@albedo-link/intent": "^0.13.0",
+    "@mediapipe/tasks-vision": "^0.10.32",
     "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-sdk": "^14.5.0",
     "clsx": "^2.1.1",

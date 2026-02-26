@@ -9,10 +9,30 @@ export interface AppUser {
   sellerVerificationStatus: SellerVerificationStatus;
   sellerVerificationData?: {
     legalName: string;
+    documentType?: "national_id" | "passport" | "license";
     documentLast4: string;
-    taxId: string;
+    taxId?: string;
+    taxIdMasked?: string;
+    taxIdHash?: string;
     country: string;
     supportUrl?: string;
+    documentEvidence?: {
+      frontMimeType: string;
+      frontBytes: number;
+      frontSha256: string;
+      backMimeType?: string;
+      backBytes?: number;
+      backSha256?: string;
+    };
+    livenessEvidence?: {
+      videoMimeType: string;
+      videoBytes: number;
+      videoSha256: string;
+      score: number;
+      detectedFrames: number;
+      movementRatio: number;
+      challenge: string;
+    };
     submittedAt: string;
   };
   createdAt: string;

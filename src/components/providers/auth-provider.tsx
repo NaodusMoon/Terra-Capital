@@ -25,6 +25,12 @@ interface UpdateProfileInput {
   stellarPublicKey: string;
 }
 
+interface SellerEvidenceDigestInput {
+  mimeType: string;
+  bytes: number;
+  sha256: string;
+}
+
 interface AuthContextValue {
   user: AppUser | null;
   activeMode: UserMode;
@@ -35,10 +41,18 @@ interface AuthContextValue {
   updateAccount: (input: UpdateProfileInput) => ReturnType<typeof updateProfile>;
   submitSellerKyc: (input: {
     legalName: string;
+    documentType: "national_id" | "passport" | "license";
     documentLast4: string;
     taxId: string;
     country: string;
     supportUrl?: string;
+    documentFrontDigest: SellerEvidenceDigestInput;
+    documentBackDigest?: SellerEvidenceDigestInput;
+    livenessVideoDigest: SellerEvidenceDigestInput;
+    livenessScore: number;
+    livenessDetectedFrames: number;
+    livenessMovementRatio: number;
+    livenessChallenge: string;
   }) => ReturnType<typeof submitSellerVerification>;
 }
 
@@ -84,10 +98,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
       submitSellerKyc: async (input: {
         legalName: string;
+        documentType: "national_id" | "passport" | "license";
         documentLast4: string;
         taxId: string;
         country: string;
         supportUrl?: string;
+        documentFrontDigest: SellerEvidenceDigestInput;
+        documentBackDigest?: SellerEvidenceDigestInput;
+        livenessVideoDigest: SellerEvidenceDigestInput;
+        livenessScore: number;
+        livenessDetectedFrames: number;
+        livenessMovementRatio: number;
+        livenessChallenge: string;
       }) => {
         if (!user) return { ok: false as const, message: "No hay sesion activa." };
         const result = await submitSellerVerification(input);
