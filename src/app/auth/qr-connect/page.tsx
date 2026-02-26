@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useWallet } from "@/components/providers/wallet-provider";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { isValidStellarPublicKey } from "@/lib/security";
 import { getWalletProviderLabel, setPendingWallet, type WalletProviderId } from "@/lib/wallet";
 
-export default function QrConnectPage() {
+function QrConnectContent() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session")?.trim() ?? "";
   const { walletAddress, walletProvider, walletOptions, connectWallet, connectWithWalletConnect, connecting } = useWallet();
@@ -123,5 +123,13 @@ export default function QrConnectPage() {
         </form>
       </Card>
     </main>
+  );
+}
+
+export default function QrConnectPage() {
+  return (
+    <Suspense fallback={<main className="mx-auto grid min-h-[calc(100vh-74px)] w-full max-w-6xl place-items-center px-5 py-12" />}>
+      <QrConnectContent />
+    </Suspense>
   );
 }
