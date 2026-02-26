@@ -1,5 +1,6 @@
 import { Keypair } from "@stellar/stellar-sdk";
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { normalizeSafeText, isValidStellarPublicKey } from "@/lib/security";
 import { setAuthSessionCookie } from "@/lib/server/auth-session";
 import { findUserByWallet, mapDbUser } from "@/lib/server/auth-users";
@@ -97,7 +98,11 @@ function verifyFreighterSignature(input: {
   const signedMessageRaw = input.signature?.signedMessage?.trim() ?? "";
   if (!signedMessageRaw) return false;
 
-  const payloadCandidates = [Buffer.from(input.challengeMessage, "utf8")];
+  const messageUtf8 = Buffer.from(input.challengeMessage, "utf8");
+  const prefixedHash = createHash("sha256")
+    .update(`Stellar Signed Message:\n${input.challengeMessage}`, "utf8")
+    .digest();
+  const payloadCandidates = [prefixedHash, messageUtf8];
   const signatureCandidates = decodeMaybeBinary(signedMessageRaw);
 
   return verifyEd25519Signature({
