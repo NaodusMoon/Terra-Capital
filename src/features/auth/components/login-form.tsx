@@ -27,6 +27,7 @@ export function LoginForm() {
   const [needName, setNeedName] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [manualConnectOpen, setManualConnectOpen] = useState(false);
 
   const walletConnectAvailable = useMemo(
     () => walletOptions.some((option) => option.id === "wallet_connect"),
@@ -98,13 +99,16 @@ export function LoginForm() {
     setFullName("");
   };
 
-  const handleConnectFreighter = async () => {
+  const handleManualProviderConnect = async (provider: (typeof walletOptions)[number]["id"]) => {
     setError("");
-    const connected = await connectWallet("freighter");
+    const connected = provider === "wallet_connect"
+      ? Boolean(await connectWithWalletConnect())
+      : await connectWallet(provider);
     if (!connected) {
-      setError("No se pudo conectar Freighter en este navegador.");
+      setError(`No se pudo conectar con ${getWalletProviderLabel(provider)}.`);
       return;
     }
+    setManualConnectOpen(false);
     setNeedName(false);
     setFullName("");
   };
@@ -201,12 +205,28 @@ export function LoginForm() {
           <Button
             className="h-11 w-full"
             type="button"
-            variant="outline"
-            onClick={handleConnectFreighter}
-            disabled={connecting || submitting || !freighterAvailable}
+            variant={manualConnectOpen ? "secondary" : "outline"}
+            onClick={() => setManualConnectOpen((prev) => !prev)}
+            disabled={connecting || submitting || walletOptions.length === 0}
           >
-            Conectar Freighter sin QR
+            {manualConnectOpen ? "Cerrar conexion manual" : "Conexion manual"}
           </Button>
+          {manualConnectOpen && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {walletOptions.map((option) => (
+                <Button
+                  key={option.id}
+                  className="h-10 w-full justify-center"
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleManualProviderConnect(option.id)}
+                  disabled={connecting || submitting}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          )}
 
           {walletAddress && (
             <Button
