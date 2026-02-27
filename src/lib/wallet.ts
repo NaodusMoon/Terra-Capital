@@ -333,7 +333,7 @@ async function getWalletKitRuntime(): Promise<WalletKitRuntime> {
   if (walletKitRuntimePromise) return walletKitRuntimePromise;
 
   walletKitRuntimePromise = (async () => {
-    const [{ StellarWalletsKit, Networks }, freighter, xbull, albedo, rabet, lobstr, hana, klever, walletConnect] = await Promise.all([
+    const [{ StellarWalletsKit, Networks }, freighter, xbull, albedo, rabet, lobstr, hana, klever, walletConnect, appKitNetworks] = await Promise.all([
       import("@creit.tech/stellar-wallets-kit"),
       import("@creit.tech/stellar-wallets-kit/modules/freighter"),
       import("@creit.tech/stellar-wallets-kit/modules/xbull"),
@@ -343,6 +343,7 @@ async function getWalletKitRuntime(): Promise<WalletKitRuntime> {
       import("@creit.tech/stellar-wallets-kit/modules/hana"),
       import("@creit.tech/stellar-wallets-kit/modules/klever"),
       import("@creit.tech/stellar-wallets-kit/modules/wallet-connect"),
+      import("@reown/appkit/networks"),
     ]);
 
     const modules = [
@@ -379,6 +380,8 @@ async function getWalletKitRuntime(): Promise<WalletKitRuntime> {
           },
           allowedChains: getWalletConnectAllowedChains(walletConnect),
           appKitOptions: {
+            projectId: WALLET_CONNECT_PROJECT_ID,
+            networks: [appKitNetworks.mainnet],
             manualWCControl: false,
           },
           signClientOptions: {
