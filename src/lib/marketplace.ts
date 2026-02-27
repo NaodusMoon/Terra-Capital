@@ -47,6 +47,31 @@ async function parseResponse<T>(response: Response): Promise<T | null> {
   }
 }
 
+async function fetchMarketplaceState(query: string) {
+  const url = `/api/marketplace${query}`;
+  try {
+    return await fetch(url, {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+  } catch {
+    // Retry once with cache-buster to reduce transient browser/proxy failures.
+    const separator = query ? "&" : "?";
+    return fetch(`${url}${separator}_ts=${Date.now()}`, {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+  }
+}
+
 function writeMarketplaceState(state: {
   assets?: TokenizedAsset[];
   purchases?: PurchaseRecord[];
@@ -87,7 +112,7 @@ export async function syncMarketplace(_userId?: string, options?: { includeChat?
     params.set("includeChat", "1");
   }
   const query = params.toString() ? `?${params.toString()}` : "";
-  const response = await fetch(`/api/marketplace${query}`);
+  const response = await fetchMarketplaceState(query);
   const payload = await parseResponse<MarketplaceStateResponse>(response);
   if (!payload || !payload.ok) {
     throw new Error(payload?.message ?? "No se pudo sincronizar marketplace.");

@@ -118,7 +118,15 @@ export function BuyerDashboard() {
       setAssets(getAssets());
       setSyncError("");
     } catch (error) {
-      setSyncError(error instanceof Error ? error.message : "No se pudo sincronizar el marketplace.");
+      const message = error instanceof Error ? error.message : "No se pudo sincronizar el marketplace.";
+      const hasCachedAssets = getAssets().length > 0;
+      const isTransientNetworkError = message.toLowerCase().includes("failed to fetch");
+      if (hasCachedAssets && isTransientNetworkError) {
+        // Keep cached marketplace data visible without showing a blocking alert.
+        setSyncError("");
+      } else {
+        setSyncError(message);
+      }
     } finally {
       setHasBootstrapped(true);
     }
