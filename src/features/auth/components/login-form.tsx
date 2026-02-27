@@ -145,7 +145,7 @@ export function LoginForm() {
       <div className="pointer-events-none absolute -bottom-20 -right-14 h-52 w-52 rounded-full bg-secondary/20 blur-3xl" />
 
       <div className="relative p-6 sm:p-8">
-        <p className="terra-badge">WalletConnect Login</p>
+        <p className="terra-badge">{walletConnectAvailable ? "WalletConnect Login" : "Wallet Login"}</p>
         <h1 className="tc-heading mt-4 text-3xl font-bold tracking-tight">Acceso rapido y seguro</h1>
         <p className="tc-subtitle mt-2 text-sm">
           Solo con wallet. Sin contrasena. Si es tu primera vez, te pedimos nombre una sola vez.
@@ -221,7 +221,7 @@ export function LoginForm() {
           )}
         </form>
 
-        {!walletConnectAvailable && (
+        {!walletConnectAvailable && !freighterAvailable && (
           <p className="terra-alert mt-4">
             WalletConnect no esta habilitado en este entorno. Configura NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID.
           </p>
