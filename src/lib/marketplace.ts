@@ -367,26 +367,31 @@ export async function buyAsset(
   if (!Number.isInteger(normalizedQuantity) || normalizedQuantity <= 0) {
     return { ok: false as const, message: "La cantidad debe ser mayor a 0." };
   }
+  const isPrivilegedTestnetBuyer =
+    payment.network === "testnet"
+    && (buyer.appRole === "admin" || buyer.appRole === "dev");
   const buyerWallet = payment.walletAddress?.trim() ?? "";
-  if (!buyerWallet) {
+  if (!isPrivilegedTestnetBuyer && !buyerWallet) {
     return { ok: false as const, message: "Conecta una wallet para firmar la transaccion." };
   }
   const sellerWallet = asset.sellerStellarPublicKey?.trim() ?? "";
   if (!sellerWallet) {
     return { ok: false as const, message: "El vendedor no tiene wallet Stellar configurada." };
   }
-  if (!payment.walletProvider) {
+  if (!isPrivilegedTestnetBuyer && !payment.walletProvider) {
     return { ok: false as const, message: "No se detecto proveedor de wallet para firmar." };
   }
 
   const totalToPay = Number(asset.tokenPriceSats) * normalizedQuantity;
-  const paymentResult = await executeMarketplacePayment({
-    provider: payment.walletProvider,
-    sourceAddress: buyerWallet,
-    destinationAddress: sellerWallet,
-    amount: totalToPay,
-    network: payment.network,
-  });
+  const paymentResult = isPrivilegedTestnetBuyer
+    ? { ok: true as const, txHash: undefined }
+    : await executeMarketplacePayment({
+      provider: payment.walletProvider!,
+      sourceAddress: buyerWallet,
+      destinationAddress: sellerWallet,
+      amount: totalToPay,
+      network: payment.network,
+    });
   if (!paymentResult.ok) {
     return { ok: false as const, message: paymentResult.message };
   }
@@ -400,6 +405,7 @@ export async function buyAsset(
       quantity: normalizedQuantity,
       stellarTxHash: paymentResult.txHash,
       stellarNetwork: payment.network,
+      skipStellarPayment: isPrivilegedTestnetBuyer,
     }),
   });
 

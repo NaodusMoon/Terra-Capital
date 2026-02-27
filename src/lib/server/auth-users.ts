@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from "pg";
-import type { AppUser, SellerVerificationStatus } from "@/types/auth";
+import type { AppRole, AppUser, BuyerVerificationStatus, SellerVerificationStatus } from "@/types/auth";
 import { getPostgresPool } from "@/lib/server/postgres";
 
 type DbClient = Pool | PoolClient;
@@ -9,6 +9,8 @@ interface DbUserRow {
   full_name: string;
   organization: string | null;
   stellar_public_key: string;
+  app_role: AppRole;
+  buyer_verification_status: BuyerVerificationStatus;
   seller_verification_status: SellerVerificationStatus;
   seller_verification_data: AppUser["sellerVerificationData"] | null;
   created_at: string;
@@ -21,6 +23,8 @@ export function mapDbUser(row: DbUserRow): AppUser {
     fullName: row.full_name,
     organization: row.organization ?? undefined,
     stellarPublicKey: row.stellar_public_key,
+    appRole: row.app_role,
+    buyerVerificationStatus: row.buyer_verification_status,
     sellerVerificationStatus: row.seller_verification_status,
     sellerVerificationData: row.seller_verification_data ?? undefined,
     createdAt: row.created_at,
@@ -35,7 +39,7 @@ function getClient(client?: DbClient) {
 export async function findUserByWallet(walletAddress: string, client?: DbClient) {
   const db = getClient(client);
   const result = await db.query<DbUserRow>(
-    `SELECT id, full_name, organization, stellar_public_key, seller_verification_status, seller_verification_data, created_at, updated_at
+    `SELECT id, full_name, organization, stellar_public_key, app_role, buyer_verification_status, seller_verification_status, seller_verification_data, created_at, updated_at
      FROM app_users
      WHERE stellar_public_key = $1
      LIMIT 1`,

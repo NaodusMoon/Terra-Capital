@@ -1,5 +1,5 @@
 import type { AppUser, Session, UserMode } from "@/types/auth";
-import { STORAGE_KEYS } from "@/lib/constants";
+import { PLATFORM_OWNER_WALLET, STORAGE_KEYS } from "@/lib/constants";
 import { isValidStellarPublicKey, normalizeSafeText } from "@/lib/security";
 import { readLocalStorage, removeLocalStorage, writeLocalStorage } from "@/lib/storage";
 import { signWalletLoginChallenge, type WalletProviderId } from "@/lib/wallet";
@@ -68,6 +68,12 @@ type ChallengeApiFailure = {
   message: string;
 };
 
+interface AdminAccountsPayload {
+  ok: boolean;
+  users?: AppUser[];
+  message?: string;
+}
+
 function writeSession(userId: string, activeMode: UserMode) {
   const session: Session = { userId, activeMode };
   writeLocalStorage(STORAGE_KEYS.session, session);
@@ -82,7 +88,15 @@ export function getCurrentSession() {
 }
 
 export function getCurrentUser() {
-  return readLocalStorage<AppUser | null>(STORAGE_KEYS.authUser, null);
+  const raw = readLocalStorage<AppUser | null>(STORAGE_KEYS.authUser, null);
+  if (!raw) return null;
+  const ownerWallet = (raw.stellarPublicKey ?? "").trim().toUpperCase() === PLATFORM_OWNER_WALLET;
+  return {
+    ...raw,
+    appRole: ownerWallet ? "admin" : (raw.appRole ?? "user"),
+    buyerVerificationStatus: raw.buyerVerificationStatus ?? "unverified",
+    sellerVerificationStatus: raw.sellerVerificationStatus ?? "unverified",
+  };
 }
 
 export function getActiveMode() {
@@ -231,6 +245,37 @@ export async function submitSellerVerification(input: SellerVerificationInput) {
   }
 
   writeCurrentUser(payload.user);
+  return { ok: true as const, user: payload.user };
+}
+
+export async function listAdminAccounts() {
+  const response = await fetch("/api/auth/admin/accounts", {
+    method: "GET",
+    credentials: "include",
+    cache: "no-store",
+  });
+  const payload = await parseResponse<AdminAccountsPayload>(response);
+  if (!payload || !payload.ok || !payload.users) {
+    return { ok: false as const, message: payload?.message ?? "No se pudieron cargar las cuentas." };
+  }
+  return { ok: true as const, users: payload.users };
+}
+
+export async function updateAdminAccount(input: {
+  targetUserId: string;
+  appRole?: "user" | "dev" | "admin";
+  buyerVerificationStatus?: "unverified" | "verified";
+}) {
+  const response = await fetch("/api/auth/admin/accounts", {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const payload = await parseResponse<{ ok: boolean; user?: AppUser; message?: string }>(response);
+  if (!payload || !payload.ok || !payload.user) {
+    return { ok: false as const, message: payload?.message ?? "No se pudo actualizar la cuenta." };
+  }
   return { ok: true as const, user: payload.user };
 }
 

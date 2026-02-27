@@ -7,6 +7,7 @@ import { findUserByWallet, mapDbUser } from "@/lib/server/auth-users";
 import { createWalletLoginChallenge, consumeWalletLoginChallenge } from "@/lib/server/wallet-login-challenge-store";
 import { getPostgresPool } from "@/lib/server/postgres";
 import { enforceRateLimit, getClientIp, isTrustedOrigin, parseJsonWithLimit } from "@/lib/server/request-security";
+import { PLATFORM_OWNER_NAME, isPlatformOwnerWallet } from "@/lib/server/admin-config";
 
 export const runtime = "nodejs";
 
@@ -139,17 +140,31 @@ async function upsertWalletUserAndCreateSession(input: {
   walletAddress: string;
   fullName?: string;
 }) {
+  const ownerWallet = isPlatformOwnerWallet(input.walletAddress);
   const existing = await findUserByWallet(input.walletAddress);
   if (existing) {
     const normalizedName = normalizeSafeText(input.fullName ?? "", 120);
-    if (normalizedName && normalizedName !== existing.fullName) {
+    const desiredName = ownerWallet ? PLATFORM_OWNER_NAME : normalizedName || existing.fullName;
+    const needsNameUpdate = desiredName !== existing.fullName;
+    const needsRoleUpdate = ownerWallet && existing.appRole !== "admin";
+    if (needsNameUpdate || needsRoleUpdate) {
       const pool = getPostgresPool();
+      if (ownerWallet) {
+        await pool.query(
+          `UPDATE app_users
+           SET app_role = 'user', updated_at = timezone('utc', now())
+           WHERE app_role = 'admin' AND id <> $1`,
+          [existing.id],
+        );
+      }
       const updated = await pool.query(
         `UPDATE app_users
-         SET full_name = $1, updated_at = timezone('utc', now())
+         SET full_name = $1,
+             app_role = CASE WHEN $3 THEN 'admin' ELSE app_role END,
+             updated_at = timezone('utc', now())
          WHERE id = $2
-         RETURNING id, full_name, organization, stellar_public_key, seller_verification_status, seller_verification_data, created_at, updated_at`,
-        [normalizedName, existing.id],
+         RETURNING id, full_name, organization, stellar_public_key, app_role, buyer_verification_status, seller_verification_status, seller_verification_data, created_at, updated_at`,
+        [desiredName, existing.id, ownerWallet],
       );
       const mapped = mapDbUser(updated.rows[0]);
       const response = NextResponse.json({ ok: true, user: mapped, isNewUser: false });
@@ -162,7 +177,7 @@ async function upsertWalletUserAndCreateSession(input: {
   }
 
   const normalizedName = normalizeSafeText(input.fullName ?? "", 120);
-  if (!normalizedName) {
+  if (!normalizedName && !ownerWallet) {
     return NextResponse.json(
       { ok: false, requiresName: true, message: "Primer acceso: indica tu nombre para crear el perfil." },
       { status: 400 },
@@ -170,11 +185,18 @@ async function upsertWalletUserAndCreateSession(input: {
   }
 
   const pool = getPostgresPool();
+  if (ownerWallet) {
+    await pool.query(
+      `UPDATE app_users
+       SET app_role = 'user', updated_at = timezone('utc', now())
+       WHERE app_role = 'admin'`,
+    );
+  }
   const created = await pool.query(
-    `INSERT INTO app_users (id, full_name, stellar_public_key, seller_verification_status)
-     VALUES ($1, $2, $3, 'unverified')
-     RETURNING id, full_name, organization, stellar_public_key, seller_verification_status, seller_verification_data, created_at, updated_at`,
-    [crypto.randomUUID(), normalizedName, input.walletAddress],
+    `INSERT INTO app_users (id, full_name, stellar_public_key, app_role, buyer_verification_status, seller_verification_status)
+     VALUES ($1, $2, $3, $4, 'unverified', 'unverified')
+     RETURNING id, full_name, organization, stellar_public_key, app_role, buyer_verification_status, seller_verification_status, seller_verification_data, created_at, updated_at`,
+    [crypto.randomUUID(), ownerWallet ? PLATFORM_OWNER_NAME : normalizedName, input.walletAddress, ownerWallet ? "admin" : "user"],
   );
 
   const mapped = mapDbUser(created.rows[0]);

@@ -2,13 +2,15 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, BadgeCheck, Camera, CheckCircle2, MonitorSmartphone, Moon, RefreshCw, ScanFace, Sun, Upload, UserRound, Wallet, X } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Camera, CheckCircle2, MonitorSmartphone, Moon, RefreshCw, ScanFace, ShieldCheck, Sun, Upload, UserRound, Wallet, X } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useTheme } from "@/components/providers/theme-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useWallet } from "@/components/providers/wallet-provider";
+import { PLATFORM_OWNER_WALLET } from "@/lib/constants";
 import { getWalletProviderLabel } from "@/lib/wallet";
+import type { AppUser } from "@/types/auth";
 
 type DocumentType = "national_id" | "passport" | "license";
 
@@ -78,7 +80,7 @@ function pickRandomChallenge() {
 }
 
 export function AccountSettings() {
-  const { user, updateAccount, submitSellerKyc, activeMode } = useAuth();
+  const { user, updateAccount, submitSellerKyc, activeMode, listAccountsForAdmin, updateAccountByAdmin } = useAuth();
   const { walletAddress, walletProvider } = useWallet();
   const { theme, resolvedTheme, setTheme } = useTheme();
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -105,6 +107,9 @@ export function AccountSettings() {
   const [runningLiveness, setRunningLiveness] = useState(false);
   const [profileMessage, setProfileMessage] = useState("");
   const [kycMessage, setKycMessage] = useState("");
+  const [adminAccounts, setAdminAccounts] = useState<AppUser[]>([]);
+  const [loadingAdminAccounts, setLoadingAdminAccounts] = useState(false);
+  const [adminMessage, setAdminMessage] = useState("");
 
   const canSubmitKyc = useMemo(
     () =>
@@ -119,6 +124,14 @@ export function AccountSettings() {
       ),
     [documentFrontDigest, kyc.country, kyc.documentLast4, kyc.legalName, kyc.taxId, livenessMetrics, livenessVideoDigest],
   );
+  const isAdminUser = useMemo(
+    () =>
+      Boolean(
+        user
+        && (user.appRole === "admin" || (user.stellarPublicKey ?? "").trim().toUpperCase() === PLATFORM_OWNER_WALLET),
+      ),
+    [user],
+  );
 
   useEffect(() => {
     return () => {
@@ -127,6 +140,35 @@ export function AccountSettings() {
       streamRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!user || !isAdminUser) return;
+    let active = true;
+    setLoadingAdminAccounts(true);
+    setAdminMessage("");
+    void listAccountsForAdmin()
+      .then((result) => {
+        if (!active) return;
+        if (!result.ok) {
+          setAdminMessage(result.message);
+          setAdminAccounts([]);
+          return;
+        }
+        setAdminAccounts(result.users);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setAdminMessage(error instanceof Error ? error.message : "No se pudieron cargar cuentas.");
+        setAdminAccounts([]);
+      })
+      .finally(() => {
+        if (!active) return;
+        setLoadingAdminAccounts(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isAdminUser, listAccountsForAdmin, user]);
 
   if (!user) {
     return (
@@ -434,6 +476,26 @@ export function AccountSettings() {
     }
   };
 
+  const handleAdminBuyerVerification = async (targetUserId: string, status: "unverified" | "verified") => {
+    const result = await updateAccountByAdmin({ targetUserId, buyerVerificationStatus: status });
+    if (!result.ok) {
+      setAdminMessage(result.message);
+      return;
+    }
+    setAdminAccounts((prev) => prev.map((row) => (row.id === targetUserId ? result.user : row)));
+    setAdminMessage("Cuenta actualizada.");
+  };
+
+  const handleAdminRoleChange = async (targetUserId: string, role: "user" | "dev" | "admin") => {
+    const result = await updateAccountByAdmin({ targetUserId, appRole: role });
+    if (!result.ok) {
+      setAdminMessage(result.message);
+      return;
+    }
+    setAdminAccounts((prev) => prev.map((row) => (row.id === targetUserId ? result.user : row)));
+    setAdminMessage("Rol actualizado.");
+  };
+
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 sm:py-9">
       <section className="relative overflow-hidden rounded-3xl border border-[var(--color-border)] bg-[linear-gradient(130deg,color-mix(in_oklab,var(--color-primary)_14%,var(--color-surface)),color-mix(in_oklab,var(--color-secondary)_10%,var(--color-surface)_90%))] p-6 shadow-[0_24px_50px_rgba(0,0,0,0.11)] sm:p-7">
@@ -615,6 +677,84 @@ export function AccountSettings() {
           </form>
         </Card>
       </section>
+
+      {isAdminUser && (
+        <section className="mt-6">
+          <Card className="rounded-3xl">
+            <h2 className="tc-heading flex items-center gap-2 text-xl font-black"><ShieldCheck size={18} /> Administracion de cuentas</h2>
+            <p className="mt-1 text-sm text-[var(--color-muted)]">
+              Vista exclusiva de admin para verificar compradores y cambiar tipo de usuario.
+            </p>
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--color-border)] text-xs uppercase tracking-[0.12em] text-[var(--color-muted)]">
+                    <th className="py-2 pr-4">Cuenta</th>
+                    <th className="py-2 pr-4">Wallet</th>
+                    <th className="py-2 pr-4">Rol</th>
+                    <th className="py-2 pr-4">Comprador</th>
+                    <th className="py-2">Vendedor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adminAccounts.map((account) => (
+                    <tr key={account.id} className="border-b border-[var(--color-border)] align-top">
+                      <td className="py-3 pr-4">
+                        <p className="font-semibold">{account.fullName}</p>
+                        <p className="text-xs text-[var(--color-muted)]">{account.organization || "-"}</p>
+                      </td>
+                      <td className="py-3 pr-4">
+                        <p className="max-w-[260px] break-all text-xs text-[var(--color-muted)]">{account.stellarPublicKey ?? "-"}</p>
+                      </td>
+                      <td className="py-3 pr-4">
+                        <select
+                          className="h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-2 text-xs"
+                          value={account.appRole}
+                          onChange={(event) => { void handleAdminRoleChange(account.id, event.target.value as "user" | "dev" | "admin"); }}
+                        >
+                          <option value="user">user</option>
+                          <option value="dev">dev</option>
+                          <option value="admin">admin</option>
+                        </select>
+                      </td>
+                      <td className="py-3 pr-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs">{account.buyerVerificationStatus}</span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-8 px-2 text-xs"
+                            onClick={() => {
+                              void handleAdminBuyerVerification(
+                                account.id,
+                                account.buyerVerificationStatus === "verified" ? "unverified" : "verified",
+                              );
+                            }}
+                          >
+                            {account.buyerVerificationStatus === "verified" ? "Quitar verificacion" : "Verificar"}
+                          </Button>
+                        </div>
+                      </td>
+                      <td className="py-3">
+                        <span className="text-xs">{account.sellerVerificationStatus}</span>
+                      </td>
+                    </tr>
+                  ))}
+                  {!loadingAdminAccounts && adminAccounts.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-4 text-sm text-[var(--color-muted)]">
+                        No hay cuentas registradas para mostrar.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {loadingAdminAccounts && <p className="mt-3 text-sm text-[var(--color-muted)]">Cargando cuentas...</p>}
+            {adminMessage && <p className="mt-3 text-sm text-[var(--color-primary)]">{adminMessage}</p>}
+          </Card>
+        </section>
+      )}
     </main>
   );
 }

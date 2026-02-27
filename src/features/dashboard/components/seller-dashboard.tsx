@@ -11,6 +11,13 @@ import { MARKETPLACE_EVENT } from "@/lib/constants";
 import { formatUSDT } from "@/lib/format";
 import { extractFirstUrl, getEmbeddableVideoUrl, getVideoThumbnailUrl, inferRemoteMediaKind, isKnownExternalVideoHost, validateRemoteMediaUrl } from "@/lib/media";
 import { createAsset, getSellerAssets, getSellerSalesSummary, syncMarketplace } from "@/lib/marketplace";
+import {
+  fetchOracleSnapshot,
+  verifyAssetEvidence,
+  verifyOracleAnchor,
+  type AssetVerificationReport,
+  type OracleSnapshot,
+} from "@/lib/oracle";
 import type { AssetCategory, AssetMediaItem } from "@/types/market";
 
 const MAX_MEDIA_SIZE_MB = 25;
@@ -60,6 +67,7 @@ export function SellerDashboard() {
   const { user } = useAuth();
   const router = useRouter();
   const sellerVerified = user?.sellerVerificationStatus === "verified";
+  const canUseOracle = user?.appRole === "admin";
 
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<AssetCategory>("cultivo");
@@ -72,10 +80,16 @@ export function SellerDashboard() {
   const [historicalRoiPct, setHistoricalRoiPct] = useState("10.50");
   const [expectedYield, setExpectedYield] = useState("");
   const [proofOfAssetHash, setProofOfAssetHash] = useState("");
+  const [externalRefsRaw, setExternalRefsRaw] = useState("");
   const [mediaItems, setMediaItems] = useState<AssetMediaItem[]>([]);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [formMessage, setFormMessage] = useState("");
   const [isPublishing, setIsPublishing] = useState(false);
+  const [oracleSnapshot, setOracleSnapshot] = useState<OracleSnapshot | null>(null);
+  const [oracleError, setOracleError] = useState("");
+  const [assetVerification, setAssetVerification] = useState<AssetVerificationReport | null>(null);
+  const [verifyingAsset, setVerifyingAsset] = useState(false);
+  const [anchorCheckMessage, setAnchorCheckMessage] = useState("");
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
   const [summary, setSummary] = useState({ soldTokens: 0, grossAmount: 0, operations: 0, publishedAssets: 0 });
@@ -120,6 +134,26 @@ export function SellerDashboard() {
       window.removeEventListener(MARKETPLACE_EVENT, listener);
     };
   }, [syncData, user]);
+
+  useEffect(() => {
+    if (currentStep !== 2 || !canUseOracle) return;
+    let active = true;
+    void (async () => {
+      try {
+        const snapshot = await fetchOracleSnapshot(category, location);
+        if (!active) return;
+        setOracleSnapshot(snapshot);
+        setOracleError("");
+      } catch (error) {
+        if (!active) return;
+        setOracleSnapshot(null);
+        setOracleError(error instanceof Error ? error.message : "No se pudo cargar el oraculo.");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [canUseOracle, category, currentStep, location]);
 
   async function addMediaFile(file: File, kind: "image" | "video") {
     if (file.size > MAX_MEDIA_SIZE_MB * 1024 * 1024) {
@@ -423,6 +457,7 @@ export function SellerDashboard() {
     setHistoricalRoiPct("10.50");
     setExpectedYield("");
     setProofOfAssetHash("");
+    setExternalRefsRaw("");
     setMediaItems([]);
     setPreviewIndex(0);
     setCurrentStep(1);
@@ -472,6 +507,72 @@ export function SellerDashboard() {
 
   const goToPrevStep = () => {
     setCurrentStep((prev) => (prev > 1 ? ((prev - 1) as 1 | 2 | 3 | 4) : prev));
+  };
+
+  const applyOracleSuggestion = () => {
+    if (!canUseOracle || !oracleSnapshot) return;
+    setTokenPriceSats(String(oracleSnapshot.suggestedTokenPriceUsdt));
+    setTouched((prev) => ({ ...prev, tokenPriceSats: true }));
+    setFormMessage(`Precio sugerido por oraculo aplicado: ${formatUSDT(oracleSnapshot.suggestedTokenPriceUsdt)}.`);
+  };
+
+  const runAssetVerification = async () => {
+    if (!canUseOracle) {
+      setFormMessage("Solo admin puede ejecutar verificacion Oracle.");
+      return;
+    }
+    setFormMessage("");
+    setAnchorCheckMessage("");
+    setVerifyingAsset(true);
+    const externalRefs = externalRefsRaw
+      .split(/\r?\n/g)
+      .map((row) => row.trim())
+      .filter(Boolean);
+    try {
+      const report = await verifyAssetEvidence({
+        title,
+        category,
+        location,
+        description,
+        mediaUrls: mediaItems.map((item) => item.url),
+        declaredProofHash: proofOfAssetHash,
+        externalRefs,
+      });
+      setAssetVerification(report);
+      if (!proofOfAssetHash.trim()) {
+        setProofOfAssetHash(report.evidenceHash);
+      }
+      setFormMessage(`Verificacion completada (${report.verdict}). Integridad: ${report.integrityScore}%.`);
+    } catch (error) {
+      setFormMessage(error instanceof Error ? error.message : "No se pudo verificar evidencia del activo.");
+    } finally {
+      setVerifyingAsset(false);
+    }
+  };
+
+  const runAnchorVerification = async () => {
+    if (!canUseOracle) {
+      setAnchorCheckMessage("Solo admin puede validar anclaje Oracle.");
+      return;
+    }
+    if (!assetVerification?.attestation.anchored.txHash) {
+      setAnchorCheckMessage("Esta atestacion no tiene txHash anclado en blockchain.");
+      return;
+    }
+    try {
+      const result = await verifyOracleAnchor({
+        txHash: assetVerification.attestation.anchored.txHash,
+        digest: assetVerification.attestation.digest,
+        network: assetVerification.attestation.anchored.network,
+      });
+      setAnchorCheckMessage(
+        result.memoMatches || result.manageDataMatch
+          ? "Anclaje validado en Horizon."
+          : "No se pudo validar memo/manage_data en la transaccion.",
+      );
+    } catch (error) {
+      setAnchorCheckMessage(error instanceof Error ? error.message : "Fallo validando anclaje on-chain.");
+    }
   };
 
   return (
@@ -596,6 +697,37 @@ export function SellerDashboard() {
 
             {currentStep === 2 && (
               <>
+                <Card>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold">Oraculo de referencia ({category})</p>
+                      <p className="text-xs text-[var(--color-muted)]">Indice de mercado: {oracleSnapshot ? oracleSnapshot.marketIndex.toFixed(2) : "--"}</p>
+                    </div>
+                    <Button type="button" variant="outline" onClick={applyOracleSuggestion} disabled={!canUseOracle || !oracleSnapshot || !sellerVerified || isPublishing}>
+                      Usar precio sugerido
+                    </Button>
+                  </div>
+                  <p className="mt-2 text-sm text-[var(--color-muted)]">
+                    Precio sugerido: <strong className="text-[var(--color-foreground)]">{oracleSnapshot ? formatUSDT(oracleSnapshot.suggestedTokenPriceUsdt) : "--"}</strong>
+                  </p>
+                  {oracleSnapshot && (
+                    <p className="mt-1 text-xs text-[var(--color-muted)]">
+                      Base {formatUSDT(Number(oracleSnapshot.basePriceUsdt ?? 0))} x mercado {Number(oracleSnapshot.marketIndex ?? 1).toFixed(2)} x ubicacion {Number(oracleSnapshot.locationFactor ?? 1).toFixed(2)}
+                    </p>
+                  )}
+                  {!canUseOracle && <p className="mt-2 text-xs text-[var(--color-muted)]">Oracle disponible solo para admin.</p>}
+                  {canUseOracle && !oracleSnapshot && !oracleError && <p className="mt-2 text-xs text-[var(--color-muted)]">Consultando oraculo...</p>}
+                  {oracleError && <p className="mt-2 text-xs text-amber-500">{oracleError}</p>}
+                  {oracleSnapshot && (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {oracleSnapshot.feeds.map((feed) => (
+                        <p key={feed.id} className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-xs">
+                          <strong>{feed.symbol}</strong>: {feed.value.toLocaleString("es-AR")} {feed.unit}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </Card>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
                     <label className={labelClassName}>Precio por token (USDT)</label>
@@ -639,6 +771,16 @@ export function SellerDashboard() {
                     <input className={fieldClassName} placeholder="Hash documental o de auditoria" value={proofOfAssetHash} onBlur={() => setTouched((prev) => ({ ...prev, proofOfAssetHash: true }))} onChange={(event) => setProofOfAssetHash(event.target.value)} disabled={!sellerVerified || isPublishing} />
                     {shouldShowError(touched.proofOfAssetHash) && liveValidation.proofHashWarning && <p className="text-xs text-[var(--color-muted)]">{liveValidation.proofHashWarning}</p>}
                   </div>
+                </div>
+                <div className="space-y-1">
+                  <label className={labelClassName}>Referencias de registro/catastro (una URL por linea)</label>
+                  <textarea
+                    className="h-24 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] p-3"
+                    placeholder="https://registro-pais/expediente/123&#10;https://catastro-pais/ficha/ABC"
+                    value={externalRefsRaw}
+                    onChange={(event) => setExternalRefsRaw(event.target.value)}
+                    disabled={!sellerVerified || isPublishing}
+                  />
                 </div>
               </>
             )}
@@ -693,6 +835,43 @@ export function SellerDashboard() {
                   <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Meta estimada: <strong>{formatUSDT(previewTotal)}</strong></p>
                   <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Ciclo: <strong>{cycleDurationDays} dias</strong></p>
                   <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Multimedia: <strong>{mediaItems.length} items</strong></p>
+                </div>
+                <div className="mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold">Verificacion de evidencia y anclaje blockchain</p>
+                    <Button type="button" variant="outline" onClick={() => { void runAssetVerification(); }} disabled={!canUseOracle || !sellerVerified || isPublishing || verifyingAsset}>
+                      {verifyingAsset ? "Verificando..." : "Verificar activo"}
+                    </Button>
+                  </div>
+                  {assetVerification && (
+                    <div className="mt-3 space-y-1 text-xs text-[var(--color-muted)]">
+                      <p>Veredicto: <strong className="text-[var(--color-foreground)]">{assetVerification.verdict}</strong></p>
+                      <p>Integridad: <strong className="text-[var(--color-foreground)]">{assetVerification.integrityScore}%</strong></p>
+                      <p>Data quality: <strong className="text-[var(--color-foreground)]">{assetVerification.dataQualityScore}%</strong></p>
+                      <p>
+                        Registro catastral ({assetVerification.landRegistry.countryCode}):{" "}
+                        <strong className="text-[var(--color-foreground)]">{assetVerification.landRegistry.status}</strong>
+                      </p>
+                      <p>{assetVerification.landRegistry.message}</p>
+                      <p className="break-all">Evidence hash: <strong className="text-[var(--color-foreground)]">{assetVerification.evidenceHash}</strong></p>
+                      <p className="break-all">Digest: <strong className="text-[var(--color-foreground)]">{assetVerification.attestation.digest}</strong></p>
+                      <p>
+                        Tx anclaje: <strong className="text-[var(--color-foreground)]">{assetVerification.attestation.anchored.txHash ?? "No anclado"}</strong>
+                      </p>
+                      <div className="pt-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-8"
+                          onClick={() => { void runAnchorVerification(); }}
+                          disabled={!canUseOracle || !assetVerification.attestation.anchored.txHash}
+                        >
+                          Validar anclaje on-chain
+                        </Button>
+                      </div>
+                      {anchorCheckMessage && <p>{anchorCheckMessage}</p>}
+                    </div>
+                  )}
                 </div>
               </Card>
             )}

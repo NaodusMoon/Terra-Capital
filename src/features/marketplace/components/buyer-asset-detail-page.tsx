@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { MARKETPLACE_EVENT } from "@/lib/constants";
 import { formatUSDT } from "@/lib/format";
 import { buyAsset, getAssets, syncMarketplace } from "@/lib/marketplace";
+import { fetchOracleSnapshot, type OracleSnapshot } from "@/lib/oracle";
 import { AssetMediaViewer } from "@/features/marketplace/components/asset-media-viewer";
 
 function getLifecycleLabel(status: "FUNDING" | "OPERATING" | "SETTLED") {
@@ -32,6 +33,7 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
   const [quantity, setQuantity] = useState(1);
   const [tradeMessage, setTradeMessage] = useState("");
   const [asset, setAsset] = useState(() => getAssets().find((row) => row.id === assetId) ?? null);
+  const [oracleSnapshot, setOracleSnapshot] = useState<OracleSnapshot | null>(null);
 
   const syncData = useCallback(async () => {
     if (!user) return;
@@ -57,6 +59,23 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
       window.removeEventListener(MARKETPLACE_EVENT, marketListener);
     };
   }, [syncData, user]);
+
+  useEffect(() => {
+    if (!asset) return;
+    let active = true;
+    void fetchOracleSnapshot(asset.category, asset.location)
+      .then((snapshot) => {
+        if (!active) return;
+        setOracleSnapshot(snapshot);
+      })
+      .catch(() => {
+        if (!active) return;
+        setOracleSnapshot(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [asset]);
 
   const handleBuy = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -104,6 +123,9 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
   const safeQuantity = Math.max(1, Math.min(maxQuantity, Math.floor(quantity || 1)));
   const estimatedTotal = safeQuantity * asset.tokenPriceSats;
   const projectedRoi = asset.investorMetrics?.projectedRoi ?? asset.expectedYield;
+  const oracleGapPct = oracleSnapshot
+    ? ((asset.tokenPriceSats - oracleSnapshot.suggestedTokenPriceUsdt) / Math.max(0.01, oracleSnapshot.suggestedTokenPriceUsdt)) * 100
+    : 0;
 
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 sm:py-9">
@@ -159,6 +181,27 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
               <p className="inline-flex items-center gap-1"><ShieldCheck size={13} /> Hash: {asset.proofOfAssetHash.slice(0, 24)}...</p>
             </div>
           </Card>
+
+          {oracleSnapshot && (
+            <Card className="p-3 text-sm">
+              <p className="text-xs uppercase tracking-[0.12em] text-[var(--color-muted)]">Oraculo de referencia</p>
+              <p className="mt-1 text-sm text-[var(--color-muted)]">
+                Sugerido para {oracleSnapshot.categoryLabel}: <strong className="text-[var(--color-foreground)]">{formatUSDT(oracleSnapshot.suggestedTokenPriceUsdt)}</strong>
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-muted)]">
+                Diferencia vs precio publicado: {oracleGapPct >= 0 ? "+" : ""}{oracleGapPct.toFixed(1)}%
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-muted)]">
+                Base {formatUSDT(Number(oracleSnapshot.basePriceUsdt ?? 0))} x mercado {Number(oracleSnapshot.marketIndex ?? 1).toFixed(2)} x ubicacion {Number(oracleSnapshot.locationFactor ?? 1).toFixed(2)}
+              </p>
+              <p className="mt-1 break-all text-xs text-[var(--color-muted)]">
+                Digest: {oracleSnapshot.attestation.digest}
+              </p>
+              <p className="mt-1 break-all text-xs text-[var(--color-muted)]">
+                Tx anclaje: {oracleSnapshot.attestation.anchored.txHash ?? "No anclado"}
+              </p>
+            </Card>
+          )}
         </Card>
 
         <Card className="h-fit space-y-4 lg:sticky lg:top-20">

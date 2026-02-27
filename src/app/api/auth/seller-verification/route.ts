@@ -155,7 +155,7 @@ export async function POST(request: Request) {
            seller_verification_status = 'verified',
            updated_at = timezone('utc', now())
        WHERE id = $2
-       RETURNING id, full_name, organization, stellar_public_key, seller_verification_status, seller_verification_data, created_at, updated_at`,
+       RETURNING id, full_name, organization, stellar_public_key, app_role, buyer_verification_status, seller_verification_status, seller_verification_data, created_at, updated_at`,
       [JSON.stringify(verificationPayload), authUser.id],
     );
 

@@ -4,12 +4,15 @@ import { createContext, useContext, useMemo, useState, useSyncExternalStore } fr
 import {
   getActiveMode,
   getCurrentUser,
+  listAdminAccounts,
   loginUser,
   logoutUser,
   setActiveMode,
   submitSellerVerification,
+  updateAdminAccount,
   updateProfile,
 } from "@/lib/auth";
+import { PLATFORM_OWNER_WALLET } from "@/lib/constants";
 import type { WalletProviderId } from "@/lib/wallet";
 import type { AppUser, UserMode } from "@/types/auth";
 
@@ -54,6 +57,12 @@ interface AuthContextValue {
     livenessMovementRatio: number;
     livenessChallenge: string;
   }) => ReturnType<typeof submitSellerVerification>;
+  listAccountsForAdmin: () => ReturnType<typeof listAdminAccounts>;
+  updateAccountByAdmin: (input: {
+    targetUserId: string;
+    appRole?: "user" | "dev" | "admin";
+    buyerVerificationStatus?: "unverified" | "verified";
+  }) => ReturnType<typeof updateAdminAccount>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -114,6 +123,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!user) return { ok: false as const, message: "No hay sesion activa." };
         const result = await submitSellerVerification(input);
         if (result.ok) setRevision((prev) => prev + 1);
+        return result;
+      },
+      listAccountsForAdmin: async () => {
+        const isAdmin = Boolean(
+          user && (user.appRole === "admin" || (user.stellarPublicKey ?? "").trim().toUpperCase() === PLATFORM_OWNER_WALLET),
+        );
+        if (!isAdmin) {
+          return { ok: false as const, message: "Solo admins pueden ver cuentas." };
+        }
+        return listAdminAccounts();
+      },
+      updateAccountByAdmin: async (input: {
+        targetUserId: string;
+        appRole?: "user" | "dev" | "admin";
+        buyerVerificationStatus?: "unverified" | "verified";
+      }) => {
+        const currentUserId = user?.id;
+        const isAdmin = Boolean(
+          user && (user.appRole === "admin" || (user.stellarPublicKey ?? "").trim().toUpperCase() === PLATFORM_OWNER_WALLET),
+        );
+        if (!isAdmin) {
+          return { ok: false as const, message: "Solo admins pueden actualizar cuentas." };
+        }
+        const result = await updateAdminAccount(input);
+        if (result.ok && result.user.id === currentUserId) {
+          setRevision((prev) => prev + 1);
+        }
         return result;
       },
     }),

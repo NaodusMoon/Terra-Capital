@@ -1,11 +1,15 @@
 export type UserMode = "buyer" | "seller";
 export type SellerVerificationStatus = "unverified" | "pending" | "verified";
+export type BuyerVerificationStatus = "unverified" | "verified";
+export type AppRole = "user" | "dev" | "admin";
 
 export interface AppUser {
   id: string;
   fullName: string;
   organization?: string;
   stellarPublicKey?: string;
+  appRole: AppRole;
+  buyerVerificationStatus: BuyerVerificationStatus;
   sellerVerificationStatus: SellerVerificationStatus;
   sellerVerificationData?: {
     legalName: string;

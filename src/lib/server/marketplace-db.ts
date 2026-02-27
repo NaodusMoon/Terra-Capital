@@ -877,8 +877,9 @@ export async function buyMarketplaceAsset(input: {
   buyerId: string;
   buyerName: string;
   quantity: number;
-  stellarTxHash: string;
   stellarNetwork: StellarNetwork;
+  stellarTxHash?: string;
+  skipStellarPaymentVerification?: boolean;
 }) {
   const pool = getPostgresPool();
   const client = await pool.connect();
@@ -926,20 +927,22 @@ export async function buyMarketplaceAsset(input: {
       return { ok: false as const, message: "Wallet de comprador o vendedor invalida para liquidar en Stellar." };
     }
     const expectedAmount = toWholeNumber(asset.token_price_sats) * input.quantity;
-    try {
-      await verifyStellarPayment({
-        network: input.stellarNetwork,
-        txHash: input.stellarTxHash,
-        source: buyerWallet,
-        destination: sellerWallet,
-        expectedAmount,
-      });
-    } catch (error) {
-      await client.query("ROLLBACK");
-      return {
-        ok: false as const,
-        message: error instanceof Error ? error.message : "No se pudo verificar la transaccion Stellar.",
-      };
+    if (!input.skipStellarPaymentVerification) {
+      try {
+        await verifyStellarPayment({
+          network: input.stellarNetwork,
+          txHash: input.stellarTxHash ?? "",
+          source: buyerWallet,
+          destination: sellerWallet,
+          expectedAmount,
+        });
+      } catch (error) {
+        await client.query("ROLLBACK");
+        return {
+          ok: false as const,
+          message: error instanceof Error ? error.message : "No se pudo verificar la transaccion Stellar.",
+        };
+      }
     }
 
     await client.query(
@@ -983,9 +986,9 @@ export async function buyMarketplaceAsset(input: {
         asset.token_price_sats,
         expectedAmount,
         input.stellarNetwork,
-        input.stellarTxHash,
-        buyerWallet,
-        sellerWallet,
+        input.stellarTxHash ?? null,
+        input.skipStellarPaymentVerification ? null : buyerWallet,
+        input.skipStellarPaymentVerification ? null : sellerWallet,
       ],
     );
 

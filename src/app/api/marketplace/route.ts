@@ -110,6 +110,7 @@ type CommandPayload =
     quantity?: unknown;
     stellarTxHash?: string;
     stellarNetwork?: unknown;
+    skipStellarPayment?: unknown;
   }
   | {
     action: "updateAsset";
@@ -257,13 +258,17 @@ export async function POST(request: Request) {
       const quantity = parseQuantity(payload.quantity);
       const stellarTxHash = payload.stellarTxHash?.trim() ?? "";
       const stellarNetwork = payload.stellarNetwork === "public" ? "public" : payload.stellarNetwork === "testnet" ? "testnet" : null;
+      const skipStellarPayment = payload.skipStellarPayment === true;
+      const canSkipStellarPayment = skipStellarPayment
+        && stellarNetwork === "testnet"
+        && (authUser.appRole === "admin" || authUser.appRole === "dev");
       if (!assetId || !buyerId || !buyerName || !Number.isFinite(quantity) || quantity <= 0) {
         return NextResponse.json({ ok: false, message: "Datos invalidos para compra." }, { status: 400 });
       }
       if (!stellarNetwork) {
         return NextResponse.json({ ok: false, message: "Debes especificar la red Stellar de la transaccion." }, { status: 400 });
       }
-      if (!STELLAR_TX_HASH_REGEX.test(stellarTxHash)) {
+      if (!canSkipStellarPayment && !STELLAR_TX_HASH_REGEX.test(stellarTxHash)) {
         return NextResponse.json({ ok: false, message: "Hash de transaccion Stellar invalido." }, { status: 400 });
       }
 
@@ -272,8 +277,9 @@ export async function POST(request: Request) {
         buyerId,
         buyerName,
         quantity,
-        stellarTxHash,
         stellarNetwork,
+        stellarTxHash: canSkipStellarPayment ? undefined : stellarTxHash,
+        skipStellarPaymentVerification: canSkipStellarPayment,
       });
       if (!result.ok) {
         return NextResponse.json({ ok: false, message: result.message }, { status: 400 });

@@ -21,5 +21,7 @@
 export const TERRA_ASSET_CODES = ["TRLAND", "TRCROP", "TRLIVE"] as const;
 
 export const APP_NAME = "Terra Capital";
+export const PLATFORM_OWNER_NAME = "Naodus";
+export const PLATFORM_OWNER_WALLET = "GDQM3R3UTY7M4QJGNANWZ4QXQYADQCMM65FZFAD3Y6Y7UOCKFYNFDI3J";
 
 export const MARKETPLACE_EVENT = "terra-market-updated";
