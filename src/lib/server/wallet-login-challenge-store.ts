@@ -6,7 +6,7 @@ const TTL_MS = 5 * 60 * 1000;
 interface WalletLoginChallengeRecord {
   id: string;
   walletAddress: string;
-  walletProvider: "freighter" | "albedo";
+  walletProvider: string;
   message: string;
   clientIp: string;
   createdAt: number;
@@ -38,7 +38,7 @@ function cleanupExpired(now: number) {
 
 export function createWalletLoginChallenge(input: {
   walletAddress: string;
-  walletProvider: "freighter" | "albedo";
+  walletProvider: string;
   clientIp: string;
   requestOrigin: string;
 }) {
@@ -73,7 +73,7 @@ export function createWalletLoginChallenge(input: {
 export function consumeWalletLoginChallenge(input: {
   id: string;
   walletAddress: string;
-  walletProvider: "freighter" | "albedo";
+  walletProvider: string;
   clientIp: string;
 }) {
   const now = Date.now();

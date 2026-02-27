@@ -161,6 +161,79 @@ function parseMediaGallery(value: unknown) {
   return out.length > 0 ? out : undefined;
 }
 
+function normalizeSignatureText(value: string | null | undefined) {
+  return (value ?? "").trim();
+}
+
+function normalizeSignatureList(values: string[] | undefined) {
+  return (values ?? []).map((item) => item.trim()).filter(Boolean);
+}
+
+function normalizeSignatureMediaGallery(
+  gallery: Array<{ kind: "image" | "video"; url: string }> | undefined,
+) {
+  return (gallery ?? [])
+    .map((item) => `${item.kind}:${item.url.trim()}`)
+    .filter(Boolean);
+}
+
+function buildAssetDuplicateSignature(input: {
+  title: string;
+  category: TokenizedAsset["category"];
+  description: string;
+  location: string;
+  pricePerToken: number;
+  totalTokens: number;
+  expectedYield: string;
+  tokenPriceSats: number;
+  cycleDurationDays: 30 | 60 | 90;
+  estimatedApyBps: number;
+  historicalRoiBps: number;
+  imageUrl?: string;
+  videoUrl?: string;
+  imageUrls?: string[];
+  mediaGallery?: Array<{ kind: "image" | "video"; url: string }>;
+}) {
+  return JSON.stringify({
+    title: normalizeSignatureText(input.title),
+    category: input.category,
+    description: normalizeSignatureText(input.description),
+    location: normalizeSignatureText(input.location),
+    pricePerToken: Number(input.pricePerToken),
+    totalTokens: Number(input.totalTokens),
+    expectedYield: normalizeSignatureText(input.expectedYield),
+    tokenPriceSats: Number(input.tokenPriceSats),
+    cycleDurationDays: Number(input.cycleDurationDays),
+    estimatedApyBps: Number(input.estimatedApyBps),
+    historicalRoiBps: Number(input.historicalRoiBps),
+    imageUrl: normalizeSignatureText(input.imageUrl),
+    videoUrl: normalizeSignatureText(input.videoUrl),
+    imageUrls: normalizeSignatureList(input.imageUrls),
+    mediaGallery: normalizeSignatureMediaGallery(input.mediaGallery),
+  });
+}
+
+function buildAssetDuplicateSignatureFromRow(row: DbAssetRow) {
+  const gallery = (parseMediaGallery(row.media_gallery) ?? []).map((item) => ({ kind: item.kind, url: item.url }));
+  return buildAssetDuplicateSignature({
+    title: row.title,
+    category: row.category,
+    description: row.description,
+    location: row.location,
+    pricePerToken: toNumber(row.price_per_token),
+    totalTokens: row.total_tokens,
+    expectedYield: row.expected_yield,
+    tokenPriceSats: toWholeNumber(row.token_price_sats),
+    cycleDurationDays: row.cycle_duration_days,
+    estimatedApyBps: row.estimated_apy_bps,
+    historicalRoiBps: row.historical_roi_bps,
+    imageUrl: row.image_url ?? undefined,
+    videoUrl: row.video_url ?? undefined,
+    imageUrls: parseStringArray(row.image_urls),
+    mediaGallery: gallery,
+  });
+}
+
 function toWholeNumber(value: string | number | null | undefined) {
   if (value === null || value === undefined) return 0;
   const parsed = Number(value);
@@ -548,8 +621,17 @@ export async function getMarketplaceState(userId?: string, options?: { includeCh
     }
   }
 
+  const uniqueAssetRows: DbAssetRow[] = [];
+  const seenAssetSignatures = new Set<string>();
+  for (const row of assetsResult.rows) {
+    const signature = buildAssetDuplicateSignatureFromRow(row);
+    if (seenAssetSignatures.has(signature)) continue;
+    seenAssetSignatures.add(signature);
+    uniqueAssetRows.push(row);
+  }
+
   return {
-    assets: assetsResult.rows.map((assetRow) => {
+    assets: uniqueAssetRows.map((assetRow) => {
       const buyerTokens = buyerParticipationByAsset.get(assetRow.id) ?? 0;
       const participationPct = (buyerTokens / Math.max(1, assetRow.total_tokens)) * 100;
       const retention = sellerRetentionBySeller.get(assetRow.seller_id);
@@ -594,77 +676,45 @@ export async function createMarketplaceAsset(input: {
   const pool = getPostgresPool();
   const serializedImageUrls = JSON.stringify(input.imageUrls ?? []);
   const serializedMediaGallery = JSON.stringify(input.mediaGallery ?? []);
-  const duplicateWindowSeconds = 120;
-  const fingerprint = [
-    input.sellerId,
-    input.title,
-    input.category,
-    input.description,
-    input.location,
-    String(input.pricePerToken),
-    String(input.totalTokens),
-    input.expectedYield,
-    String(input.tokenPriceSats),
-    String(input.cycleDurationDays),
-    String(input.estimatedApyBps),
-    String(input.historicalRoiBps),
-    input.imageUrl ?? "",
-    input.videoUrl ?? "",
-    serializedImageUrls,
-    serializedMediaGallery,
-  ].join("|");
+  const duplicateWindowSeconds = 300;
+  const signature = buildAssetDuplicateSignature({
+    title: input.title,
+    category: input.category,
+    description: input.description,
+    location: input.location,
+    pricePerToken: input.pricePerToken,
+    totalTokens: input.totalTokens,
+    expectedYield: input.expectedYield,
+    tokenPriceSats: input.tokenPriceSats,
+    cycleDurationDays: input.cycleDurationDays,
+    estimatedApyBps: input.estimatedApyBps,
+    historicalRoiBps: input.historicalRoiBps,
+    imageUrl: input.imageUrl,
+    videoUrl: input.videoUrl,
+    imageUrls: input.imageUrls,
+    mediaGallery: input.mediaGallery?.map((item) => ({ kind: item.kind, url: item.url })),
+  });
+  const fingerprint = `${input.sellerId}|${signature}`;
   const client: PoolClient = await pool.connect();
   try {
     await client.query("BEGIN");
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [fingerprint]);
 
-    const existing = await client.query<DbAssetRow>(
+    const existingCandidates = await client.query<DbAssetRow>(
       `SELECT id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, media_gallery,
               token_price_sats, cycle_duration_days, lifecycle_status, cycle_start_at, cycle_end_at, estimated_apy_bps, historical_roi_bps, proof_of_asset_hash,
               audit_hash, health_score, current_yield_accrued_sats, net_profit_sats, final_payout_sats, snapshot_locked_at, created_at
        FROM marketplace_assets
        WHERE seller_id = $1
-         AND title = $2
-         AND category = $3
-         AND description = $4
-         AND location = $5
-         AND price_per_token = $6
-         AND total_tokens = $7
-         AND expected_yield = $8
-         AND token_price_sats = $9
-         AND cycle_duration_days = $10
-         AND estimated_apy_bps = $11
-         AND historical_roi_bps = $12
-         AND coalesce(image_url, '') = coalesce($13, '')
-         AND coalesce(video_url, '') = coalesce($14, '')
-         AND image_urls = $15::jsonb
-         AND media_gallery = $16::jsonb
-         AND created_at >= timezone('utc', now()) - make_interval(secs => $17)
+         AND created_at >= timezone('utc', now()) - make_interval(secs => $2)
        ORDER BY created_at DESC
-       LIMIT 1`,
-      [
-        input.sellerId,
-        input.title,
-        input.category,
-        input.description,
-        input.location,
-        input.pricePerToken,
-        input.totalTokens,
-        input.expectedYield,
-        input.tokenPriceSats,
-        input.cycleDurationDays,
-        input.estimatedApyBps,
-        input.historicalRoiBps,
-        input.imageUrl ?? null,
-        input.videoUrl ?? null,
-        serializedImageUrls,
-        serializedMediaGallery,
-        duplicateWindowSeconds,
-      ],
+       LIMIT 40`,
+      [input.sellerId, duplicateWindowSeconds],
     );
-    if (existing.rows[0]) {
+    const existing = existingCandidates.rows.find((row) => buildAssetDuplicateSignatureFromRow(row) === signature);
+    if (existing) {
       await client.query("COMMIT");
-      return mapAssetRow(existing.rows[0]);
+      return mapAssetRow(existing);
     }
 
     const result = await client.query<DbAssetRow>(

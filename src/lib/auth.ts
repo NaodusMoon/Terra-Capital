@@ -107,8 +107,8 @@ export async function loginUser(input: LoginInput) {
   if (!isValidStellarPublicKey(walletAddress)) {
     return { ok: false as const, message: "Primero debes conectar una wallet valida." };
   }
-  if (walletProvider !== "freighter" && walletProvider !== "albedo") {
-    return { ok: false as const, message: "Para login seguro usa Freighter o Albedo." };
+  if (walletProvider === "manual") {
+    return { ok: false as const, message: "Conecta una wallet para login seguro." };
   }
   try {
     const challengeResponse = await fetch("/api/auth/wallet-login", {

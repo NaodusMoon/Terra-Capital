@@ -11,13 +11,13 @@ const csp = [
   "font-src 'self' https://fonts.gstatic.com data:",
   "form-action 'self'",
   "frame-ancestors 'none'",
-  "frame-src 'self' https://albedo.link",
+  "frame-src 'self' https://albedo.link https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com",
   "img-src 'self' data: blob: https:",
   "media-src 'self' blob: data:",
   "object-src 'none'",
   scriptSrc,
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "connect-src 'self' https://horizon-testnet.stellar.org https://horizon.stellar.org https://albedo.link",
+  "connect-src 'self' https://horizon-testnet.stellar.org https://horizon.stellar.org https://albedo.link https://relay.walletconnect.org https://rpc.walletconnect.org https://pulse.walletconnect.org https://api.web3modal.org https://secure.walletconnect.org https://secure-mobile.walletconnect.com https://secure-mobile.walletconnect.org https://*.walletconnect.com https://*.walletconnect.org https://*.web3modal.org https://*.web3modal.com https://*.reown.com wss://relay.walletconnect.org wss://*.walletconnect.com wss://*.walletconnect.org",
   "upgrade-insecure-requests",
 ].join("; ");
 

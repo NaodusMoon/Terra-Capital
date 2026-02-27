@@ -20,6 +20,7 @@ export const runtime = "nodejs";
 const STELLAR_TX_HASH_REGEX = /^[0-9a-f]{64}$/i;
 const MAX_GALLERY_ITEMS = 12;
 const MAX_MESSAGE_IDS = 200;
+const MAX_MARKETPLACE_PAYLOAD_BYTES = 15 * 1024 * 1024;
 
 function isAssetCategory(value: unknown): value is TokenizedAsset["category"] {
   return value === "cultivo" || value === "tierra" || value === "ganaderia";
@@ -175,7 +176,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, message: "Demasiadas solicitudes. Intenta nuevamente." }, { status: 429 });
   }
 
-  const parsed = await parseJsonWithLimit<CommandPayload>(request, 1_500_000);
+  const parsed = await parseJsonWithLimit<CommandPayload>(request, MAX_MARKETPLACE_PAYLOAD_BYTES);
   if (!parsed.ok) {
     return NextResponse.json({ ok: false, message: parsed.message }, { status: parsed.status });
   }

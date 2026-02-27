@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Camera, CheckCircle2, MonitorSmartphone, Moon, RefreshCw, Sun, Upload, X } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Camera, CheckCircle2, MonitorSmartphone, Moon, RefreshCw, ScanFace, Sun, Upload, UserRound, Wallet, X } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useTheme } from "@/components/providers/theme-provider";
 import { Button } from "@/components/ui/button";
@@ -435,48 +435,75 @@ export function AccountSettings() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-5 py-8">
-      <div className="mb-3 flex items-center justify-between">
-        <Link href={activeMode === "seller" ? "/seller" : "/dashboard"} className="inline-flex items-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm font-semibold hover:bg-[var(--color-surface-soft)]">
-          <ArrowLeft size={15} /> Volver al panel
-        </Link>
-        <Link href={activeMode === "seller" ? "/seller" : "/dashboard"} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--color-border)] hover:bg-[var(--color-surface-soft)]" aria-label="Cerrar">
-          <X size={15} />
-        </Link>
-      </div>
+    <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 sm:py-9">
+      <section className="relative overflow-hidden rounded-3xl border border-[var(--color-border)] bg-[linear-gradient(130deg,color-mix(in_oklab,var(--color-primary)_14%,var(--color-surface)),color-mix(in_oklab,var(--color-secondary)_10%,var(--color-surface)_90%))] p-6 shadow-[0_24px_50px_rgba(0,0,0,0.11)] sm:p-7">
+        <div className="pointer-events-none absolute -right-20 -top-24 h-56 w-56 rounded-full bg-[color:color-mix(in_oklab,var(--color-secondary)_24%,transparent)] blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-16 -left-10 h-48 w-48 rounded-full bg-[color:color-mix(in_oklab,var(--color-primary)_22%,transparent)] blur-3xl" />
+        <div className="relative flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="terra-badge">Cuenta y seguridad</p>
+            <h1 className="tc-heading mt-3 text-3xl font-black sm:text-4xl">Configuracion de la cuenta</h1>
+            <p className="tc-subtitle mt-2 max-w-2xl text-sm">
+              Gestiona perfil, wallet, apariencia y verificacion KYC en una sola experiencia fluida.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link href={activeMode === "seller" ? "/seller" : "/dashboard"} className="inline-flex items-center gap-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm font-semibold hover:bg-[var(--color-surface-soft)]">
+              <ArrowLeft size={15} /> Volver al panel
+            </Link>
+            <Link href={activeMode === "seller" ? "/seller" : "/dashboard"} className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-soft)]" aria-label="Cerrar">
+              <X size={15} />
+            </Link>
+          </div>
+        </div>
+      </section>
 
-      <h1 className="tc-heading text-3xl font-black">Configuracion de la cuenta</h1>
-      <p className="tc-subtitle mt-2 text-sm">Administra perfil y verificacion de vendedor.</p>
+      <section className="mt-6 grid gap-4 lg:grid-cols-3">
+        <Card className="relative overflow-hidden">
+          <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-primary/15 blur-2xl" />
+          <p className="flex items-center gap-2 text-sm text-[var(--color-muted)]"><UserRound size={14} /> Usuario</p>
+          <p className="mt-2 text-xl font-black">{user.fullName}</p>
+          <p className="mt-1 text-xs uppercase tracking-[0.12em] text-[var(--color-muted)]">{activeMode === "seller" ? "Modo vendedor" : "Modo inversor"}</p>
+        </Card>
+        <Card className="relative overflow-hidden">
+          <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-secondary/20 blur-2xl" />
+          <p className="flex items-center gap-2 text-sm text-[var(--color-muted)]"><Wallet size={14} /> Wallet conectada</p>
+          <p className="mt-2 text-base font-bold">{walletProvider ? getWalletProviderLabel(walletProvider) : "No conectado"}</p>
+          <p className="mt-1 truncate text-xs text-[var(--color-muted)]">{walletAddress ?? "Sin direccion conectada"}</p>
+        </Card>
+        <Card className="relative overflow-hidden">
+          <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-emerald-500/15 blur-2xl" />
+          <p className="flex items-center gap-2 text-sm text-[var(--color-muted)]"><BadgeCheck size={14} /> Verificacion vendedor</p>
+          <p className="mt-2 text-xl font-black">{user.sellerVerificationStatus}</p>
+          <p className="mt-1 text-xs text-[var(--color-muted)]">Documento + prueba de vida facial</p>
+        </Card>
+      </section>
 
-      <section className="mt-5 md:hidden">
-        <Card>
-          <h2 className="tc-heading text-xl font-bold">Tema</h2>
-          <p className="tc-subtitle mt-1 text-sm">Disponible solo en telefono.</p>
+      <section className="mt-6 grid gap-5 xl:grid-cols-2">
+        <Card className="rounded-3xl">
+          <h2 className="tc-heading flex items-center gap-2 text-xl font-black"><UserRound size={18} /> Perfil</h2>
+          <form className="mt-4 grid gap-3" onSubmit={handleProfile}>
+            <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Nombre completo" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
+            <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Organizacion" value={organization} onChange={(e) => setOrganization(e.target.value)} />
+            <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 text-[var(--color-muted)]" value={user.stellarPublicKey ?? ""} disabled readOnly />
+            {profileMessage && <p className="text-sm text-[var(--color-primary)]">{profileMessage}</p>}
+            <Button type="submit" className="w-full sm:w-fit">Guardar perfil</Button>
+          </form>
+        </Card>
+
+        <Card className="rounded-3xl">
+          <h2 className="tc-heading flex items-center gap-2 text-xl font-black"><MonitorSmartphone size={18} /> Apariencia</h2>
+          <p className="mt-1 text-sm text-[var(--color-muted)]">Personaliza el tema visual de tu panel.</p>
           <div className="mt-4 grid grid-cols-3 gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className={`h-11 gap-2 px-2 text-xs ${theme === "light" ? "border-transparent bg-[var(--color-primary)] text-[var(--color-primary-contrast)]" : ""}`}
-              onClick={() => setTheme("light")}
-            >
+            <Button type="button" variant="outline" className={`h-11 gap-2 px-2 text-xs ${theme === "light" ? "border-transparent bg-[var(--color-primary)] text-[var(--color-primary-contrast)]" : ""}`} onClick={() => setTheme("light")}>
               <Sun size={15} />
               Claro
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={`h-11 gap-2 px-2 text-xs ${theme === "dark" ? "border-transparent bg-[var(--color-primary)] text-[var(--color-primary-contrast)]" : ""}`}
-              onClick={() => setTheme("dark")}
-            >
+            <Button type="button" variant="outline" className={`h-11 gap-2 px-2 text-xs ${theme === "dark" ? "border-transparent bg-[var(--color-primary)] text-[var(--color-primary-contrast)]" : ""}`} onClick={() => setTheme("dark")}>
               <Moon size={15} />
               Oscuro
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={`h-11 gap-2 px-2 text-xs ${theme === "system" ? "border-transparent bg-[var(--color-primary)] text-[var(--color-primary-contrast)]" : ""}`}
-              onClick={() => setTheme("system")}
-            >
+            <Button type="button" variant="outline" className={`h-11 gap-2 px-2 text-xs ${theme === "system" ? "border-transparent bg-[var(--color-primary)] text-[var(--color-primary-contrast)]" : ""}`} onClick={() => setTheme("system")}>
               <MonitorSmartphone size={15} />
               Sistema
             </Button>
@@ -487,37 +514,9 @@ export function AccountSettings() {
         </Card>
       </section>
 
-      <section className="mt-6 grid gap-5 lg:grid-cols-2">
-        <Card>
-          <h2 className="tc-heading text-xl font-bold">Wallet conectada</h2>
-          <p className="mt-3 text-sm text-[var(--color-muted)]">
-            Proveedor: <strong>{walletProvider ? getWalletProviderLabel(walletProvider) : "No conectado"}</strong>
-          </p>
-          <p className="mt-2 break-all rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 py-2 text-sm">
-            {walletAddress ?? "Sin direccion conectada"}
-          </p>
-        </Card>
-
-        <Card>
-          <h2 className="tc-heading text-xl font-bold">Perfil</h2>
-          <form className="mt-4 grid gap-3" onSubmit={handleProfile}>
-            <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Nombre completo" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
-            <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Organizacion" value={organization} onChange={(e) => setOrganization(e.target.value)} />
-            <input
-              className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 text-[var(--color-muted)]"
-              value={user.stellarPublicKey ?? ""}
-              disabled
-              readOnly
-            />
-            {profileMessage && <p className="text-sm text-[var(--color-primary)]">{profileMessage}</p>}
-            <Button type="submit">Guardar perfil</Button>
-          </form>
-        </Card>
-      </section>
-
-      <section className="mt-5">
-        <Card>
-          <h2 className="tc-heading text-xl font-bold">Verificacion para modo vendedor</h2>
+      <section className="mt-6">
+        <Card className="rounded-3xl">
+          <h2 className="tc-heading flex items-center gap-2 text-xl font-black"><ScanFace size={18} /> Verificacion para modo vendedor</h2>
           <p className="tc-subtitle mt-1 text-sm">Estado actual: <strong>{user.sellerVerificationStatus}</strong></p>
           <p className="mt-2 text-xs text-[var(--color-muted)]">
             Requisitos: documento de identidad + selfie en movimiento validada con deteccion facial.
@@ -537,7 +536,7 @@ export function AccountSettings() {
             <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Pais" value={kyc.country} onChange={(e) => setKyc((prev) => ({ ...prev, country: e.target.value }))} required />
             <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3 md:col-span-2" placeholder="URL soporte documental (opcional)" value={kyc.supportUrl} onChange={(e) => setKyc((prev) => ({ ...prev, supportUrl: e.target.value }))} />
 
-            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] p-3 md:col-span-2">
+            <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] p-4 md:col-span-2">
               <p className="text-sm font-semibold">Documento de identidad</p>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--color-border)] bg-[var(--color-background)] px-3 py-3 text-sm hover:bg-[var(--color-surface-soft)]">
@@ -567,7 +566,7 @@ export function AccountSettings() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] p-3 md:col-span-2">
+            <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] p-4 md:col-span-2">
               <p className="text-sm font-semibold">Selfie en movimiento (liveness)</p>
               <p className="mt-1 text-xs text-[var(--color-muted)]">Instruccion dinamica: {livenessHint}</p>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">

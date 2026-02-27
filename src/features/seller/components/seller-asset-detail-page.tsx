@@ -1,13 +1,14 @@
 ﻿"use client";
 
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FileImage, FileVideo, MoveDown, MoveUp, Trash2 } from "lucide-react";
+import { MoveDown, MoveUp, Trash2, Upload } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { MARKETPLACE_EVENT } from "@/lib/constants";
 import { formatShortDate, formatUSDT } from "@/lib/format";
+import { extractFirstUrl, getEmbeddableVideoUrl, inferRemoteMediaKind, isKnownExternalVideoHost, validateRemoteMediaUrl } from "@/lib/media";
 import { deleteAsset, getPurchases, getSellerAssets, syncMarketplace, updateAsset } from "@/lib/marketplace";
 import { AssetMediaViewer } from "@/features/marketplace/components/asset-media-viewer";
 import type { AssetCategory, AssetMediaItem } from "@/types/market";
@@ -28,6 +29,9 @@ type BuyerSummary = {
 };
 
 const MAX_MEDIA_SIZE_MB = 25;
+type ClipboardMediaResult =
+  | { type: "file"; file: File; kind: "image" | "video" }
+  | { type: "url"; url: string };
 
 function toDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -38,19 +42,31 @@ function toDataUrl(file: File) {
   });
 }
 
-async function readMediaFromClipboard(kind: "image" | "video") {
-  if (!navigator.clipboard?.read) {
-    throw new Error("Tu navegador no soporta lectura de clipboard para archivos.");
+async function readMediaFromClipboard(): Promise<ClipboardMediaResult> {
+  if (navigator.clipboard?.read) {
+    const items = await navigator.clipboard.read();
+    for (const item of items) {
+      const mediaTypes = item.types.filter((type) => type.startsWith("image/") || type.startsWith("video/"));
+      if (mediaTypes.length > 0) {
+        const blob = await item.getType(mediaTypes[0]);
+        const kind = mediaTypes[0].startsWith("image/") ? "image" : "video";
+        const file = new File([blob], `${kind}-clipboard.${mediaTypes[0].split("/")[1] ?? "bin"}`, { type: mediaTypes[0] });
+        return { type: "file", file, kind };
+      }
+      if (item.types.includes("text/plain")) {
+        const textBlob = await item.getType("text/plain");
+        const text = await textBlob.text();
+        const url = extractFirstUrl(text);
+        if (url) return { type: "url", url };
+      }
+    }
   }
-  const items = await navigator.clipboard.read();
-  for (const item of items) {
-    const types = item.types.filter((type) => type.startsWith(`${kind}/`));
-    if (types.length === 0) continue;
-    const blob = await item.getType(types[0]);
-    const file = new File([blob], `${kind}-clipboard.${types[0].split("/")[1] ?? "bin"}`, { type: types[0] });
-    return file;
+  if (navigator.clipboard?.readText) {
+    const text = await navigator.clipboard.readText();
+    const url = extractFirstUrl(text);
+    if (url) return { type: "url", url };
   }
-  throw new Error(`No hay ${kind} en el clipboard.`);
+  throw new Error("No hay imagen, video ni URL en el clipboard.");
 }
 
 function LineChart({ data }: { data: ChartPoint[] }) {
@@ -112,9 +128,7 @@ export function SellerAssetDetailPage({ assetId }: { assetId: string }) {
   const [expectedYield, setExpectedYield] = useState("");
   const [proofOfAssetHash, setProofOfAssetHash] = useState("");
   const [mediaItems, setMediaItems] = useState<AssetMediaItem[]>([]);
-  const [awaitingClipboardKind, setAwaitingClipboardKind] = useState<"image" | "video" | null>(null);
-  const imageInputRef = useRef<HTMLInputElement | null>(null);
-  const videoInputRef = useRef<HTMLInputElement | null>(null);
+  const mediaInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -258,7 +272,6 @@ export function SellerAssetDetailPage({ assetId }: { assetId: string }) {
         ...(data.asset.videoUrl ? [{ id: "legacy-video", kind: "video" as const, url: data.asset.videoUrl }] : []),
       ];
     setMediaItems(fallbackGallery);
-    setAwaitingClipboardKind(null);
   }, [data, editOpen]);
 
   async function addMediaFile(file: File, kind: "image" | "video") {
@@ -271,51 +284,114 @@ export function SellerAssetDetailPage({ assetId }: { assetId: string }) {
     setActionMessage(`${kind === "image" ? "Imagen" : "Video"} agregado.`);
   }
 
-  useEffect(() => {
-    if (!awaitingClipboardKind) return;
-    const onPaste = (event: ClipboardEvent) => {
-      const items = Array.from(event.clipboardData?.items ?? []);
-      const files = items
-        .filter((item) => item.kind === "file")
-        .map((item) => item.getAsFile())
-        .filter((file): file is File => Boolean(file));
-      const file = files.find((candidate) => candidate.type.startsWith(`${awaitingClipboardKind}/`));
-      if (!file) return;
-      event.preventDefault();
-      setAwaitingClipboardKind(null);
-      void addMediaFile(file, awaitingClipboardKind);
-    };
-    window.addEventListener("paste", onPaste);
-    return () => window.removeEventListener("paste", onPaste);
-  }, [awaitingClipboardKind]);
+  function addMediaUrl(rawUrl: string, forcedKind?: "image" | "video") {
+    const safeUrl = validateRemoteMediaUrl(rawUrl);
+    if (!safeUrl) {
+      setActionMessage("La URL no es valida. Usa http:// o https://");
+      return false;
+    }
+    const kind = forcedKind ?? inferRemoteMediaKind(safeUrl);
+    if (kind === "video" && isKnownExternalVideoHost(safeUrl) && !getEmbeddableVideoUrl(safeUrl)) {
+      setActionMessage("No pude reconocer el link de YouTube/Vimeo. Copia la URL completa del video.");
+      return false;
+    }
+    setMediaItems((prev) => {
+      const exists = prev.some((item) => item.kind === kind && item.url === safeUrl);
+      if (exists) return prev;
+      return [...prev, { id: crypto.randomUUID(), kind, url: safeUrl }];
+    });
+    setActionMessage(
+      kind === "video" && getEmbeddableVideoUrl(safeUrl)
+        ? "Video externo agregado (YouTube/Vimeo)."
+        : `${kind === "image" ? "Imagen" : "Video"} por URL agregado.`,
+    );
+    return true;
+  }
 
-  const handleMediaFile = async (event: ChangeEvent<HTMLInputElement>, kind: "image" | "video") => {
+  const addMediaFromAnyFile = async (file: File) => {
+    const kind = file.type.startsWith("video/") ? "video" : file.type.startsWith("image/") ? "image" : null;
+    if (!kind) return;
+    await addMediaFile(file, kind);
+  };
+
+  const handleMediaFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (files.length === 0) return;
     for (const file of files) {
       try {
-        await addMediaFile(file, kind);
+        await addMediaFromAnyFile(file);
       } catch (error) {
         setActionMessage(error instanceof Error ? error.message : "No se pudo cargar archivo.");
       }
     }
   };
 
-  const pickFromClipboard = async (kind: "image" | "video") => {
+  const handleMediaDrop = async (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    if (saving) return;
+    const files = Array.from(event.dataTransfer.files ?? []).filter((file) => file.type.startsWith("image/") || file.type.startsWith("video/"));
+    if (files.length > 0) {
+      for (const file of files) {
+        try {
+          await addMediaFromAnyFile(file);
+        } catch (error) {
+          setActionMessage(error instanceof Error ? error.message : "No se pudo cargar archivo.");
+        }
+      }
+      return;
+    }
+    const droppedText = event.dataTransfer.getData("text/uri-list") || event.dataTransfer.getData("text/plain");
+    const url = extractFirstUrl(droppedText);
+    if (url) {
+      addMediaUrl(url);
+    }
+  };
+
+  const pickFromClipboard = async () => {
     try {
-      const file = await readMediaFromClipboard(kind);
-      await addMediaFile(file, kind);
-      setAwaitingClipboardKind(null);
+      const media = await readMediaFromClipboard();
+      if (media.type === "file") {
+        await addMediaFile(media.file, media.kind);
+      } else {
+        addMediaUrl(media.url);
+      }
     } catch (error) {
-      setAwaitingClipboardKind(kind);
       setActionMessage(
         error instanceof Error
-          ? `${error.message} Si tu navegador bloquea lectura directa, presiona Ctrl+V para pegar ${kind === "image" ? "la imagen" : "el video"}.`
-          : `No se pudo leer el clipboard. Presiona Ctrl+V para pegar ${kind === "image" ? "la imagen" : "el video"}.`,
+          ? `${error.message} Si tu navegador bloquea lectura directa, presiona Ctrl+V para pegar imagen/video/link.`
+          : "No se pudo leer el clipboard. Presiona Ctrl+V para pegar imagen/video/link.",
       );
     }
   };
+
+  useEffect(() => {
+    if (!editOpen || saving) return;
+    const onPaste = (event: ClipboardEvent) => {
+      const items = Array.from(event.clipboardData?.items ?? []);
+      const files = items
+        .filter((item) => item.kind === "file")
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => Boolean(file))
+        .filter((file) => file.type.startsWith("image/") || file.type.startsWith("video/"));
+      if (files.length > 0) {
+        event.preventDefault();
+        for (const file of files) {
+          const kind = file.type.startsWith("video/") ? "video" : file.type.startsWith("image/") ? "image" : null;
+          if (!kind) continue;
+          void addMediaFile(file, kind);
+        }
+        return;
+      }
+      const pastedText = event.clipboardData?.getData("text/plain") ?? "";
+      const url = extractFirstUrl(pastedText);
+      if (!url) return;
+      event.preventDefault();
+      addMediaUrl(url);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [editOpen, saving]);
 
   const moveMedia = (index: number, direction: -1 | 1) => {
     setMediaItems((prev) => {
@@ -473,24 +549,23 @@ export function SellerAssetDetailPage({ assetId }: { assetId: string }) {
                 <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" value={proofOfAssetHash} onChange={(event) => setProofOfAssetHash(event.target.value)} placeholder="Hash de prueba" />
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Card>
-                  <p className="text-sm font-semibold">Agregar imagenes</p>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    <Button type="button" variant="outline" className="gap-2" onClick={() => imageInputRef.current?.click()}><FileImage size={15} /> Buscar en PC</Button>
-                    <Button type="button" variant="outline" onClick={() => { void pickFromClipboard("image"); }}>Desde clipboard</Button>
-                  </div>
-                  <input ref={imageInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(event) => { void handleMediaFile(event, "image"); }} />
-                </Card>
-                <Card>
-                  <p className="text-sm font-semibold">Agregar videos</p>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    <Button type="button" variant="outline" className="gap-2" onClick={() => videoInputRef.current?.click()}><FileVideo size={15} /> Buscar en PC</Button>
-                    <Button type="button" variant="outline" onClick={() => { void pickFromClipboard("video"); }}>Desde clipboard</Button>
-                  </div>
-                  <input ref={videoInputRef} type="file" accept="video/*" multiple className="hidden" onChange={(event) => { void handleMediaFile(event, "video"); }} />
-                </Card>
-              </div>
+              <Card>
+                <p className="text-sm font-semibold">Agregar multimedia (imagenes y videos)</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <Button type="button" variant="outline" className="gap-2" onClick={() => mediaInputRef.current?.click()}><Upload size={15} /> Buscar en PC</Button>
+                  <Button type="button" variant="outline" onClick={() => { void pickFromClipboard(); }}>Desde clipboard</Button>
+                </div>
+                <div
+                  className="mt-3 min-h-36 rounded-xl border-2 border-dashed border-[var(--color-border)] bg-[var(--color-surface-soft)] p-4 text-sm text-[var(--color-muted)]"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => { void handleMediaDrop(event); }}
+                >
+                  Arrastra y suelta aqui imagenes, videos o links (YouTube/Vimeo/archivo).
+                  <br />
+                  Tambien puedes usar Ctrl+V para pegar imagen, video o URL directamente.
+                </div>
+                <input ref={mediaInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={(event) => { void handleMediaFile(event); }} />
+              </Card>
 
               <Card>
                 <p className="text-sm font-semibold">Orden del carrusel ({mediaItems.length})</p>
@@ -514,11 +589,6 @@ export function SellerAssetDetailPage({ assetId }: { assetId: string }) {
                 <AssetMediaViewer className="mt-3" media={mediaItems} title={title || "Previsualizacion"} />
               </Card>
 
-              {awaitingClipboardKind && (
-                <p className="text-xs text-[var(--color-muted)]">
-                  Esperando pegado desde clipboard ({awaitingClipboardKind === "image" ? "imagen" : "video"}). Usa Ctrl+V.
-                </p>
-              )}
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>Cancelar</Button>
                 <Button onClick={handleSave} disabled={saving}>{saving ? "Guardando..." : "Guardar cambios"}</Button>

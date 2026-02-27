@@ -23,9 +23,17 @@ function QrConnectContent() {
   }, [manualWalletAddress, walletAddress]);
 
   const selectedProvider: WalletProviderId = walletProvider ?? "manual";
+  const walletConnectAvailable = useMemo(
+    () => walletOptions.some((option) => option.id === "wallet_connect"),
+    [walletOptions],
+  );
 
   const handleConnectWalletConnect = async () => {
     setError("");
+    if (!walletConnectAvailable) {
+      setError("WalletConnect no esta configurado en este entorno. Usa una wallet alterna o direccion publica.");
+      return;
+    }
     await connectWithWalletConnect();
   };
 
@@ -84,9 +92,14 @@ function QrConnectContent() {
             <p className="mt-1 text-xs text-muted">Proveedor: {getWalletProviderLabel(walletProvider)}</p>
           )}
 
-          <Button className="mt-3 h-11 w-full" type="button" onClick={handleConnectWalletConnect} disabled={connecting || submitting}>
-            {connecting ? "Conectando..." : "Conectar con WalletConnect"}
-          </Button>
+          {walletConnectAvailable && (
+            <Button className="mt-3 h-11 w-full" type="button" onClick={handleConnectWalletConnect} disabled={connecting || submitting}>
+              {connecting ? "Conectando..." : "Conectar con WalletConnect"}
+            </Button>
+          )}
+          {!walletConnectAvailable && (
+            <p className="mt-3 text-xs text-muted">WalletConnect no esta disponible en este entorno.</p>
+          )}
 
           <p className="mt-3 text-xs uppercase tracking-[0.12em] text-muted">Opciones alternas</p>
           <div className="mt-2 grid gap-2 sm:grid-cols-3">

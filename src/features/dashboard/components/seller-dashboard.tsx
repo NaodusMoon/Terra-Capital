@@ -1,7 +1,7 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Eye, FileImage, FileVideo, MoveDown, MoveUp, Trash2, Upload } from "lucide-react";
+import { ChangeEvent, DragEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BarChart3, CircleCheck, CircleDashed, Eye, ListChecks, MoveDown, MoveUp, Trash2, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
@@ -9,10 +9,14 @@ import { Card } from "@/components/ui/card";
 import { FadeIn } from "@/components/ui/fade-in";
 import { MARKETPLACE_EVENT } from "@/lib/constants";
 import { formatUSDT } from "@/lib/format";
-import { createAsset, getSellerSalesSummary, syncMarketplace } from "@/lib/marketplace";
+import { extractFirstUrl, getEmbeddableVideoUrl, getVideoThumbnailUrl, inferRemoteMediaKind, isKnownExternalVideoHost, validateRemoteMediaUrl } from "@/lib/media";
+import { createAsset, getSellerAssets, getSellerSalesSummary, syncMarketplace } from "@/lib/marketplace";
 import type { AssetCategory, AssetMediaItem } from "@/types/market";
 
 const MAX_MEDIA_SIZE_MB = 25;
+type ClipboardMediaResult =
+  | { type: "file"; file: File; kind: "image" | "video" }
+  | { type: "url"; url: string };
 
 function toDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -23,19 +27,33 @@ function toDataUrl(file: File) {
   });
 }
 
-async function readMediaFromClipboard(kind: "image" | "video") {
-  if (!navigator.clipboard?.read) {
-    throw new Error("Tu navegador no soporta lectura de clipboard para archivos.");
+async function readMediaFromClipboard(): Promise<ClipboardMediaResult> {
+  if (navigator.clipboard?.read) {
+    const items = await navigator.clipboard.read();
+    for (const item of items) {
+      const mediaTypes = item.types.filter((type) => type.startsWith("image/") || type.startsWith("video/"));
+      if (mediaTypes.length > 0) {
+        const blob = await item.getType(mediaTypes[0]);
+        const kind = mediaTypes[0].startsWith("image/") ? "image" : "video";
+        const file = new File([blob], `${kind}-clipboard.${mediaTypes[0].split("/")[1] ?? "bin"}`, { type: mediaTypes[0] });
+        return { type: "file", file, kind };
+      }
+      if (item.types.includes("text/plain")) {
+        const textBlob = await item.getType("text/plain");
+        const text = await textBlob.text();
+        const url = extractFirstUrl(text);
+        if (url) return { type: "url", url };
+      }
+    }
   }
-  const items = await navigator.clipboard.read();
-  for (const item of items) {
-    const types = item.types.filter((type) => type.startsWith(`${kind}/`));
-    if (types.length === 0) continue;
-    const blob = await item.getType(types[0]);
-    const file = new File([blob], `${kind}-clipboard.${types[0].split("/")[1] ?? "bin"}`, { type: types[0] });
-    return file;
+
+  if (navigator.clipboard?.readText) {
+    const rawText = await navigator.clipboard.readText();
+    const url = extractFirstUrl(rawText);
+    if (url) return { type: "url", url };
   }
-  throw new Error(`No hay ${kind} en el clipboard.`);
+
+  throw new Error("No hay imagen, video ni URL en el clipboard.");
 }
 
 export function SellerDashboard() {
@@ -58,17 +76,31 @@ export function SellerDashboard() {
   const [previewIndex, setPreviewIndex] = useState(0);
   const [formMessage, setFormMessage] = useState("");
   const [isPublishing, setIsPublishing] = useState(false);
-  const [summary, setSummary] = useState({ soldTokens: 0, grossAmount: 0, operations: 0 });
-  const [awaitingClipboardKind, setAwaitingClipboardKind] = useState<"image" | "video" | null>(null);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
+  const [summary, setSummary] = useState({ soldTokens: 0, grossAmount: 0, operations: 0, publishedAssets: 0 });
+  const [touched, setTouched] = useState({
+    title: false,
+    location: false,
+    description: false,
+    tokenPriceSats: false,
+    totalTokens: false,
+    estimatedApyPct: false,
+    historicalRoiPct: false,
+    expectedYield: false,
+    proofOfAssetHash: false,
+  });
 
-  const imageInputRef = useRef<HTMLInputElement | null>(null);
-  const videoInputRef = useRef<HTMLInputElement | null>(null);
+  const mediaInputRef = useRef<HTMLInputElement | null>(null);
 
   const syncData = useCallback(async () => {
     if (!user) return;
     try {
       await syncMarketplace(user.id);
-      setSummary(getSellerSalesSummary(user.id));
+      setSummary({
+        ...getSellerSalesSummary(user.id),
+        publishedAssets: getSellerAssets(user.id).length,
+      });
     } catch {
       // keep latest local state
     }
@@ -99,54 +131,114 @@ export function SellerDashboard() {
     setFormMessage(`${kind === "image" ? "Imagen" : "Video"} agregado.`);
   }
 
-  useEffect(() => {
-    if (!awaitingClipboardKind) return;
+  function addMediaUrl(rawUrl: string, forcedKind?: "image" | "video") {
+    const safeUrl = validateRemoteMediaUrl(rawUrl);
+    if (!safeUrl) {
+      setFormMessage("La URL no es valida. Usa http:// o https://");
+      return false;
+    }
+    const kind = forcedKind ?? inferRemoteMediaKind(safeUrl);
+    if (kind === "video" && isKnownExternalVideoHost(safeUrl) && !getEmbeddableVideoUrl(safeUrl)) {
+      setFormMessage("No pude reconocer el link de YouTube/Vimeo. Copia la URL completa del video.");
+      return false;
+    }
+    setMediaItems((prev) => {
+      const exists = prev.some((item) => item.kind === kind && item.url === safeUrl);
+      if (exists) return prev;
+      return [...prev, { id: crypto.randomUUID(), kind, url: safeUrl }];
+    });
+    setFormMessage(
+      kind === "video" && getEmbeddableVideoUrl(safeUrl)
+        ? "Video externo agregado (YouTube/Vimeo)."
+        : `${kind === "image" ? "Imagen" : "Video"} por URL agregado.`,
+    );
+    return true;
+  }
 
-    const onPaste = (event: ClipboardEvent) => {
-      const items = Array.from(event.clipboardData?.items ?? []);
-      const files = items
-        .filter((item) => item.kind === "file")
-        .map((item) => item.getAsFile())
-        .filter((file): file is File => Boolean(file));
+  const addMediaFromAnyFile = async (file: File) => {
+    const kind = file.type.startsWith("video/") ? "video" : file.type.startsWith("image/") ? "image" : null;
+    if (!kind) return;
+    await addMediaFile(file, kind);
+  };
 
-      const file = files.find((candidate) => candidate.type.startsWith(`${awaitingClipboardKind}/`));
-      if (!file) return;
-      event.preventDefault();
-      setAwaitingClipboardKind(null);
-      void addMediaFile(file, awaitingClipboardKind);
-    };
-
-    window.addEventListener("paste", onPaste);
-    return () => window.removeEventListener("paste", onPaste);
-  }, [awaitingClipboardKind]);
-
-  const handleMediaFile = async (event: ChangeEvent<HTMLInputElement>, kind: "image" | "video") => {
+  const handleMediaFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (files.length === 0) return;
     for (const file of files) {
       try {
-        await addMediaFile(file, kind);
+        await addMediaFromAnyFile(file);
       } catch (error) {
         setFormMessage(error instanceof Error ? error.message : "No se pudo cargar archivo.");
       }
     }
   };
 
-  const pickFromClipboard = async (kind: "image" | "video") => {
+  const pickFromClipboard = async () => {
     try {
-      const file = await readMediaFromClipboard(kind);
-      await addMediaFile(file, kind);
-      setAwaitingClipboardKind(null);
+      const media = await readMediaFromClipboard();
+      if (media.type === "file") {
+        await addMediaFile(media.file, media.kind);
+      } else {
+        addMediaUrl(media.url);
+      }
     } catch (error) {
-      setAwaitingClipboardKind(kind);
       setFormMessage(
         error instanceof Error
-          ? `${error.message} Si tu navegador bloquea lectura directa, presiona Ctrl+V para pegar ${kind === "image" ? "la imagen" : "el video"}.`
-          : `No se pudo leer el clipboard. Presiona Ctrl+V para pegar ${kind === "image" ? "la imagen" : "el video"}.`,
+          ? `${error.message} Si tu navegador bloquea lectura directa, presiona Ctrl+V para pegar imagen/video/link.`
+          : "No se pudo leer el clipboard. Presiona Ctrl+V para pegar imagen/video/link.",
       );
     }
   };
+
+  const handleMediaDrop = async (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    if (!sellerVerified || isPublishing) return;
+    const files = Array.from(event.dataTransfer.files ?? []).filter((file) => file.type.startsWith("image/") || file.type.startsWith("video/"));
+    if (files.length > 0) {
+      for (const file of files) {
+        try {
+          await addMediaFromAnyFile(file);
+        } catch (error) {
+          setFormMessage(error instanceof Error ? error.message : "No se pudo cargar archivo.");
+        }
+      }
+      return;
+    }
+    const droppedText = event.dataTransfer.getData("text/uri-list") || event.dataTransfer.getData("text/plain");
+    const url = extractFirstUrl(droppedText);
+    if (url) {
+      addMediaUrl(url);
+    }
+  };
+
+  useEffect(() => {
+    if (currentStep !== 3 || !sellerVerified || isPublishing) return;
+    const onPaste = (event: ClipboardEvent) => {
+      const items = Array.from(event.clipboardData?.items ?? []);
+      const files = items
+        .filter((item) => item.kind === "file")
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => Boolean(file))
+        .filter((file) => file.type.startsWith("image/") || file.type.startsWith("video/"));
+      if (files.length > 0) {
+        event.preventDefault();
+        for (const file of files) {
+          const kind = file.type.startsWith("video/") ? "video" : file.type.startsWith("image/") ? "image" : null;
+          if (!kind) continue;
+          void addMediaFile(file, kind);
+        }
+        return;
+      }
+      const pastedText = event.clipboardData?.getData("text/plain") ?? "";
+      const url = extractFirstUrl(pastedText);
+      if (!url) return;
+      event.preventDefault();
+      addMediaUrl(url);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [currentStep, isPublishing, sellerVerified]);
 
   const moveMedia = (index: number, direction: -1 | 1) => {
     setMediaItems((prev) => {
@@ -180,10 +272,96 @@ export function SellerDashboard() {
     return Math.max(0, price * tokens);
   }, [tokenPriceSats, totalTokens]);
 
+  const parsedTokenPrice = Number(tokenPriceSats);
+  const parsedTotalTokens = Number(totalTokens);
+
+  const liveValidation = useMemo(() => {
+    const titleError = title.trim().length >= 6 ? "" : "Minimo 6 caracteres.";
+    const locationError = location.trim().length >= 3 ? "" : "Indica una ubicacion valida.";
+    const descriptionError = description.trim().length >= 40 ? "" : "Describe el activo con al menos 40 caracteres.";
+    const priceError = Number.isFinite(parsedTokenPrice) && parsedTokenPrice > 0 ? "" : "Precio por token debe ser mayor a 0 USDT.";
+    const tokensError = Number.isFinite(parsedTotalTokens) && Number.isInteger(parsedTotalTokens) && parsedTotalTokens > 0
+      ? ""
+      : "Total tokens debe ser entero mayor a 0.";
+    const estimatedApyError = Number.isFinite(Number(estimatedApyPct)) && Number(estimatedApyPct) >= 0 ? "" : "APY estimado invalido.";
+    const historicalRoiError = Number.isFinite(Number(historicalRoiPct)) && Number(historicalRoiPct) >= 0 ? "" : "ROI historico invalido.";
+    const expectedYieldError = expectedYield.trim().length >= 4 ? "" : "Especifica un rendimiento esperado.";
+    const proofHashWarning = proofOfAssetHash.trim().length === 0 || proofOfAssetHash.trim().length >= 10
+      ? ""
+      : "Hash corto: recomendado minimo 10 caracteres.";
+
+    return {
+      titleError,
+      locationError,
+      descriptionError,
+      priceError,
+      tokensError,
+      estimatedApyError,
+      historicalRoiError,
+      expectedYieldError,
+      proofHashWarning,
+    };
+  }, [description, estimatedApyPct, expectedYield, historicalRoiPct, location, parsedTokenPrice, parsedTotalTokens, proofOfAssetHash, title]);
+
+  const hasBlockingErrors = useMemo(() => {
+    return Boolean(
+      liveValidation.titleError ||
+      liveValidation.locationError ||
+      liveValidation.descriptionError ||
+      liveValidation.priceError ||
+      liveValidation.tokensError ||
+      liveValidation.estimatedApyError ||
+      liveValidation.historicalRoiError ||
+      liveValidation.expectedYieldError,
+    );
+  }, [liveValidation]);
+
+  const stepStatus = useMemo(() => {
+    const step1Done = !liveValidation.titleError && !liveValidation.locationError && !liveValidation.descriptionError;
+    const step2Done =
+      !liveValidation.priceError &&
+      !liveValidation.tokensError &&
+      !liveValidation.estimatedApyError &&
+      !liveValidation.historicalRoiError &&
+      !liveValidation.expectedYieldError;
+    const step3Done = mediaItems.length > 0;
+    return { step1Done, step2Done, step3Done };
+  }, [liveValidation, mediaItems.length]);
+
+  const canGoNext = useMemo(() => {
+    if (currentStep === 1) return stepStatus.step1Done;
+    if (currentStep === 2) return stepStatus.step2Done;
+    if (currentStep === 3) return true;
+    return false;
+  }, [currentStep, stepStatus]);
+
+  const publishingChecklist = useMemo(() => {
+    return [
+      { id: "title", label: "Titulo y categoria", done: title.trim().length >= 6 && category.length > 0 },
+      { id: "desc", label: "Descripcion productiva", done: description.trim().length >= 40 },
+      { id: "pricing", label: "Precio y tokens", done: Number(tokenPriceSats) > 0 && Number(totalTokens) > 0 },
+      { id: "yield", label: "Metricas de retorno", done: Number(estimatedApyPct) >= 0 && Number(historicalRoiPct) >= 0 && expectedYield.trim().length > 0 },
+      { id: "media", label: "Multimedia cargada", done: mediaItems.length > 0 },
+    ];
+  }, [category, description, estimatedApyPct, expectedYield, historicalRoiPct, mediaItems.length, title, tokenPriceSats, totalTokens]);
+
+  const checklistCompleted = publishingChecklist.filter((item) => item.done).length;
+  const checklistPct = Math.round((checklistCompleted / publishingChecklist.length) * 100);
+  const formMessageClassName = formMessage.toLowerCase().includes("correctamente")
+    ? "text-emerald-500"
+    : formMessage.toLowerCase().includes("no se pudo") || formMessage.toLowerCase().includes("deben")
+      ? "text-amber-500"
+      : "text-[var(--color-primary)]";
+
   const previewMedia = mediaItems[previewIndex];
+  const previewEmbedUrl = previewMedia?.kind === "video" ? getEmbeddableVideoUrl(previewMedia.url) : null;
+  const fieldClassName = "h-11 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3";
+  const labelClassName = "text-sm font-medium text-[var(--color-muted)]";
+  const shouldShowError = (fieldTouched: boolean) => submitAttempted || fieldTouched;
 
   const handleCreateAsset = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setSubmitAttempted(true);
     if (isPublishing) return;
     setFormMessage("");
 
@@ -247,9 +425,53 @@ export function SellerDashboard() {
     setProofOfAssetHash("");
     setMediaItems([]);
     setPreviewIndex(0);
+    setCurrentStep(1);
+    setSubmitAttempted(false);
+    setTouched({
+      title: false,
+      location: false,
+      description: false,
+      tokenPriceSats: false,
+      totalTokens: false,
+      estimatedApyPct: false,
+      historicalRoiPct: false,
+      expectedYield: false,
+      proofOfAssetHash: false,
+    });
     setFormMessage("Activo publicado correctamente.");
     await syncData();
     setIsPublishing(false);
+  };
+
+  const markStepTouched = (step: 1 | 2 | 3 | 4) => {
+    if (step === 1) {
+      setTouched((prev) => ({ ...prev, title: true, location: true, description: true }));
+      return;
+    }
+    if (step === 2) {
+      setTouched((prev) => ({
+        ...prev,
+        tokenPriceSats: true,
+        totalTokens: true,
+        estimatedApyPct: true,
+        historicalRoiPct: true,
+        expectedYield: true,
+        proofOfAssetHash: true,
+      }));
+    }
+  };
+
+  const goToNextStep = () => {
+    if (currentStep >= 4) return;
+    if (!canGoNext) {
+      markStepTouched(currentStep);
+      return;
+    }
+    setCurrentStep((prev) => (prev < 4 ? ((prev + 1) as 1 | 2 | 3 | 4) : prev));
+  };
+
+  const goToPrevStep = () => {
+    setCurrentStep((prev) => (prev > 1 ? ((prev - 1) as 1 | 2 | 3 | 4) : prev));
   };
 
   return (
@@ -275,6 +497,10 @@ export function SellerDashboard() {
 
       <section className="mt-6 grid gap-4 sm:grid-cols-3">
         <Card>
+          <p className="text-sm text-[var(--color-muted)]">Activos publicados</p>
+          <p className="mt-2 text-2xl font-bold">{summary.publishedAssets}</p>
+        </Card>
+        <Card>
           <p className="text-sm text-[var(--color-muted)]">Operaciones cerradas</p>
           <p className="mt-2 text-2xl font-bold">{summary.operations}</p>
         </Card>
@@ -288,95 +514,227 @@ export function SellerDashboard() {
         </Card>
       </section>
 
+      <section className="mt-5 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+        <Card>
+          <h2 className="tc-heading flex items-center gap-2 text-xl font-bold"><ListChecks size={18} /> Estado de publicacion</h2>
+          <p className="tc-subtitle mt-2 text-sm">Avanza por etapas para crear la publicacion de forma guiada.</p>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--color-surface-soft)]">
+            <div className="h-full rounded-full bg-[var(--color-primary)] transition-all" style={{ width: `${checklistPct}%` }} />
+          </div>
+          <p className="mt-2 text-xs text-[var(--color-muted)]">{checklistCompleted}/{publishingChecklist.length} bloques listos ({checklistPct}%)</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {[
+              { step: 1 as const, label: "Datos basicos", done: stepStatus.step1Done },
+              { step: 2 as const, label: "Economia", done: stepStatus.step2Done },
+              { step: 3 as const, label: "Multimedia", done: stepStatus.step3Done },
+              { step: 4 as const, label: "Revision", done: false },
+            ].map((item) => (
+              <button
+                key={item.step}
+                type="button"
+                onClick={() => setCurrentStep(item.step)}
+                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${
+                  currentStep === item.step
+                    ? "border border-[var(--color-primary)] bg-[color:color-mix(in_oklab,var(--color-primary)_16%,transparent)]"
+                    : "bg-[var(--color-surface-soft)]"
+                }`}
+              >
+                {item.done ? <CircleCheck size={15} className="text-emerald-500" /> : <CircleDashed size={15} className="text-[var(--color-muted)]" />}
+                Paso {item.step}: {item.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-[var(--color-muted)]">Paso actual: {currentStep} de 4</p>
+        </Card>
+        <Card>
+          <h2 className="tc-heading flex items-center gap-2 text-xl font-bold"><BarChart3 size={18} /> Proyeccion de emision</h2>
+          <p className="mt-3 text-sm text-[var(--color-muted)]">Capital objetivo estimado con la configuracion actual:</p>
+          <p className="mt-2 text-3xl font-black">{formatUSDT(previewTotal)}</p>
+          <p className="mt-3 text-xs text-[var(--color-muted)]">
+            Ciclo seleccionado: {cycleDurationDays} dias - APY estimado: {estimatedApyPct || "0.00"}% - ROI historico: {historicalRoiPct || "0.00"}%
+          </p>
+          <Button variant="outline" className="mt-4 w-full" onClick={() => router.push("/seller/assets")}>
+            Revisar cartera publicada
+          </Button>
+        </Card>
+      </section>
+
       <section className="mt-7 grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
         <Card>
           <h2 className="tc-heading flex items-center gap-2 text-xl font-bold"><Upload size={18} /> Nueva publicacion</h2>
 
           <form className="mt-4 grid gap-3" onSubmit={handleCreateAsset}>
-            <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Titulo del activo" value={title} onChange={(event) => setTitle(event.target.value)} required disabled={!sellerVerified || isPublishing} />
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <select className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" value={category} onChange={(event) => setCategory(event.target.value as AssetCategory)} disabled={!sellerVerified || isPublishing}>
-                <option value="cultivo">Cultivo</option>
-                <option value="tierra">Tierra</option>
-                <option value="ganaderia">Ganaderia</option>
-              </select>
-              <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Ubicacion" value={location} onChange={(event) => setLocation(event.target.value)} required disabled={!sellerVerified || isPublishing} />
-            </div>
-
-            <textarea className="h-24 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] p-3" placeholder="Descripcion legal y productiva" value={description} onChange={(event) => setDescription(event.target.value)} required disabled={!sellerVerified || isPublishing} />
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <input type="number" step="0.01" className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Precio por token (USDT)" value={tokenPriceSats} onChange={(event) => setTokenPriceSats(event.target.value)} required disabled={!sellerVerified || isPublishing} />
-              <input type="number" className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Total tokens" value={totalTokens} onChange={(event) => setTotalTokens(event.target.value)} required disabled={!sellerVerified || isPublishing} />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <select className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" value={cycleDurationDays} onChange={(event) => setCycleDurationDays(Number(event.target.value) as 30 | 60 | 90)} disabled={!sellerVerified || isPublishing}>
-                <option value={30}>Ciclo 30 dias</option>
-                <option value={60}>Ciclo 60 dias</option>
-                <option value={90}>Ciclo 90 dias</option>
-              </select>
-              <input type="number" step="0.01" className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="APY estimado (%)" value={estimatedApyPct} onChange={(event) => setEstimatedApyPct(event.target.value)} required disabled={!sellerVerified || isPublishing} />
-              <input type="number" step="0.01" className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="ROI historico (%)" value={historicalRoiPct} onChange={(event) => setHistoricalRoiPct(event.target.value)} required disabled={!sellerVerified || isPublishing} />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Rendimiento esperado (texto)" value={expectedYield} onChange={(event) => setExpectedYield(event.target.value)} required disabled={!sellerVerified || isPublishing} />
-              <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" placeholder="Hash de prueba del activo (opcional)" value={proofOfAssetHash} onChange={(event) => setProofOfAssetHash(event.target.value)} disabled={!sellerVerified || isPublishing} />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Card>
-                <p className="text-sm font-semibold">Agregar imagenes</p>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  <Button type="button" variant="outline" className="gap-2" disabled={!sellerVerified || isPublishing} onClick={() => imageInputRef.current?.click()}><FileImage size={15} /> Buscar en PC</Button>
-                  <Button type="button" variant="outline" disabled={!sellerVerified || isPublishing} onClick={() => { void pickFromClipboard("image"); }}>Desde clipboard</Button>
+            {currentStep === 1 && (
+              <>
+                <div className="space-y-1">
+                  <label className={labelClassName}>Titulo del activo</label>
+                  <input className={fieldClassName} placeholder="Ej: Tierra premium en Santa Fe" value={title} onBlur={() => setTouched((prev) => ({ ...prev, title: true }))} onChange={(event) => setTitle(event.target.value)} required disabled={!sellerVerified || isPublishing} />
+                  {shouldShowError(touched.title) && liveValidation.titleError && <p className="text-xs text-amber-500">{liveValidation.titleError}</p>}
                 </div>
-                <input ref={imageInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(event) => { void handleMediaFile(event, "image"); }} />
-              </Card>
-              <Card>
-                <p className="text-sm font-semibold">Agregar videos</p>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  <Button type="button" variant="outline" className="gap-2" disabled={!sellerVerified || isPublishing} onClick={() => videoInputRef.current?.click()}><FileVideo size={15} /> Buscar en PC</Button>
-                  <Button type="button" variant="outline" disabled={!sellerVerified || isPublishing} onClick={() => { void pickFromClipboard("video"); }}>Desde clipboard</Button>
-                </div>
-                <input ref={videoInputRef} type="file" accept="video/*" multiple className="hidden" onChange={(event) => { void handleMediaFile(event, "video"); }} />
-              </Card>
-            </div>
-
-            <Card>
-              <p className="text-sm font-semibold">Orden del carrusel ({mediaItems.length})</p>
-              <div className="mt-3 space-y-2">
-                {mediaItems.map((item, index) => (
-                  <div key={item.id} className="flex items-center justify-between gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm">
-                    <p className="truncate"><strong>{index + 1}.</strong> {item.kind === "image" ? "Imagen" : "Video"}</p>
-                    <div className="flex items-center gap-1">
-                      <Button type="button" variant="outline" className="h-8 px-2" onClick={() => moveMedia(index, -1)} disabled={index === 0}><MoveUp size={14} /></Button>
-                      <Button type="button" variant="outline" className="h-8 px-2" onClick={() => moveMedia(index, 1)} disabled={index === mediaItems.length - 1}><MoveDown size={14} /></Button>
-                      <Button type="button" variant="outline" className="h-8 px-2 text-red-500" onClick={() => removeMedia(index)}><Trash2 size={14} /></Button>
-                    </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <label className={labelClassName}>Categoria</label>
+                    <select className={fieldClassName} value={category} onChange={(event) => setCategory(event.target.value as AssetCategory)} disabled={!sellerVerified || isPublishing}>
+                      <option value="cultivo">Cultivo</option>
+                      <option value="tierra">Tierra</option>
+                      <option value="ganaderia">Ganaderia</option>
+                    </select>
                   </div>
-                ))}
-                {mediaItems.length === 0 && <p className="text-sm text-[var(--color-muted)]">Aun no agregaste contenido multimedia.</p>}
-              </div>
-            </Card>
+                  <div className="space-y-1">
+                    <label className={labelClassName}>Ubicacion</label>
+                    <input className={fieldClassName} placeholder="Provincia, pais o zona" value={location} onBlur={() => setTouched((prev) => ({ ...prev, location: true }))} onChange={(event) => setLocation(event.target.value)} required disabled={!sellerVerified || isPublishing} />
+                    {shouldShowError(touched.location) && liveValidation.locationError && <p className="text-xs text-amber-500">{liveValidation.locationError}</p>}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className={labelClassName}>Descripcion legal y productiva</label>
+                  <textarea className="h-24 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] p-3" placeholder="Resumen del activo, estructura legal y alcance productivo" value={description} onBlur={() => setTouched((prev) => ({ ...prev, description: true }))} onChange={(event) => setDescription(event.target.value)} required disabled={!sellerVerified || isPublishing} />
+                  {shouldShowError(touched.description) && liveValidation.descriptionError && <p className="text-xs text-amber-500">{liveValidation.descriptionError}</p>}
+                </div>
+              </>
+            )}
 
-            {formMessage && <p className="text-sm text-[var(--color-primary)]">{formMessage}</p>}
-            {awaitingClipboardKind && (
-              <p className="text-xs text-[var(--color-muted)]">
-                Esperando pegado desde clipboard ({awaitingClipboardKind === "image" ? "imagen" : "video"}). Usa Ctrl+V.
+            {currentStep === 2 && (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <label className={labelClassName}>Precio por token (USDT)</label>
+                    <input type="number" step="0.01" className={fieldClassName} placeholder="Ej: 10.50" value={tokenPriceSats} onBlur={() => setTouched((prev) => ({ ...prev, tokenPriceSats: true }))} onChange={(event) => setTokenPriceSats(event.target.value)} required disabled={!sellerVerified || isPublishing} />
+                    {shouldShowError(touched.tokenPriceSats) && liveValidation.priceError && <p className="text-xs text-amber-500">{liveValidation.priceError}</p>}
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelClassName}>Total tokens</label>
+                    <input type="number" className={fieldClassName} placeholder="Ej: 1000" value={totalTokens} onBlur={() => setTouched((prev) => ({ ...prev, totalTokens: true }))} onChange={(event) => setTotalTokens(event.target.value)} required disabled={!sellerVerified || isPublishing} />
+                    {shouldShowError(touched.totalTokens) && liveValidation.tokensError && <p className="text-xs text-amber-500">{liveValidation.tokensError}</p>}
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <label className={labelClassName}>Duracion del ciclo</label>
+                    <select className={fieldClassName} value={cycleDurationDays} onChange={(event) => setCycleDurationDays(Number(event.target.value) as 30 | 60 | 90)} disabled={!sellerVerified || isPublishing}>
+                      <option value={30}>Ciclo 30 dias</option>
+                      <option value={60}>Ciclo 60 dias</option>
+                      <option value={90}>Ciclo 90 dias</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelClassName}>APY estimado (%)</label>
+                    <input type="number" step="0.01" className={fieldClassName} placeholder="Ej: 10.50" value={estimatedApyPct} onBlur={() => setTouched((prev) => ({ ...prev, estimatedApyPct: true }))} onChange={(event) => setEstimatedApyPct(event.target.value)} required disabled={!sellerVerified || isPublishing} />
+                    {shouldShowError(touched.estimatedApyPct) && liveValidation.estimatedApyError && <p className="text-xs text-amber-500">{liveValidation.estimatedApyError}</p>}
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelClassName}>ROI historico (%)</label>
+                    <input type="number" step="0.01" className={fieldClassName} placeholder="Ej: 10.50" value={historicalRoiPct} onBlur={() => setTouched((prev) => ({ ...prev, historicalRoiPct: true }))} onChange={(event) => setHistoricalRoiPct(event.target.value)} required disabled={!sellerVerified || isPublishing} />
+                    {shouldShowError(touched.historicalRoiPct) && liveValidation.historicalRoiError && <p className="text-xs text-amber-500">{liveValidation.historicalRoiError}</p>}
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <label className={labelClassName}>Rendimiento esperado (texto)</label>
+                    <input className={fieldClassName} placeholder="Ej: 10.5% neto por ciclo" value={expectedYield} onBlur={() => setTouched((prev) => ({ ...prev, expectedYield: true }))} onChange={(event) => setExpectedYield(event.target.value)} required disabled={!sellerVerified || isPublishing} />
+                    {shouldShowError(touched.expectedYield) && liveValidation.expectedYieldError && <p className="text-xs text-amber-500">{liveValidation.expectedYieldError}</p>}
+                  </div>
+                  <div className="space-y-1">
+                    <label className={labelClassName}>Hash de prueba del activo (opcional)</label>
+                    <input className={fieldClassName} placeholder="Hash documental o de auditoria" value={proofOfAssetHash} onBlur={() => setTouched((prev) => ({ ...prev, proofOfAssetHash: true }))} onChange={(event) => setProofOfAssetHash(event.target.value)} disabled={!sellerVerified || isPublishing} />
+                    {shouldShowError(touched.proofOfAssetHash) && liveValidation.proofHashWarning && <p className="text-xs text-[var(--color-muted)]">{liveValidation.proofHashWarning}</p>}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {currentStep === 3 && (
+              <>
+                <Card>
+                  <p className="text-sm font-semibold">Agregar multimedia (imagenes y videos)</p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <Button type="button" variant="outline" className="gap-2" disabled={!sellerVerified || isPublishing} onClick={() => mediaInputRef.current?.click()}><Upload size={15} /> Buscar en PC</Button>
+                    <Button type="button" variant="outline" disabled={!sellerVerified || isPublishing} onClick={() => { void pickFromClipboard(); }}>Desde clipboard</Button>
+                  </div>
+                  <div
+                    className="mt-3 min-h-36 rounded-xl border-2 border-dashed border-[var(--color-border)] bg-[var(--color-surface-soft)] p-4 text-sm text-[var(--color-muted)]"
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => { void handleMediaDrop(event); }}
+                  >
+                    Arrastra y suelta aqui imagenes, videos o links (YouTube/Vimeo/archivo).
+                    <br />
+                    Tambien puedes usar Ctrl+V para pegar imagen, video o URL directamente.
+                  </div>
+                  <input ref={mediaInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={(event) => { void handleMediaFile(event); }} />
+                </Card>
+                <Card>
+                  <p className="text-sm font-semibold">Orden del carrusel ({mediaItems.length})</p>
+                  <div className="mt-3 space-y-2">
+                    {mediaItems.map((item, index) => (
+                      <div key={item.id} className="flex items-center justify-between gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm">
+                        <p className="truncate"><strong>{index + 1}.</strong> {item.kind === "image" ? "Imagen" : "Video"}</p>
+                        <div className="flex items-center gap-1">
+                          <Button type="button" variant="outline" className="h-8 px-2" onClick={() => moveMedia(index, -1)} disabled={index === 0}><MoveUp size={14} /></Button>
+                          <Button type="button" variant="outline" className="h-8 px-2" onClick={() => moveMedia(index, 1)} disabled={index === mediaItems.length - 1}><MoveDown size={14} /></Button>
+                          <Button type="button" variant="outline" className="h-8 px-2 text-red-500" onClick={() => removeMedia(index)}><Trash2 size={14} /></Button>
+                        </div>
+                      </div>
+                    ))}
+                    {mediaItems.length === 0 && <p className="text-sm text-[var(--color-muted)]">Aun no agregaste contenido multimedia. Puedes continuar, pero se recomienda al menos 1 imagen.</p>}
+                  </div>
+                </Card>
+              </>
+            )}
+
+            {currentStep === 4 && (
+              <Card>
+                <p className="text-sm font-semibold">Revision final antes de publicar</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Activo: <strong>{title || "Sin titulo"}</strong></p>
+                  <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Categoria: <strong>{category}</strong></p>
+                  <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Ubicacion: <strong>{location || "Pendiente"}</strong></p>
+                  <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Precio token: <strong>{formatUSDT(Number(tokenPriceSats) || 0)}</strong></p>
+                  <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Supply: <strong>{Number(totalTokens || 0).toLocaleString("es-AR")}</strong></p>
+                  <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Meta estimada: <strong>{formatUSDT(previewTotal)}</strong></p>
+                  <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Ciclo: <strong>{cycleDurationDays} dias</strong></p>
+                  <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Multimedia: <strong>{mediaItems.length} items</strong></p>
+                </div>
+              </Card>
+            )}
+
+            {formMessage && <p className={`text-sm ${formMessageClassName}`}>{formMessage}</p>}
+            <p className="text-xs text-[var(--color-muted)]">
+              Recomendacion: agrega al menos una imagen y un hash de respaldo para acelerar verificacion del activo.
+            </p>
+            {submitAttempted && hasBlockingErrors && (
+              <p className="text-xs text-amber-500">
+                Completa los campos marcados antes de publicar.
               </p>
             )}
-            <Button type="submit" className="w-full" disabled={!sellerVerified || isPublishing}>
-              {sellerVerified ? (isPublishing ? "Publicando..." : "Publicar activo") : "Bloqueado por verificacion"}
-            </Button>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button type="button" variant="outline" className="w-full" onClick={goToPrevStep} disabled={currentStep === 1 || isPublishing}>
+                Atras
+              </Button>
+              {currentStep < 4 ? (
+                <Button type="button" className="w-full" onClick={goToNextStep} disabled={!sellerVerified || isPublishing}>
+                  Continuar
+                </Button>
+              ) : (
+                <Button type="submit" className="w-full" disabled={!sellerVerified || isPublishing || hasBlockingErrors}>
+                  {sellerVerified ? (isPublishing ? "Publicando..." : "Publicar activo") : "Bloqueado por verificacion"}
+                </Button>
+              )}
+            </div>
           </form>
         </Card>
 
         <Card>
           <h2 className="tc-heading flex items-center gap-2 text-xl font-bold"><Eye size={18} /> Previsualizacion comprador</h2>
           <p className="tc-subtitle mt-2 text-sm">Carrusel ordenado como se mostrara en la ficha del activo.</p>
+          <div className="sticky top-20 z-10 mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">Resumen financiero (USDT)</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <p className="rounded-lg bg-[var(--color-surface)] px-3 py-2 text-sm">Precio token: <strong>{formatUSDT(Number(tokenPriceSats) || 0)}</strong></p>
+              <p className="rounded-lg bg-[var(--color-surface)] px-3 py-2 text-sm">Supply: <strong>{Number(totalTokens || 0).toLocaleString("es-AR")}</strong></p>
+              <p className="rounded-lg bg-[var(--color-surface)] px-3 py-2 text-sm">Meta total: <strong>{formatUSDT(previewTotal)}</strong></p>
+              <p className="rounded-lg bg-[var(--color-surface)] px-3 py-2 text-sm">Ciclo: <strong>{cycleDurationDays} dias</strong></p>
+            </div>
+          </div>
 
           <div className="mt-4 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-background)]">
             <div className="h-56 bg-[var(--color-surface-soft)]">
@@ -385,24 +743,55 @@ export function SellerDashboard() {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={previewMedia.url} alt="Preview" className="h-full w-full object-cover" />
               )}
-              {previewMedia?.kind === "video" && <video controls className="h-full w-full object-contain" src={previewMedia.url} />}
+              {previewMedia?.kind === "video" && (
+                previewEmbedUrl ? (
+                  <iframe
+                    src={previewEmbedUrl}
+                    title="Preview video"
+                    className="h-full w-full"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    referrerPolicy="strict-origin-when-cross-origin"
+                    allowFullScreen
+                  />
+                ) : (
+                  <video controls className="h-full w-full object-contain" src={previewMedia.url} />
+                )
+              )}
             </div>
             <div className="flex gap-2 overflow-x-auto border-t border-[var(--color-border)] p-2">
               {mediaItems.map((item, index) => (
-                <button key={item.id} type="button" onClick={() => setPreviewIndex(index)} className={`h-14 w-20 shrink-0 overflow-hidden rounded-lg border ${index === previewIndex ? "border-[var(--color-primary)]" : "border-[var(--color-border)]"}`}>
+                <button key={item.id} type="button" onClick={() => setPreviewIndex(index)} className={`h-20 w-32 shrink-0 overflow-hidden rounded-lg border sm:h-24 sm:w-40 ${index === previewIndex ? "border-[var(--color-primary)]" : "border-[var(--color-border)]"}`}>
                   {item.kind === "image" ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={item.url} alt={`thumb-${index}`} className="h-full w-full object-cover" />
                   ) : (
-                    <div className="grid h-full w-full place-items-center bg-[var(--color-surface-soft)] text-xs">VIDEO</div>
+                    getVideoThumbnailUrl(item.url) ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={getVideoThumbnailUrl(item.url) ?? ""} alt={`thumb-video-${index}`} className="h-full w-full object-cover" />
+                    ) : (
+                      <video
+                        className="h-full w-full object-cover"
+                        src={item.url}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        onLoadedData={(event) => {
+                          try {
+                            event.currentTarget.currentTime = 0.1;
+                          } catch {
+                            // ignore seek errors
+                          }
+                        }}
+                      />
+                    )
                   )}
                 </button>
               ))}
             </div>
             <div className="space-y-2 p-3 text-sm">
-              <p className="text-xs uppercase tracking-[0.12em] text-[var(--color-muted)]">{category} · {location || "Ubicacion pendiente"}</p>
-              <h3 className="tc-heading text-lg font-bold">{title || "Titulo del activo"}</h3>
-              <p className="text-[var(--color-muted)]">{description || "Descripcion del activo para compradores."}</p>
+              <p className="text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] break-words [overflow-wrap:anywhere]">{category} - {location || "Ubicacion pendiente"}</p>
+              <h3 className="tc-heading text-lg font-bold break-words [overflow-wrap:anywhere]">{title || "Titulo del activo"}</h3>
+              <p className="text-[var(--color-muted)] break-words [overflow-wrap:anywhere]">{description || "Descripcion del activo para compradores."}</p>
               <div className="grid gap-2 sm:grid-cols-2">
                 <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2">Precio token: <strong>{formatUSDT(Number(tokenPriceSats) || 0)}</strong></p>
                 <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2">Supply: <strong>{Number(totalTokens || 0).toLocaleString("es-AR")}</strong></p>
@@ -417,3 +806,4 @@ export function SellerDashboard() {
     </main>
   );
 }
+

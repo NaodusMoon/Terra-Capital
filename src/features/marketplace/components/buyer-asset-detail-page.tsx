@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { MessageCircle } from "lucide-react";
+import { Activity, BadgeCheck, Clock3, MessageCircle, ShieldCheck, TrendingUp } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useWallet } from "@/components/providers/wallet-provider";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,18 @@ import { MARKETPLACE_EVENT } from "@/lib/constants";
 import { formatUSDT } from "@/lib/format";
 import { buyAsset, getAssets, syncMarketplace } from "@/lib/marketplace";
 import { AssetMediaViewer } from "@/features/marketplace/components/asset-media-viewer";
+
+function getLifecycleLabel(status: "FUNDING" | "OPERATING" | "SETTLED") {
+  if (status === "FUNDING") return "Recaudacion";
+  if (status === "OPERATING") return "Operando";
+  return "Liquidado";
+}
+
+function getLifecycleClass(status: "FUNDING" | "OPERATING" | "SETTLED") {
+  if (status === "FUNDING") return "border border-emerald-400/35 bg-emerald-500/15 text-emerald-300";
+  if (status === "OPERATING") return "border border-sky-400/35 bg-sky-500/15 text-sky-300";
+  return "border border-[var(--color-border)] bg-[var(--color-surface-soft)] text-[var(--color-muted)]";
+}
 
 export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
   const { user } = useAuth();
@@ -53,7 +65,8 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
       setTradeMessage("La compra solo esta disponible en estado FUNDING.");
       return;
     }
-    const result = await buyAsset(asset, user, quantity, {
+    const normalizedQty = Math.max(1, Math.min(asset.availableTokens, Math.floor(quantity || 1)));
+    const result = await buyAsset(asset, user, normalizedQty, {
       walletAddress,
       walletProvider,
       network,
@@ -86,67 +99,87 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
       ...(asset.videoUrl ? [{ id: "legacy-video", kind: "video" as const, url: asset.videoUrl }] : []),
     ];
 
+  const progressPct = Math.max(0, Math.min(100, asset.investorMetrics?.cycleProgressPct ?? 0));
+  const maxQuantity = Math.max(1, asset.availableTokens);
+  const safeQuantity = Math.max(1, Math.min(maxQuantity, Math.floor(quantity || 1)));
+  const estimatedTotal = safeQuantity * asset.tokenPriceSats;
+  const projectedRoi = asset.investorMetrics?.projectedRoi ?? asset.expectedYield;
+
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 sm:py-9">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="tc-heading text-3xl font-black">{asset.title}</h1>
-          <p className="tc-subtitle mt-1 text-sm">{asset.sellerName} · {asset.location}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="tc-heading text-3xl font-black">{asset.title}</h1>
+            <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${getLifecycleClass(asset.lifecycleStatus)}`}>
+              {getLifecycleLabel(asset.lifecycleStatus)}
+            </span>
+          </div>
+          <p className="tc-subtitle mt-1 text-sm">{asset.sellerName} - {asset.location}</p>
         </div>
         <Button variant="outline" onClick={() => router.push("/dashboard")}>Volver al marketplace</Button>
       </div>
 
-      <section className="mt-6 grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
-        <Card>
+      <section className="mt-6 grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
+        <Card className="space-y-4">
           <AssetMediaViewer media={mediaGallery} title={asset.title} />
 
-          <p className="mt-4 text-sm text-[var(--color-muted)]">{asset.description}</p>
+          <p className="text-sm leading-relaxed text-[var(--color-muted)]">{asset.description}</p>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <Card>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Card className="p-3">
               <p className="text-xs text-[var(--color-muted)]">Precio por token</p>
-              <p className="font-bold">{formatUSDT(asset.tokenPriceSats)}</p>
+              <p className="mt-1 text-xl font-black">{formatUSDT(asset.tokenPriceSats)}</p>
             </Card>
-            <Card>
-              <p className="text-xs text-[var(--color-muted)]">Estado</p>
-              <p className="font-bold">{asset.lifecycleStatus}</p>
+            <Card className="p-3">
+              <p className="text-xs text-[var(--color-muted)]">Tokens disponibles</p>
+              <p className="mt-1 text-xl font-black">{asset.availableTokens.toLocaleString("es-AR")}</p>
             </Card>
-            <Card>
-              <p className="text-xs text-[var(--color-muted)]">Duracion ciclo</p>
-              <p className="font-bold">{asset.cycleDurationDays} dias</p>
+            <Card className="p-3">
+              <p className="text-xs text-[var(--color-muted)]">Duracion</p>
+              <p className="mt-1 text-xl font-black">{asset.cycleDurationDays} dias</p>
+            </Card>
+            <Card className="p-3">
+              <p className="text-xs text-[var(--color-muted)]">ROI proyectado</p>
+              <p className="mt-1 text-xl font-black">{projectedRoi}</p>
             </Card>
           </div>
 
-          <Card className="mt-4 text-sm">
-            <p className="font-semibold">Estado API del ciclo</p>
-            {asset.apiState.status === "FUNDING" && (
-              <p className="mt-2 text-[var(--color-muted)]">Funding: {asset.apiState.funding_progress}% · APY estimado: {asset.apiState.estimated_apy}</p>
-            )}
-            {asset.apiState.status === "OPERATING" && (
-              <p className="mt-2 text-[var(--color-muted)]">Operando: {asset.apiState.days_remaining} dias restantes · Yield: {formatUSDT(asset.apiState.current_yield_accrued)}</p>
-            )}
-            {asset.apiState.status === "SETTLED" && (
-              <p className="mt-2 text-[var(--color-muted)]">Liquidado: payout {formatUSDT(asset.apiState.final_payout_sats)} · audit {asset.apiState.audit_hash}</p>
-            )}
-            <p className="mt-2 text-xs text-[var(--color-muted)]">Proof of Asset: {asset.proofOfAssetHash}</p>
+          <Card className="p-3 text-sm">
+            <div className="mb-2 flex items-center justify-between text-[var(--color-muted)]">
+              <p className="inline-flex items-center gap-1"><Clock3 size={14} /> Progreso del ciclo</p>
+              <p>{progressPct.toFixed(0)}%</p>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-[var(--color-surface-soft)]">
+              <div className="h-full rounded-full bg-[var(--color-primary)]" style={{ width: `${progressPct}%` }} />
+            </div>
+            <div className="mt-3 grid gap-2 text-xs text-[var(--color-muted)] sm:grid-cols-3">
+              <p className="inline-flex items-center gap-1"><TrendingUp size={13} /> APY estimado: {(asset.estimatedApyBps / 100).toFixed(2)}%</p>
+              <p className="inline-flex items-center gap-1"><Activity size={13} /> Yield actual: {formatUSDT(asset.currentYieldAccruedSats)}</p>
+              <p className="inline-flex items-center gap-1"><ShieldCheck size={13} /> Hash: {asset.proofOfAssetHash.slice(0, 24)}...</p>
+            </div>
           </Card>
         </Card>
 
-        <Card>
-          <h2 className="tc-heading text-xl font-bold">Invertir en este ciclo</h2>
-          <p className="tc-subtitle mt-2 text-sm">Participacion actual: {(asset.investorMetrics?.participationPct ?? 0).toFixed(2)}%</p>
-
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--color-surface-soft)]">
-            <div className="h-full rounded-full bg-[var(--color-primary)]" style={{ width: `${asset.investorMetrics?.cycleProgressPct ?? 0}%` }} />
+        <Card className="h-fit space-y-4 lg:sticky lg:top-20">
+          <div>
+            <h2 className="tc-heading text-xl font-bold">Comprar tokens</h2>
+            <p className="mt-1 text-sm text-[var(--color-muted)]">Configura cantidad y confirma la inversion del ciclo.</p>
           </div>
 
-          <form className="mt-4 space-y-3" onSubmit={handleBuy}>
+          <div className="grid gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] p-3 text-sm">
+            <p className="inline-flex items-center gap-2 text-[var(--color-muted)]"><BadgeCheck size={14} /> Estado actual</p>
+            <p className="font-semibold">{getLifecycleLabel(asset.lifecycleStatus)}</p>
+            <p className="text-xs text-[var(--color-muted)]">Disponible para compra solo durante Recaudacion.</p>
+          </div>
+
+          <form className="space-y-3" onSubmit={handleBuy}>
             <label className="block text-sm">
               <span>Cantidad de tokens</span>
               <input
                 type="number"
                 min={1}
-                max={asset.availableTokens}
+                max={maxQuantity}
                 value={quantity}
                 onChange={(event) => setQuantity(Number(event.target.value))}
                 className="mt-1 h-11 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3"
@@ -154,13 +187,28 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
               />
             </label>
 
+            <div className="grid grid-cols-4 gap-2">
+              {[1, 5, 10, 25].map((step) => (
+                <Button
+                  key={step}
+                  type="button"
+                  variant="outline"
+                  className="h-9 px-2 text-xs"
+                  onClick={() => setQuantity((prev) => Math.min(maxQuantity, Math.max(1, (Number.isFinite(prev) ? prev : 1) + step)))}
+                >
+                  +{step}
+                </Button>
+              ))}
+            </div>
+
             <div className="rounded-xl bg-[var(--color-surface-soft)] p-3 text-sm">
               <p className="text-[var(--color-muted)]">Total estimado</p>
-              <p className="text-xl font-bold">{formatUSDT(quantity * asset.tokenPriceSats)}</p>
+              <p className="text-2xl font-black">{formatUSDT(estimatedTotal)}</p>
+              <p className="mt-1 text-xs text-[var(--color-muted)]">{safeQuantity.toLocaleString("es-AR")} tokens x {formatUSDT(asset.tokenPriceSats)}</p>
             </div>
 
             <Button type="submit" className="w-full" disabled={asset.lifecycleStatus !== "FUNDING" || asset.availableTokens <= 0}>
-              {asset.lifecycleStatus !== "FUNDING" ? "No disponible para compra" : "Comprar tokens"}
+              {asset.lifecycleStatus !== "FUNDING" ? "No disponible para compra" : "Confirmar compra"}
             </Button>
             <Button type="button" variant="outline" className="w-full gap-2" onClick={() => router.push(`/chats?assetId=${asset.id}`)}>
               <MessageCircle size={15} /> Hablar con el vendedor

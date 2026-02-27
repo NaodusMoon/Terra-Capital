@@ -17,12 +17,14 @@ export function RoleGuard({ mode, children }: { mode: UserMode; children: React.
   const router = useRouter();
 
   useEffect(() => {
-    if (loading || !walletReady) return;
+    if (loading) return;
 
     if (!user) {
       router.replace("/auth/login");
       return;
     }
+
+    if (!walletReady) return;
 
     if (!walletAddress) {
       router.replace("/");
@@ -34,10 +36,26 @@ export function RoleGuard({ mode, children }: { mode: UserMode; children: React.
     }
   }, [activeMode, loading, mode, router, user, walletAddress, walletReady]);
 
-  if (loading || !walletReady || !user) {
+  if (loading) {
     return (
       <div className="mx-auto grid min-h-[60vh] max-w-6xl place-items-center px-4 text-center text-sm text-[var(--color-muted)]">
         Validando sesion...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="mx-auto grid min-h-[60vh] max-w-6xl place-items-center px-4 text-center text-sm text-[var(--color-muted)]">
+        Redirigiendo al login...
+      </div>
+    );
+  }
+
+  if (!walletReady) {
+    return (
+      <div className="mx-auto grid min-h-[60vh] max-w-6xl place-items-center px-4 text-center text-sm text-[var(--color-muted)]">
+        Preparando wallet...
       </div>
     );
   }

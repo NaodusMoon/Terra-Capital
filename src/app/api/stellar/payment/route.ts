@@ -17,6 +17,33 @@ const NETWORK_PASSPHRASES: Record<StellarNetwork, string> = {
   public: Networks.PUBLIC,
 };
 
+function mapStellarErrorMessage(error: unknown, network: StellarNetwork) {
+  const fallback = "Error de red Stellar.";
+  if (!(error instanceof Error)) return fallback;
+
+  const raw = error.message?.trim() || fallback;
+  const msg = raw.toLowerCase();
+  const networkLabel = network === "public" ? "Mainnet" : "Testnet";
+
+  if (msg === "not found" || msg.includes("resource missing")) {
+    return `No se encontro la cuenta en ${networkLabel}. Verifica que la wallet exista y tenga fondos en esa red.`;
+  }
+  if (msg.includes("op_no_destination") || msg.includes("payment_no_destination")) {
+    return "La cuenta destino no existe en la red seleccionada.";
+  }
+  if (msg.includes("op_underfunded") || msg.includes("tx_insufficient_balance")) {
+    return "Saldo insuficiente para completar la transaccion y su comision.";
+  }
+  if (msg.includes("tx_bad_seq")) {
+    return "La secuencia de la cuenta cambio. Reintenta firmando una nueva transaccion.";
+  }
+  if (msg.includes("tx_bad_auth") || msg.includes("tx_bad_auth_extra")) {
+    return "La firma de la transaccion no es valida para esta cuenta.";
+  }
+
+  return raw;
+}
+
 function parseNetwork(value: unknown): StellarNetwork | null {
   if (value === "public") return "public";
   if (value === "testnet") return "testnet";
@@ -125,8 +152,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: false, message: "Accion no soportada." }, { status: 400 });
   } catch (error) {
+    const message = network
+      ? mapStellarErrorMessage(error, network)
+      : (error instanceof Error ? error.message : "Error de red Stellar.");
     return NextResponse.json(
-      { ok: false, message: error instanceof Error ? error.message : "Error de red Stellar." },
+      { ok: false, message },
       { status: 502 },
     );
   }

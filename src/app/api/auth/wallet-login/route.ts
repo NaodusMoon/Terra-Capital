@@ -10,18 +10,18 @@ import { enforceRateLimit, getClientIp, isTrustedOrigin, parseJsonWithLimit } fr
 
 export const runtime = "nodejs";
 
-type LoginProvider = "freighter" | "albedo";
+type LoginProvider = string;
 
 interface ChallengePayload {
   action?: "challenge";
   walletAddress?: string;
-  walletProvider?: LoginProvider | "xbull" | "manual";
+  walletProvider?: string;
 }
 
 interface VerifyPayload {
   action?: "verify";
   walletAddress?: string;
-  walletProvider?: LoginProvider | "xbull" | "manual";
+  walletProvider?: string;
   challengeId?: string;
   fullName?: string;
   signature?: {
@@ -35,8 +35,10 @@ interface VerifyPayload {
 type RequestPayload = ChallengePayload | VerifyPayload;
 
 function parseProvider(value: unknown): LoginProvider | null {
-  if (value === "freighter" || value === "albedo") return value;
-  return null;
+  if (typeof value !== "string") return null;
+  const provider = value.trim().toLowerCase();
+  if (!provider || provider === "manual") return null;
+  return provider;
 }
 
 function decodeMaybeBinary(value: string) {
@@ -85,7 +87,7 @@ function verifyEd25519Signature(input: {
   return false;
 }
 
-function verifyFreighterSignature(input: {
+function verifyWalletSignature(input: {
   walletAddress: string;
   challengeMessage: string;
   signature: VerifyPayload["signature"];
@@ -95,42 +97,36 @@ function verifyFreighterSignature(input: {
     return false;
   }
 
+  const originalMessage = input.signature?.originalMessage?.trim() ?? "";
   const signedMessageRaw = input.signature?.signedMessage?.trim() ?? "";
-  if (!signedMessageRaw) return false;
+  const messageSignatureRaw = input.signature?.messageSignature?.trim() ?? "";
+  if (!signedMessageRaw && !messageSignatureRaw) return false;
 
   const messageUtf8 = Buffer.from(input.challengeMessage, "utf8");
   const prefixedHash = createHash("sha256")
     .update(`Stellar Signed Message:\n${input.challengeMessage}`, "utf8")
     .digest();
-  const payloadCandidates = [prefixedHash, messageUtf8];
-  const signatureCandidates = decodeMaybeBinary(signedMessageRaw);
+  const payloadCandidates: Buffer[] = [prefixedHash, messageUtf8];
+  const signatureCandidates: Buffer[] = [];
 
-  return verifyEd25519Signature({
-    walletAddress: input.walletAddress,
-    payloadCandidates,
-    signatureCandidates,
-  });
-}
-
-function verifyAlbedoSignature(input: {
-  walletAddress: string;
-  challengeMessage: string;
-  signature: VerifyPayload["signature"];
-}) {
-  const originalMessage = input.signature?.originalMessage?.trim() ?? "";
-  const signedMessageRaw = input.signature?.signedMessage?.trim() ?? "";
-  const messageSignatureRaw = input.signature?.messageSignature?.trim() ?? "";
-
-  if (!originalMessage || originalMessage !== input.challengeMessage) {
-    return false;
-  }
-  if (!signedMessageRaw || !messageSignatureRaw) {
-    return false;
+  if (signedMessageRaw) {
+    signatureCandidates.push(...decodeMaybeBinary(signedMessageRaw));
   }
 
-  const signatureCandidates = decodeMaybeBinary(messageSignatureRaw);
-  const payloadCandidates: Buffer[] = [Buffer.from(originalMessage, "utf8")];
-  payloadCandidates.push(...decodeMaybeBinary(signedMessageRaw));
+  if (messageSignatureRaw) {
+    signatureCandidates.push(...decodeMaybeBinary(messageSignatureRaw));
+  }
+
+  if (originalMessage && originalMessage === input.challengeMessage) {
+    payloadCandidates.push(Buffer.from(originalMessage, "utf8"));
+    if (signedMessageRaw) {
+      payloadCandidates.push(...decodeMaybeBinary(signedMessageRaw));
+    }
+  }
+
+  if (signatureCandidates.length === 0) {
+    return false;
+  }
 
   return verifyEd25519Signature({
     walletAddress: input.walletAddress,
@@ -207,7 +203,7 @@ export async function POST(request: Request) {
   const walletProvider = parseProvider(payload.walletProvider);
   if (!walletProvider) {
     return NextResponse.json(
-      { ok: false, message: "Proveedor no soportado para login seguro. Usa Freighter o Albedo." },
+      { ok: false, message: "Proveedor no soportado para login seguro." },
       { status: 400 },
     );
   }
@@ -277,10 +273,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, message: "Challenge invalido, expirado o ya usado." }, { status: 401 });
   }
 
-  const signature = verifyPayload.signature;
-  const verified = walletProvider === "freighter"
-    ? verifyFreighterSignature({ walletAddress, challengeMessage: challenge.message, signature })
-    : verifyAlbedoSignature({ walletAddress, challengeMessage: challenge.message, signature });
+  const verified = verifyWalletSignature({
+    walletAddress,
+    challengeMessage: challenge.message,
+    signature: verifyPayload.signature,
+  });
 
   if (!verified) {
     return NextResponse.json({ ok: false, message: "Firma invalida para el challenge de login." }, { status: 401 });

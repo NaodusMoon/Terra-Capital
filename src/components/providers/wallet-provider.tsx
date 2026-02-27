@@ -6,6 +6,7 @@ import { STORAGE_KEYS } from "@/lib/constants";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import { getWalletBalances, type StellarNetwork, type WalletBalance } from "@/lib/stellar";
 import {
+  AVAILABLE_WALLET_OPTIONS,
   clearPendingWallet,
   connectWalletByProvider,
   connectWalletConnect,
@@ -14,7 +15,6 @@ import {
   removeUserWallet,
   setPendingWallet,
   setUserWallet,
-  WALLET_OPTIONS,
   type ConnectableWalletProviderId,
   type StoredWallet,
   type WalletProviderId,
@@ -24,7 +24,7 @@ interface WalletContextValue {
   walletAddress: string | null;
   walletProvider: WalletProviderId | null;
   network: StellarNetwork;
-  walletOptions: typeof WALLET_OPTIONS;
+  walletOptions: typeof AVAILABLE_WALLET_OPTIONS;
   walletReady: boolean;
   connecting: boolean;
   loadingBalances: boolean;
@@ -93,7 +93,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       walletAddress,
       walletProvider,
       network,
-      walletOptions: WALLET_OPTIONS,
+      walletOptions: AVAILABLE_WALLET_OPTIONS,
       connecting,
       walletReady,
       balances: walletAddress ? balances : [],
@@ -107,8 +107,15 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       connectWallet: async (provider: ConnectableWalletProviderId) => {
         setError(null);
         setConnecting(true);
-        const result = await connectWalletByProvider(provider);
-        setConnecting(false);
+        let result: Awaited<ReturnType<typeof connectWalletByProvider>>;
+        try {
+          result = await connectWalletByProvider(provider);
+        } catch (error) {
+          setError(error instanceof Error ? error.message : "No se pudo conectar la wallet.");
+          return false;
+        } finally {
+          setConnecting(false);
+        }
 
         if (!result.ok) {
           setError(result.message);
@@ -125,8 +132,15 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       connectWithWalletConnect: async () => {
         setError(null);
         setConnecting(true);
-        const result = await connectWalletConnect();
-        setConnecting(false);
+        let result: Awaited<ReturnType<typeof connectWalletConnect>>;
+        try {
+          result = await connectWalletConnect();
+        } catch (error) {
+          setError(error instanceof Error ? error.message : "No se pudo conectar WalletConnect.");
+          return null;
+        } finally {
+          setConnecting(false);
+        }
 
         if (!result.ok) {
           setError(result.message);
