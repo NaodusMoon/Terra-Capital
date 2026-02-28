@@ -159,6 +159,18 @@ export function getThreads() {
   return threads;
 }
 
+function dedupeThreadsByParticipants(threads: ChatThread[]) {
+  const byPair = new Map<string, ChatThread>();
+  for (const thread of threads) {
+    const pairKey = `${thread.buyerId}::${thread.sellerId}`;
+    const current = byPair.get(pairKey);
+    if (!current || +new Date(thread.updatedAt) >= +new Date(current.updatedAt)) {
+      byPair.set(pairKey, thread);
+    }
+  }
+  return Array.from(byPair.values());
+}
+
 export function getMessages() {
   if (volatileMessages.length > 0) return volatileMessages;
   const messages = readLocalStorage<ChatMessage[]>(STORAGE_KEYS.chatMessages, []);
@@ -533,14 +545,16 @@ export function getBlendLiquiditySnapshot() {
 }
 
 export function getSellerThreads(sellerId: string) {
-  return getThreads()
+  return dedupeThreadsByParticipants(getThreads()
     .filter((thread) => thread.sellerId === sellerId)
+  )
     .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
 }
 
 export function getBuyerThreads(buyerId: string) {
-  return getThreads()
+  return dedupeThreadsByParticipants(getThreads()
     .filter((thread) => thread.buyerId === buyerId)
+  )
     .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
 }
 
@@ -551,8 +565,9 @@ export function getThreadMessages(threadId: string) {
 }
 
 export function getUserThreads(userId: string) {
-  return getThreads()
+  return dedupeThreadsByParticipants(getThreads()
     .filter((thread) => thread.buyerId === userId || thread.sellerId === userId)
+  )
     .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
 }
 

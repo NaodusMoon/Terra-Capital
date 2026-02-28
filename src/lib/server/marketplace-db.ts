@@ -537,8 +537,13 @@ export async function getMarketplaceState(userId?: string, options?: { includeCh
   const threadsResult = userId && includeChat
     ? await pool.query<DbThreadRow>(
       `SELECT id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at
-       FROM marketplace_threads
-       WHERE buyer_id = $1 OR seller_id = $1
+       FROM (
+         SELECT DISTINCT ON (buyer_id, seller_id)
+                id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at
+         FROM marketplace_threads
+         WHERE buyer_id = $1 OR seller_id = $1
+         ORDER BY buyer_id, seller_id, updated_at DESC
+       ) dedup
        ORDER BY updated_at DESC`,
       [userId],
     )
@@ -992,21 +997,39 @@ export async function buyMarketplaceAsset(input: {
       ],
     );
 
-    const threadResult = await client.query<DbThreadRow>(
-      `INSERT INTO marketplace_threads (
-        id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at
-      )
-      VALUES (
-        gen_random_uuid(), $1, $2, $3, $4, $5, timezone('utc', now())
-      )
-      ON CONFLICT (asset_id, buyer_id, seller_id)
-      DO UPDATE SET
-        buyer_name = EXCLUDED.buyer_name,
-        seller_name = EXCLUDED.seller_name,
-        updated_at = timezone('utc', now())
-      RETURNING id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at`,
-      [input.assetId, input.buyerId, input.buyerName, asset.seller_id, asset.seller_name],
+    const pairFingerprint = `${input.buyerId}|${asset.seller_id}`;
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [pairFingerprint]);
+
+    const existingThreadResult = await client.query<DbThreadRow>(
+      `SELECT id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at
+       FROM marketplace_threads
+       WHERE buyer_id = $1 AND seller_id = $2
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [input.buyerId, asset.seller_id],
     );
+
+    const threadResult = existingThreadResult.rowCount && existingThreadResult.rows[0]
+      ? await client.query<DbThreadRow>(
+        `UPDATE marketplace_threads
+         SET asset_id = $1,
+             buyer_name = $2,
+             seller_name = $3,
+             updated_at = timezone('utc', now())
+         WHERE id = $4
+         RETURNING id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at`,
+        [input.assetId, input.buyerName, asset.seller_name, existingThreadResult.rows[0].id],
+      )
+      : await client.query<DbThreadRow>(
+        `INSERT INTO marketplace_threads (
+          id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at
+        )
+        VALUES (
+          gen_random_uuid(), $1, $2, $3, $4, $5, timezone('utc', now())
+        )
+        RETURNING id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at`,
+        [input.assetId, input.buyerId, input.buyerName, asset.seller_id, asset.seller_name],
+      );
 
     await client.query("COMMIT");
     return {
@@ -1028,42 +1051,73 @@ export async function ensureMarketplaceThreadForBuyer(input: {
   buyerName: string;
 }) {
   const pool = getPostgresPool();
-  const assetResult = await pool.query<DbAssetRow>(
-    `SELECT id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, media_gallery,
-            token_price_sats, cycle_duration_days, lifecycle_status, cycle_start_at, cycle_end_at, estimated_apy_bps, historical_roi_bps, proof_of_asset_hash,
-            audit_hash, health_score, current_yield_accrued_sats, net_profit_sats, final_payout_sats, snapshot_locked_at, created_at
-     FROM marketplace_assets
-     WHERE id = $1
-     LIMIT 1`,
-    [input.assetId],
-  );
-  const asset = assetResult.rows[0];
-  if (!asset) {
-    return { ok: false as const, message: "Activo no encontrado." };
-  }
-  if (asset.seller_id === input.buyerId) {
-    return { ok: false as const, message: "No puedes abrir un chat contigo mismo." };
-  }
+  const client: PoolClient = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const assetResult = await client.query<DbAssetRow>(
+      `SELECT id, title, category, description, location, price_per_token, total_tokens, available_tokens, expected_yield, seller_id, seller_name, image_url, image_urls, video_url, media_gallery,
+              token_price_sats, cycle_duration_days, lifecycle_status, cycle_start_at, cycle_end_at, estimated_apy_bps, historical_roi_bps, proof_of_asset_hash,
+              audit_hash, health_score, current_yield_accrued_sats, net_profit_sats, final_payout_sats, snapshot_locked_at, created_at
+       FROM marketplace_assets
+       WHERE id = $1
+       LIMIT 1`,
+      [input.assetId],
+    );
+    const asset = assetResult.rows[0];
+    if (!asset) {
+      await client.query("ROLLBACK");
+      return { ok: false as const, message: "Activo no encontrado." };
+    }
+    if (asset.seller_id === input.buyerId) {
+      await client.query("ROLLBACK");
+      return { ok: false as const, message: "No puedes abrir un chat contigo mismo." };
+    }
 
-  const threadResult = await pool.query<DbThreadRow>(
-    `INSERT INTO marketplace_threads (
-      id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at
-    )
-    VALUES (
-      gen_random_uuid(), $1, $2, $3, $4, $5, timezone('utc', now())
-    )
-    ON CONFLICT (asset_id, buyer_id, seller_id)
-    DO UPDATE SET
-      buyer_name = EXCLUDED.buyer_name,
-      seller_name = EXCLUDED.seller_name
-    RETURNING id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at`,
-    [input.assetId, input.buyerId, input.buyerName, asset.seller_id, asset.seller_name],
-  );
+    const pairFingerprint = `${input.buyerId}|${asset.seller_id}`;
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [pairFingerprint]);
 
-  return {
-    ok: true as const,
-    thread: mapThreadRow(threadResult.rows[0]),
-  };
+    const existingThreadResult = await client.query<DbThreadRow>(
+      `SELECT id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at
+       FROM marketplace_threads
+       WHERE buyer_id = $1 AND seller_id = $2
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [input.buyerId, asset.seller_id],
+    );
+
+    const threadResult = existingThreadResult.rowCount && existingThreadResult.rows[0]
+      ? await client.query<DbThreadRow>(
+        `UPDATE marketplace_threads
+         SET asset_id = $1,
+             buyer_name = $2,
+             seller_name = $3,
+             updated_at = timezone('utc', now())
+         WHERE id = $4
+         RETURNING id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at`,
+        [input.assetId, input.buyerName, asset.seller_name, existingThreadResult.rows[0].id],
+      )
+      : await client.query<DbThreadRow>(
+        `INSERT INTO marketplace_threads (
+          id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at
+        )
+        VALUES (
+          gen_random_uuid(), $1, $2, $3, $4, $5, timezone('utc', now())
+        )
+        RETURNING id, asset_id, buyer_id, buyer_name, seller_id, seller_name, updated_at`,
+        [input.assetId, input.buyerId, input.buyerName, asset.seller_id, asset.seller_name],
+      );
+
+    await client.query("COMMIT");
+    return {
+      ok: true as const,
+      thread: mapThreadRow(threadResult.rows[0]),
+    };
+  } catch {
+    await client.query("ROLLBACK");
+    throw new Error("No se pudo abrir la conversacion.");
+  } finally {
+    client.release();
+  }
 }
 
 export async function sendMarketplaceMessage(input: {

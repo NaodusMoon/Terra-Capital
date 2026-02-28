@@ -27,6 +27,18 @@ function getCounterpartName(thread: ChatThread, userId: string) {
   return thread.buyerId === userId ? thread.sellerName : thread.buyerName;
 }
 
+function dedupeThreadsByParticipants(threads: ChatThread[]) {
+  const byPair = new Map<string, ChatThread>();
+  for (const thread of threads) {
+    const pairKey = `${thread.buyerId}::${thread.sellerId}`;
+    const current = byPair.get(pairKey);
+    if (!current || +new Date(thread.updatedAt) >= +new Date(current.updatedAt)) {
+      byPair.set(pairKey, thread);
+    }
+  }
+  return Array.from(byPair.values());
+}
+
 export function NotificationsBell({ mobile = false }: { mobile?: boolean }) {
   const { user, loading } = useAuth();
   const [open, setOpen] = useState(false);
@@ -47,17 +59,28 @@ export function NotificationsBell({ mobile = false }: { mobile?: boolean }) {
     const lastSeenMap = readLocalStorage<Record<string, string>>(STORAGE_KEYS.notificationsLastSeen, {});
     const lastSeenAt = lastSeenMap[user.id] ?? "1970-01-01T00:00:00.000Z";
 
-    const userThreads = threads.filter((thread) => (thread.buyerId === user.id || thread.sellerId === user.id) && thread.buyerId !== thread.sellerId);
+    const userThreads = dedupeThreadsByParticipants(
+      threads.filter((thread) => (thread.buyerId === user.id || thread.sellerId === user.id) && thread.buyerId !== thread.sellerId),
+    );
     const userThreadIds = new Set(userThreads.map((thread) => thread.id));
+    const messagesByThread = new Map<string, ChatMessage[]>();
+    for (const message of messages) {
+      const rows = messagesByThread.get(message.threadId) ?? [];
+      rows.push(message);
+      messagesByThread.set(message.threadId, rows);
+    }
+
+    let unreadMessageCount = 0;
     const unreadMessageGroups = userThreads
       .map((thread) => {
-        const pending = messages.filter((message) => (
+        const pending = (messagesByThread.get(thread.id) ?? []).filter((message) => (
           message.threadId === thread.id
           && message.senderId !== user.id
           && message.status !== "read"
           && message.status !== "failed"
         ));
         if (pending.length === 0) return null;
+        unreadMessageCount += pending.length;
         const latest = pending.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))[0];
         return {
           id: `msg-${thread.id}`,
@@ -91,7 +114,7 @@ export function NotificationsBell({ mobile = false }: { mobile?: boolean }) {
 
     const all = [...unreadMessageGroups, ...purchaseItems, ...assetItems].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
     setItems(all.slice(0, 12));
-    setUnreadCount(all.length);
+    setUnreadCount(unreadMessageCount + purchaseItems.length + assetItems.length);
 
     if (userThreadIds.size === 0 && all.length === 0) {
       setItems([]);
@@ -143,6 +166,7 @@ export function NotificationsBell({ mobile = false }: { mobile?: boolean }) {
             const lastSeenMap = readLocalStorage<Record<string, string>>(STORAGE_KEYS.notificationsLastSeen, {});
             lastSeenMap[user.id] = new Date().toISOString();
             writeLocalStorage(STORAGE_KEYS.notificationsLastSeen, lastSeenMap);
+            loadNotifications();
           }
         }}
         aria-label="Notificaciones"
