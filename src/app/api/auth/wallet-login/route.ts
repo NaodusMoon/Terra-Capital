@@ -161,6 +161,7 @@ async function upsertWalletUserAndCreateSession(input: {
         `UPDATE app_users
          SET full_name = $1,
              app_role = CASE WHEN $3 THEN 'admin' ELSE app_role END,
+             buyer_verification_status = CASE WHEN $3 THEN 'verified' ELSE buyer_verification_status END,
              updated_at = timezone('utc', now())
          WHERE id = $2
          RETURNING id, full_name, organization, stellar_public_key, app_role, buyer_verification_status, seller_verification_status, seller_verification_data, created_at, updated_at`,
@@ -194,9 +195,15 @@ async function upsertWalletUserAndCreateSession(input: {
   }
   const created = await pool.query(
     `INSERT INTO app_users (id, full_name, stellar_public_key, app_role, buyer_verification_status, seller_verification_status)
-     VALUES ($1, $2, $3, $4, 'unverified', 'unverified')
+     VALUES ($1, $2, $3, $4, $5, 'unverified')
      RETURNING id, full_name, organization, stellar_public_key, app_role, buyer_verification_status, seller_verification_status, seller_verification_data, created_at, updated_at`,
-    [crypto.randomUUID(), ownerWallet ? PLATFORM_OWNER_NAME : normalizedName, input.walletAddress, ownerWallet ? "admin" : "user"],
+    [
+      crypto.randomUUID(),
+      ownerWallet ? PLATFORM_OWNER_NAME : normalizedName,
+      input.walletAddress,
+      ownerWallet ? "admin" : "user",
+      ownerWallet ? "verified" : "unverified",
+    ],
   );
 
   const mapped = mapDbUser(created.rows[0]);

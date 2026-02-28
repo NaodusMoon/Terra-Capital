@@ -707,23 +707,33 @@ export function AccountSettings() {
                         <p className="max-w-[260px] break-all text-xs text-[var(--color-muted)]">{account.stellarPublicKey ?? "-"}</p>
                       </td>
                       <td className="py-3 pr-4">
+                        {(() => {
+                          const isOwnerAccount = (account.stellarPublicKey ?? "").trim().toUpperCase() === PLATFORM_OWNER_WALLET;
+                          return (
                         <select
                           className="h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-2 text-xs"
                           value={account.appRole}
+                          disabled={isOwnerAccount}
                           onChange={(event) => { void handleAdminRoleChange(account.id, event.target.value as "user" | "dev" | "admin"); }}
                         >
                           <option value="user">user</option>
                           <option value="dev">dev</option>
                           <option value="admin">admin</option>
                         </select>
+                          );
+                        })()}
                       </td>
                       <td className="py-3 pr-4">
                         <div className="flex items-center gap-2">
                           <span className="text-xs">{account.buyerVerificationStatus}</span>
+                          {(() => {
+                            const isOwnerAccount = (account.stellarPublicKey ?? "").trim().toUpperCase() === PLATFORM_OWNER_WALLET;
+                            return (
                           <Button
                             type="button"
                             variant="outline"
                             className="h-8 px-2 text-xs"
+                            disabled={isOwnerAccount}
                             onClick={() => {
                               void handleAdminBuyerVerification(
                                 account.id,
@@ -733,6 +743,8 @@ export function AccountSettings() {
                           >
                             {account.buyerVerificationStatus === "verified" ? "Quitar verificacion" : "Verificar"}
                           </Button>
+                            );
+                          })()}
                         </div>
                       </td>
                       <td className="py-3">

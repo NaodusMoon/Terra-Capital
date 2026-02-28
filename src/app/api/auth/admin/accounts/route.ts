@@ -123,9 +123,14 @@ export async function PATCH(request: Request) {
   if (targetIsOwner && payload.appRole && payload.appRole !== "admin") {
     return NextResponse.json({ ok: false, message: "La cuenta del propietario debe permanecer como admin." }, { status: 400 });
   }
+  if (targetIsOwner && payload.buyerVerificationStatus && payload.buyerVerificationStatus !== "verified") {
+    return NextResponse.json({ ok: false, message: "La cuenta del propietario debe permanecer verificada como comprador." }, { status: 400 });
+  }
 
   const nextRole: AppRole = payload.appRole ?? target.app_role;
-  const nextBuyerVerification = payload.buyerVerificationStatus ?? target.buyer_verification_status;
+  const nextBuyerVerification: BuyerVerificationStatus = targetIsOwner
+    ? "verified"
+    : (payload.buyerVerificationStatus ?? target.buyer_verification_status);
   const update = await pool.query<DbUserRow>(
     `UPDATE app_users
      SET app_role = $1,
