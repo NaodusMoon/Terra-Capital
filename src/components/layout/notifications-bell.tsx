@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Bell, Coins, MessageCircle, Sparkles } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { MARKETPLACE_EVENT, STORAGE_KEYS } from "@/lib/constants";
+import { markThreadMessagesRead } from "@/lib/marketplace";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
 import type { ChatMessage, ChatThread, PurchaseRecord, TokenizedAsset } from "@/types/market";
 
@@ -17,6 +18,9 @@ interface NotificationItem {
   text: string;
   createdAt: string;
   href: string;
+  threadId?: string;
+  readerRole?: "buyer" | "seller";
+  unreadMessages?: number;
 }
 
 function formatShortDate(iso: string) {
@@ -44,6 +48,13 @@ export function NotificationsBell({ mobile = false }: { mobile?: boolean }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  const markNotificationsSeenNow = useCallback(() => {
+    if (!user) return;
+    const lastSeenMap = readLocalStorage<Record<string, string>>(STORAGE_KEYS.notificationsLastSeen, {});
+    lastSeenMap[user.id] = new Date().toISOString();
+    writeLocalStorage(STORAGE_KEYS.notificationsLastSeen, lastSeenMap);
+  }, [user]);
 
   const loadNotifications = useCallback(() => {
     if (!user) {
@@ -88,6 +99,9 @@ export function NotificationsBell({ mobile = false }: { mobile?: boolean }) {
           text: `${pending.length} mensaje(s) nuevo(s) de ${getCounterpartName(thread, user.id)}`,
           createdAt: latest.createdAt,
           href: `/chats?threadId=${encodeURIComponent(thread.id)}`,
+          threadId: thread.id,
+          readerRole: thread.buyerId === user.id ? "buyer" : "seller",
+          unreadMessages: pending.length,
         };
       })
       .filter(Boolean) as NotificationItem[];
@@ -121,6 +135,26 @@ export function NotificationsBell({ mobile = false }: { mobile?: boolean }) {
       setUnreadCount(0);
     }
   }, [user]);
+
+  const handleNotificationClick = useCallback(async (item: NotificationItem) => {
+    setOpen(false);
+    markNotificationsSeenNow();
+
+    // Optimistic UI update so clicked notifications disappear immediately.
+    setItems((current) => current.filter((row) => row.id !== item.id));
+    setUnreadCount((current) => Math.max(0, current - (item.unreadMessages ?? 1)));
+
+    if (item.type === "message" && item.threadId && item.readerRole) {
+      await markThreadMessagesRead(item.threadId, item.readerRole);
+    }
+
+    // Reconcile with persisted state after optimistic update.
+    window.setTimeout(() => {
+      if (!user) return;
+      const event = new CustomEvent(MARKETPLACE_EVENT);
+      window.dispatchEvent(event);
+    }, 0);
+  }, [markNotificationsSeenNow, user]);
 
   useEffect(() => {
     if (loading || !user) return;
@@ -163,9 +197,7 @@ export function NotificationsBell({ mobile = false }: { mobile?: boolean }) {
           const nextOpen = !open;
           setOpen(nextOpen);
           if (nextOpen) {
-            const lastSeenMap = readLocalStorage<Record<string, string>>(STORAGE_KEYS.notificationsLastSeen, {});
-            lastSeenMap[user.id] = new Date().toISOString();
-            writeLocalStorage(STORAGE_KEYS.notificationsLastSeen, lastSeenMap);
+            markNotificationsSeenNow();
             loadNotifications();
           }
         }}
@@ -203,7 +235,7 @@ export function NotificationsBell({ mobile = false }: { mobile?: boolean }) {
                   key={item.id}
                   href={item.href}
                   className="flex items-start gap-2 rounded-xl px-2 py-2 text-sm hover:bg-[var(--color-surface-soft)]"
-                  onClick={() => setOpen(false)}
+                  onClick={() => { void handleNotificationClick(item); }}
                 >
                   {item.type === "message" && <MessageCircle size={16} className="mt-0.5 shrink-0 text-[#10b981]" />}
                   {item.type === "purchase" && <Coins size={16} className="mt-0.5 shrink-0 text-[#f59e0b]" />}
