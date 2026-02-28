@@ -7,7 +7,11 @@ import { useWallet } from "@/components/providers/wallet-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { isValidStellarPublicKey } from "@/lib/security";
-import { getWalletProviderLabel } from "@/lib/wallet";
+import {
+  getLastUsedConnectableWalletProvider,
+  getWalletProviderLabel,
+  type ConnectableWalletProviderId,
+} from "@/lib/wallet";
 
 export function LoginForm() {
   const router = useRouter();
@@ -33,18 +37,13 @@ export function LoginForm() {
     () => walletOptions.some((option) => option.id === "wallet_connect"),
     [walletOptions],
   );
-  const freighterAvailable = useMemo(
-    () => walletOptions.some((option) => option.id === "freighter"),
-    [walletOptions],
-  );
-
   useEffect(() => {
     if (!loading && user) {
       router.replace("/dashboard");
     }
   }, [loading, router, user]);
 
-  const finalizeLogin = async (selectedWalletAddress: string, selectedProvider: "wallet_connect" | "freighter") => {
+  const finalizeLogin = async (selectedWalletAddress: string, selectedProvider: ConnectableWalletProviderId) => {
     if (needName && !fullName.trim()) {
       setError("Ingresa tu nombre para completar el primer acceso.");
       return;
@@ -71,32 +70,38 @@ export function LoginForm() {
 
   const handleConnectWallet = async () => {
     setError("");
-    if (walletAddress && walletProvider && walletProvider !== "wallet_connect" && walletProvider !== "freighter") {
-      disconnectWallet();
+
+    const candidates: ConnectableWalletProviderId[] = [];
+    if (walletProvider && walletProvider !== "manual") {
+      candidates.push(walletProvider);
     }
 
-    if (freighterAvailable) {
-      const connectedFreighter = await connectWallet("freighter");
-      if (connectedFreighter) {
-        setNeedName(false);
-        setFullName("");
-        return;
-      }
+    const lastUsedProvider = getLastUsedConnectableWalletProvider();
+    if (lastUsedProvider) {
+      candidates.push(lastUsedProvider);
     }
 
-    if (!walletConnectAvailable) {
-      setError("No se detecto Freighter y WalletConnect no esta configurado.");
+    for (const option of walletOptions) {
+      candidates.push(option.id);
+    }
+
+    const uniqueCandidates = Array.from(new Set(candidates));
+    if (uniqueCandidates.length === 0) {
+      setError("No hay wallets disponibles para conectar.");
       return;
     }
 
-    const connected = await connectWithWalletConnect();
-    if (!connected) {
-      setError("No se pudo conectar ni con Freighter ni con WalletConnect.");
+    for (const provider of uniqueCandidates) {
+      const connected = provider === "wallet_connect"
+        ? Boolean(await connectWithWalletConnect())
+        : await connectWallet(provider);
+      if (!connected) continue;
+      setNeedName(false);
+      setFullName("");
       return;
     }
 
-    setNeedName(false);
-    setFullName("");
+    setError("No se pudo conectar con ninguna wallet disponible.");
   };
 
   const handleManualProviderConnect = async (provider: (typeof walletOptions)[number]["id"]) => {
@@ -124,9 +129,8 @@ export function LoginForm() {
       setError("La wallet conectada no es valida para Stellar.");
       return;
     }
-    const acceptedProvider = walletProvider === "wallet_connect" || walletProvider === "freighter";
-    if (!acceptedProvider) {
-      setError("Conecta con WalletConnect o Freighter.");
+    if (!walletProvider || walletProvider === "manual") {
+      setError("Conecta una wallet compatible para continuar.");
       return;
     }
 
@@ -141,7 +145,7 @@ export function LoginForm() {
   const connectedWalletLabel = walletAddress
     ? `${walletAddress.slice(0, 8)}...${walletAddress.slice(-6)}`
     : "Sin wallet conectada";
-  const canSubmit = Boolean(walletAddress) && (walletProvider === "wallet_connect" || walletProvider === "freighter");
+  const canSubmit = Boolean(walletAddress) && Boolean(walletProvider && walletProvider !== "manual");
 
   return (
     <Card className="relative w-full max-w-xl overflow-hidden border-white/40 bg-surface/95 p-0 backdrop-blur-sm">
@@ -241,7 +245,7 @@ export function LoginForm() {
           )}
         </form>
 
-        {!walletConnectAvailable && !freighterAvailable && (
+        {!walletConnectAvailable && walletOptions.length === 0 && (
           <p className="terra-alert mt-4">
             WalletConnect no esta habilitado en este entorno. Configura NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID.
           </p>

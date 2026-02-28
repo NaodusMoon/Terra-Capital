@@ -5,6 +5,7 @@
   activeMode: "terra_capital_active_mode",
   loginAttempts: "terra_capital_login_attempts",
   pendingWallet: "terra_capital_pending_wallet",
+  lastWalletProvider: "terra_capital_last_wallet_provider",
   recoveryCodes: "terra_capital_recovery_codes",
   theme: "terra_capital_theme",
   wallets: "terra_capital_wallets",

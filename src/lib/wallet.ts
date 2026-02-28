@@ -517,10 +517,18 @@ export function getPendingWallet() {
 
 export function setPendingWallet(wallet: StoredWallet) {
   writeLocalStorage(STORAGE_KEYS.pendingWallet, wallet);
+  if (wallet.provider !== "manual") {
+    writeLocalStorage(STORAGE_KEYS.lastWalletProvider, wallet.provider);
+  }
 }
 
 export function clearPendingWallet() {
   writeLocalStorage(STORAGE_KEYS.pendingWallet, null);
+}
+
+export function getLastUsedConnectableWalletProvider() {
+  const provider = readLocalStorage<string>(STORAGE_KEYS.lastWalletProvider, "");
+  return normalizeProvider(provider);
 }
 
 export function getUserWallet(userId: string) {
