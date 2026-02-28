@@ -496,6 +496,19 @@ export function AccountSettings() {
     setAdminMessage("Rol actualizado.");
   };
 
+  const handleAdminSellerVerification = async (
+    targetUserId: string,
+    status: "unverified" | "pending" | "verified",
+  ) => {
+    const result = await updateAccountByAdmin({ targetUserId, sellerVerificationStatus: status });
+    if (!result.ok) {
+      setAdminMessage(result.message);
+      return;
+    }
+    setAdminAccounts((prev) => prev.map((row) => (row.id === targetUserId ? result.user : row)));
+    setAdminMessage("Verificacion de vendedor actualizada.");
+  };
+
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 sm:py-9">
       <section className="relative overflow-hidden rounded-3xl border border-[var(--color-border)] bg-[linear-gradient(130deg,color-mix(in_oklab,var(--color-primary)_14%,var(--color-surface)),color-mix(in_oklab,var(--color-secondary)_10%,var(--color-surface)_90%))] p-6 shadow-[0_24px_50px_rgba(0,0,0,0.11)] sm:p-7">
@@ -748,7 +761,28 @@ export function AccountSettings() {
                         </div>
                       </td>
                       <td className="py-3">
-                        <span className="text-xs">{account.sellerVerificationStatus}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs">{account.sellerVerificationStatus}</span>
+                          {(() => {
+                            const isOwnerAccount = (account.stellarPublicKey ?? "").trim().toUpperCase() === PLATFORM_OWNER_WALLET;
+                            return (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 px-2 text-xs"
+                                disabled={isOwnerAccount}
+                                onClick={() => {
+                                  void handleAdminSellerVerification(
+                                    account.id,
+                                    account.sellerVerificationStatus === "verified" ? "unverified" : "verified",
+                                  );
+                                }}
+                              >
+                                {account.sellerVerificationStatus === "verified" ? "Quitar verificacion" : "Verificar"}
+                              </Button>
+                            );
+                          })()}
+                        </div>
                       </td>
                     </tr>
                   ))}

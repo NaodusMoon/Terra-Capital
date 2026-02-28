@@ -4,7 +4,7 @@ import { getAuthUserFromRequest } from "@/lib/server/auth-session";
 import { PLATFORM_OWNER_WALLET, isPlatformOwnerWallet } from "@/lib/server/admin-config";
 import { getPostgresPool } from "@/lib/server/postgres";
 import { enforceRateLimit, isTrustedOrigin, parseJsonWithLimit } from "@/lib/server/request-security";
-import type { AppRole, AppUser, BuyerVerificationStatus } from "@/types/auth";
+import type { AppRole, AppUser, BuyerVerificationStatus, SellerVerificationStatus } from "@/types/auth";
 
 export const runtime = "nodejs";
 
@@ -25,6 +25,7 @@ interface UpdatePayload {
   targetUserId?: string;
   appRole?: AppRole;
   buyerVerificationStatus?: BuyerVerificationStatus;
+  sellerVerificationStatus?: SellerVerificationStatus;
 }
 
 async function requireAdmin(request: Request) {
@@ -99,13 +100,31 @@ export async function PATCH(request: Request) {
   ) {
     return NextResponse.json({ ok: false, message: "Estado de verificacion de comprador invalido." }, { status: 400 });
   }
-  if (payload.appRole === undefined && payload.buyerVerificationStatus === undefined) {
+  if (
+    payload.sellerVerificationStatus !== undefined
+    && payload.sellerVerificationStatus !== "unverified"
+    && payload.sellerVerificationStatus !== "pending"
+    && payload.sellerVerificationStatus !== "verified"
+  ) {
+    return NextResponse.json({ ok: false, message: "Estado de verificacion de vendedor invalido." }, { status: 400 });
+  }
+  if (
+    payload.appRole === undefined
+    && payload.buyerVerificationStatus === undefined
+    && payload.sellerVerificationStatus === undefined
+  ) {
     return NextResponse.json({ ok: false, message: "No hay cambios para aplicar." }, { status: 400 });
   }
 
   const pool = getPostgresPool();
-  const targetResult = await pool.query<{ id: string; stellar_public_key: string; app_role: AppRole; buyer_verification_status: BuyerVerificationStatus }>(
-    `SELECT id, stellar_public_key, app_role, buyer_verification_status
+  const targetResult = await pool.query<{
+    id: string;
+    stellar_public_key: string;
+    app_role: AppRole;
+    buyer_verification_status: BuyerVerificationStatus;
+    seller_verification_status: SellerVerificationStatus;
+  }>(
+    `SELECT id, stellar_public_key, app_role, buyer_verification_status, seller_verification_status
      FROM app_users
      WHERE id = $1
      LIMIT 1`,
@@ -131,14 +150,16 @@ export async function PATCH(request: Request) {
   const nextBuyerVerification: BuyerVerificationStatus = targetIsOwner
     ? "verified"
     : (payload.buyerVerificationStatus ?? target.buyer_verification_status);
+  const nextSellerVerification: SellerVerificationStatus = payload.sellerVerificationStatus ?? target.seller_verification_status;
   const update = await pool.query<DbUserRow>(
     `UPDATE app_users
      SET app_role = $1,
          buyer_verification_status = $2,
+         seller_verification_status = $3,
          updated_at = timezone('utc', now())
-     WHERE id = $3
+     WHERE id = $4
      RETURNING id, full_name, organization, stellar_public_key, app_role, buyer_verification_status, seller_verification_status, seller_verification_data, created_at, updated_at`,
-    [nextRole, nextBuyerVerification, targetUserId],
+    [nextRole, nextBuyerVerification, nextSellerVerification, targetUserId],
   );
 
   return NextResponse.json({ ok: true, user: mapDbUser(update.rows[0]) });

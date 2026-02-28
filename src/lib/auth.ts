@@ -265,6 +265,7 @@ export async function updateAdminAccount(input: {
   targetUserId: string;
   appRole?: "user" | "dev" | "admin";
   buyerVerificationStatus?: "unverified" | "verified";
+  sellerVerificationStatus?: "unverified" | "pending" | "verified";
 }) {
   const response = await fetch("/api/auth/admin/accounts", {
     method: "PATCH",

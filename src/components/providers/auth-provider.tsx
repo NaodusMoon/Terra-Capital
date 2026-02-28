@@ -62,6 +62,7 @@ interface AuthContextValue {
     targetUserId: string;
     appRole?: "user" | "dev" | "admin";
     buyerVerificationStatus?: "unverified" | "verified";
+    sellerVerificationStatus?: "unverified" | "pending" | "verified";
   }) => ReturnType<typeof updateAdminAccount>;
 }
 
@@ -138,6 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         targetUserId: string;
         appRole?: "user" | "dev" | "admin";
         buyerVerificationStatus?: "unverified" | "verified";
+        sellerVerificationStatus?: "unverified" | "pending" | "verified";
       }) => {
         const currentUserId = user?.id;
         const isAdmin = Boolean(
