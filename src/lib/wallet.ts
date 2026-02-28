@@ -1,6 +1,7 @@
 import { STORAGE_KEYS } from "@/lib/constants";
 import { isValidStellarPublicKey } from "@/lib/security";
 import { readLocalStorage, writeLocalStorage } from "@/lib/storage";
+import { Account, BASE_FEE, Operation, TransactionBuilder } from "@stellar/stellar-sdk";
 
 export type WalletProviderId =
   | "freighter"
@@ -26,6 +27,9 @@ export interface WalletLoginSignature {
   signedMessage: string;
   originalMessage?: string;
   messageSignature?: string;
+  signedTxXdr?: string;
+  authChallengeId?: string;
+  networkPassphrase?: string;
 }
 
 interface WalletMap {
@@ -292,6 +296,34 @@ function parseWalletSignPayload(rawSignedMessage: string) {
       messageSignature: undefined,
     };
   }
+}
+
+const LOGIN_CHALLENGE_MANAGE_DATA_NAME = "terra_login_challenge";
+
+function buildWalletLoginChallengeTxXdr(input: {
+  walletAddress: string;
+  networkPassphrase: string;
+  challengeId: string;
+}) {
+  const sourceAccount = new Account(input.walletAddress, "0");
+  return new TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: input.networkPassphrase,
+  })
+    .addOperation(Operation.manageData({
+      name: LOGIN_CHALLENGE_MANAGE_DATA_NAME,
+      value: input.challengeId,
+      source: input.walletAddress,
+    }))
+    .setTimeout(0)
+    .build()
+    .toXDR();
+}
+
+function supportsSignMessageFallback(error: unknown) {
+  const normalized = getErrorMessage(error, "").toLowerCase();
+  return normalized.includes("does not support")
+    && normalized.includes("signmessage");
 }
 
 function resolveKitNetwork(
@@ -604,6 +636,7 @@ export async function connectWalletConnect() {
 export async function signWalletLoginChallenge(input: {
   wallet: StoredWallet;
   challengeMessage: string;
+  challengeId: string;
 }) {
   const address = normalizeAddress(input.wallet.address);
   const message = input.challengeMessage.trim();
@@ -618,6 +651,9 @@ export async function signWalletLoginChallenge(input: {
   if (!message) {
     return { ok: false as const, message: "Challenge invalido para firma." };
   }
+  if (!input.challengeId.trim()) {
+    return { ok: false as const, message: "Challenge ID invalido para firma." };
+  }
 
   const moduleRef = await getWalletModuleId(provider);
   if (!moduleRef.ok) {
@@ -628,36 +664,70 @@ export async function signWalletLoginChallenge(input: {
     moduleRef.runtime.StellarWalletsKit.setWallet(moduleRef.moduleId);
     const runtimeNetwork = await resolveConnectedModuleNetwork(moduleRef.runtime);
     moduleRef.runtime.StellarWalletsKit.setNetwork(runtimeNetwork);
-    const signed = await moduleRef.runtime.StellarWalletsKit.signMessage(message, {
-      address,
-      networkPassphrase: runtimeNetwork,
-    });
-    if (!signed.signedMessage) {
-      return { ok: false as const, message: `No se pudo firmar el challenge en ${getWalletProviderLabel(provider)}.` };
-    }
-    const signedPayload = parseWalletSignPayload(signed.signedMessage);
-    const untypedSigned = signed as {
-      originalMessage?: unknown;
-      messageSignature?: unknown;
-      signature?: unknown;
-    };
-    const extraOriginalMessage = typeof untypedSigned.originalMessage === "string" ? untypedSigned.originalMessage.trim() : "";
-    const extraMessageSignature = typeof untypedSigned.messageSignature === "string"
-      ? untypedSigned.messageSignature.trim()
-      : typeof untypedSigned.signature === "string"
-        ? untypedSigned.signature.trim()
-        : "";
+    try {
+      const signed = await moduleRef.runtime.StellarWalletsKit.signMessage(message, {
+        address,
+        networkPassphrase: runtimeNetwork,
+      });
+      if (!signed.signedMessage) {
+        return { ok: false as const, message: `No se pudo firmar el challenge en ${getWalletProviderLabel(provider)}.` };
+      }
+      const signedPayload = parseWalletSignPayload(signed.signedMessage);
+      const untypedSigned = signed as {
+        originalMessage?: unknown;
+        messageSignature?: unknown;
+        signature?: unknown;
+      };
+      const extraOriginalMessage = typeof untypedSigned.originalMessage === "string" ? untypedSigned.originalMessage.trim() : "";
+      const extraMessageSignature = typeof untypedSigned.messageSignature === "string"
+        ? untypedSigned.messageSignature.trim()
+        : typeof untypedSigned.signature === "string"
+          ? untypedSigned.signature.trim()
+          : "";
 
-    return {
-      ok: true as const,
-      signature: {
-        provider,
-        signerAddress: signed.signerAddress || address,
-        signedMessage: signedPayload.signedMessage,
-        originalMessage: (signedPayload.originalMessage ?? extraOriginalMessage) || undefined,
-        messageSignature: (signedPayload.messageSignature ?? extraMessageSignature) || undefined,
-      } satisfies WalletLoginSignature,
-    };
+      return {
+        ok: true as const,
+        signature: {
+          provider,
+          signerAddress: signed.signerAddress || address,
+          signedMessage: signedPayload.signedMessage,
+          originalMessage: (signedPayload.originalMessage ?? extraOriginalMessage) || undefined,
+          messageSignature: (signedPayload.messageSignature ?? extraMessageSignature) || undefined,
+        } satisfies WalletLoginSignature,
+      };
+    } catch (error) {
+      if (!supportsSignMessageFallback(error)) {
+        throw error;
+      }
+
+      const unsignedTxXdr = buildWalletLoginChallengeTxXdr({
+        walletAddress: address,
+        networkPassphrase: runtimeNetwork,
+        challengeId: input.challengeId.trim(),
+      });
+      const signedTx = await moduleRef.runtime.StellarWalletsKit.signTransaction(unsignedTxXdr, {
+        address,
+        networkPassphrase: runtimeNetwork,
+      });
+      if (!signedTx.signedTxXdr) {
+        return {
+          ok: false as const,
+          message: `No se pudo firmar el challenge de transaccion en ${getWalletProviderLabel(provider)}.`,
+        };
+      }
+
+      return {
+        ok: true as const,
+        signature: {
+          provider,
+          signerAddress: signedTx.signerAddress || address,
+          signedMessage: "",
+          signedTxXdr: signedTx.signedTxXdr,
+          authChallengeId: input.challengeId.trim(),
+          networkPassphrase: runtimeNetwork,
+        } satisfies WalletLoginSignature,
+      };
+    }
   } catch (error) {
     return {
       ok: false as const,

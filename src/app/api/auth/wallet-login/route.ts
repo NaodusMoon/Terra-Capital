@@ -1,4 +1,4 @@
-import { Keypair } from "@stellar/stellar-sdk";
+import { Keypair, Networks, TransactionBuilder } from "@stellar/stellar-sdk";
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { normalizeSafeText, isValidStellarPublicKey } from "@/lib/security";
@@ -30,6 +30,9 @@ interface VerifyPayload {
     signedMessage?: string;
     originalMessage?: string;
     messageSignature?: string;
+    signedTxXdr?: string;
+    authChallengeId?: string;
+    networkPassphrase?: string;
   };
 }
 
@@ -91,10 +94,66 @@ function verifyEd25519Signature(input: {
 function verifyWalletSignature(input: {
   walletAddress: string;
   challengeMessage: string;
+  challengeId: string;
   signature: VerifyPayload["signature"];
 }) {
   const signerAddress = input.signature?.signerAddress?.trim() ?? "";
   if (signerAddress && signerAddress !== input.walletAddress) {
+    return false;
+  }
+
+  const signedTxXdr = input.signature?.signedTxXdr?.trim() ?? "";
+  if (signedTxXdr) {
+    const authChallengeId = input.signature?.authChallengeId?.trim() ?? "";
+    if (!authChallengeId || authChallengeId !== input.challengeId) {
+      return false;
+    }
+
+    const passphraseRaw = input.signature?.networkPassphrase?.trim() ?? "";
+    const passphrases = passphraseRaw === Networks.PUBLIC || passphraseRaw === Networks.TESTNET
+      ? [passphraseRaw]
+      : [Networks.TESTNET, Networks.PUBLIC];
+
+    for (const passphrase of passphrases) {
+      try {
+        const parsed = TransactionBuilder.fromXDR(signedTxXdr, passphrase);
+        if (!("operations" in parsed) || !("source" in parsed) || !("signatures" in parsed) || !("hash" in parsed)) {
+          continue;
+        }
+        const tx = parsed;
+        if (tx.source !== input.walletAddress) {
+          continue;
+        }
+
+        const hasValidChallengeDataOp = tx.operations.some((operation) => {
+          if (operation.type !== "manageData") return false;
+          if ((operation.source ?? input.walletAddress) !== input.walletAddress) return false;
+          if (operation.name !== "terra_login_challenge") return false;
+          const rawValue = operation.value;
+          if (Buffer.isBuffer(rawValue)) {
+            return rawValue.toString("utf8") === input.challengeId;
+          }
+          if (typeof rawValue === "string") {
+            return rawValue === input.challengeId;
+          }
+          return false;
+        });
+
+        if (!hasValidChallengeDataOp) {
+          continue;
+        }
+
+        const hash = tx.hash();
+        const keypair = Keypair.fromPublicKey(input.walletAddress);
+        const hasValidSignature = tx.signatures.some((decorated) => keypair.verify(hash, Buffer.from(decorated.signature())));
+        if (hasValidSignature) {
+          return true;
+        }
+      } catch {
+        continue;
+      }
+    }
+
     return false;
   }
 
@@ -305,6 +364,7 @@ export async function POST(request: Request) {
   const verified = verifyWalletSignature({
     walletAddress,
     challengeMessage: challenge.message,
+    challengeId: challenge.id,
     signature: verifyPayload.signature,
   });
 

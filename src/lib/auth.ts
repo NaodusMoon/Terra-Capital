@@ -143,6 +143,7 @@ export async function loginUser(input: LoginInput) {
     const signatureResult = await signWalletLoginChallenge({
       wallet: { address: walletAddress, provider: walletProvider },
       challengeMessage: challengePayload.message,
+      challengeId: challengePayload.challengeId,
     });
     if (!signatureResult.ok) {
       return { ok: false as const, message: signatureResult.message };
