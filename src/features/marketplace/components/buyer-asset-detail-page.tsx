@@ -128,11 +128,11 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
     : 0;
 
   return (
-    <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 sm:py-9">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-5 sm:py-9">
+      <div className="flex flex-wrap items-start justify-between gap-3 rounded-[1.7rem] border border-[color:color-mix(in_oklab,var(--color-border)_80%,white_20%)] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-surface)_94%,white_6%),color-mix(in_oklab,var(--color-surface-soft)_55%,var(--color-surface)))] p-4 shadow-[0_16px_36px_-28px_rgba(16,24,40,0.35)] sm:p-5">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="tc-heading text-3xl font-black">{asset.title}</h1>
+            <h1 className="tc-heading text-2xl font-black sm:text-3xl">{asset.title}</h1>
             <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${getLifecycleClass(asset.lifecycleStatus)}`}>
               {getLifecycleLabel(asset.lifecycleStatus)}
             </span>
@@ -142,8 +142,8 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
         <Button variant="outline" onClick={() => router.push("/dashboard")}>Volver al marketplace</Button>
       </div>
 
-      <section className="mt-6 grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
-        <Card className="space-y-4">
+      <section className="tc-mobile-section-gap mt-6 grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
+        <Card className="tc-mobile-panel space-y-4 p-4 sm:p-5">
           <AssetMediaViewer media={mediaGallery} title={asset.title} />
 
           <p className="text-sm leading-relaxed text-[var(--color-muted)]">{asset.description}</p>
@@ -204,7 +204,7 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
           )}
         </Card>
 
-        <Card className="h-fit space-y-4 lg:sticky lg:top-20">
+        <Card className="tc-mobile-panel h-fit space-y-4 p-4 sm:p-5 lg:sticky lg:top-20">
           <div>
             <h2 className="tc-heading text-xl font-bold">Comprar tokens</h2>
             <p className="mt-1 text-sm text-[var(--color-muted)]">Configura cantidad y confirma la inversion del ciclo.</p>
@@ -230,7 +230,7 @@ export function BuyerAssetDetailPage({ assetId }: { assetId: string }) {
               />
             </label>
 
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {[1, 5, 10, 25].map((step) => (
                 <Button
                   key={step}

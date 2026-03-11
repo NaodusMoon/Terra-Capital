@@ -495,8 +495,8 @@ export function SellerAssetDetailPage({ assetId }: { assetId: string }) {
     ];
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-5 sm:py-9">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <main className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-5 sm:py-9">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.7rem] border border-[color:color-mix(in_oklab,var(--color-border)_80%,white_20%)] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-surface)_94%,white_6%),color-mix(in_oklab,var(--color-surface-soft)_55%,var(--color-surface)))] p-4 shadow-[0_16px_36px_-28px_rgba(16,24,40,0.35)] sm:p-5">
         <div>
           <h1 className="tc-heading text-2xl font-black sm:text-3xl">{data.asset.title}</h1>
           <p className="tc-subtitle mt-1 text-sm">Metricas completas de publicacion para vendedor.</p>
@@ -510,7 +510,7 @@ export function SellerAssetDetailPage({ assetId }: { assetId: string }) {
 
       {actionMessage && (
         <section className="mt-4">
-          <Card>
+          <Card className="tc-mobile-panel">
             <p className="text-sm text-[var(--color-muted)]">{actionMessage}</p>
           </Card>
         </section>
@@ -518,7 +518,7 @@ export function SellerAssetDetailPage({ assetId }: { assetId: string }) {
 
       {editOpen && (
         <section className="mt-6">
-          <Card>
+          <Card className="tc-mobile-panel">
             <h2 className="tc-heading text-lg font-bold">Editar activo publicado</h2>
             <div className="mt-4 grid gap-3">
               <input className="h-11 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Titulo" />
@@ -599,7 +599,7 @@ export function SellerAssetDetailPage({ assetId }: { assetId: string }) {
       )}
 
       <section className="mt-6">
-        <Card>
+        <Card className="tc-mobile-panel">
           <h2 className="tc-heading text-lg font-bold">Multimedia de la publicacion</h2>
           <AssetMediaViewer className="mt-4" media={assetMedia} title={data.asset.title} />
         </Card>

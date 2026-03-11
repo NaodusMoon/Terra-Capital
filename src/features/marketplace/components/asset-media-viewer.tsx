@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
-import { ChevronLeft, ChevronRight, Expand, Minus, MonitorPlay, Plus, RotateCcw, Volume2, VolumeX, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Expand, Minus, MonitorPlay, Pause, Play, Plus, RotateCcw, Volume2, VolumeX, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getEmbeddableVideoUrl, getVideoThumbnailUrl } from "@/lib/media";
 import type { AssetMediaItem } from "@/types/market";
@@ -17,6 +17,7 @@ const ZOOM_MAX = 4;
 const ZOOM_STEP = 0.25;
 const HOLD_FAST_RATE = 2;
 const CONTROL_HIDE_DELAY = 2200;
+const SWIPE_THRESHOLD = 54;
 
 function clampZoom(value: number) {
   return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, value));
@@ -24,6 +25,13 @@ function clampZoom(value: number) {
 
 function clampPanValue(value: number, maxOffset: number) {
   return Math.max(-maxOffset, Math.min(maxOffset, value));
+}
+
+function formatPlaybackTime(totalSeconds: number) {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(safeSeconds / 60).toString().padStart(2, "0");
+  const seconds = (safeSeconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}`;
 }
 
 export function AssetMediaViewer({ media, title, className }: AssetMediaViewerProps) {
@@ -38,6 +46,7 @@ export function AssetMediaViewer({ media, title, className }: AssetMediaViewerPr
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const [showOverlayControls, setShowOverlayControls] = useState(true);
   const [isDraggingImage, setIsDraggingImage] = useState(false);
+  const [videoTelemetry, setVideoTelemetry] = useState({ currentTime: 0, duration: 0 });
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const imageViewportRef = useRef<HTMLDivElement | null>(null);
@@ -47,6 +56,7 @@ export function AssetMediaViewer({ media, title, className }: AssetMediaViewerPr
   const lightboxVideoRef = useRef<HTMLVideoElement | null>(null);
   const controlHideTimeoutRef = useRef<number | null>(null);
   const dragStateRef = useRef<{ pointerId: number; pointerX: number; pointerY: number; originX: number; originY: number } | null>(null);
+  const swipeStartXRef = useRef<number | null>(null);
 
   const normalizedMedia = useMemo(() => media.filter((row) => Boolean(row?.url)), [media]);
   const total = normalizedMedia.length;
@@ -56,7 +66,7 @@ export function AssetMediaViewer({ media, title, className }: AssetMediaViewerPr
   const supportsPressSpeed = current?.kind === "video" && !currentEmbeddedVideoUrl;
   const isLocalVideo = current?.kind === "video" && !currentEmbeddedVideoUrl;
   const isExternalVideo = current?.kind === "video" && Boolean(currentEmbeddedVideoUrl);
-  const viewerHeightClass = isNativeFullscreen ? "h-[100dvh]" : isTheaterMode ? "h-[30rem] sm:h-[40rem]" : "h-[24rem] sm:h-[28rem]";
+  const viewerHeightClass = isNativeFullscreen ? "h-[100dvh]" : isTheaterMode ? "h-[34rem] sm:h-[40rem]" : "h-[19.5rem] sm:h-[24rem] lg:h-[28rem]";
 
   const getActiveImageViewport = useCallback(() => {
     if (lightboxOpen && lightboxImageViewportRef.current) return lightboxImageViewportRef.current;
@@ -220,9 +230,34 @@ export function AssetMediaViewer({ media, title, className }: AssetMediaViewerPr
     if (lightboxVideoRef.current) lightboxVideoRef.current.playbackRate = value;
   };
 
+  const getActiveVideoElement = useCallback(() => {
+    if (lightboxOpen && lightboxVideoRef.current) return lightboxVideoRef.current;
+    return videoRef.current;
+  }, [lightboxOpen]);
+
   const applyActivePlaybackRate = (value: number) => {
     if (videoRef.current) videoRef.current.playbackRate = value;
     if (lightboxVideoRef.current) lightboxVideoRef.current.playbackRate = value;
+  };
+
+  const toggleVideoPlayback = () => {
+    const activeVideo = getActiveVideoElement();
+    if (!activeVideo) return;
+    if (activeVideo.paused) {
+      void activeVideo.play().catch(() => {});
+      return;
+    }
+    activeVideo.pause();
+  };
+
+  const seekVideoBy = (seconds: number) => {
+    const activeVideo = getActiveVideoElement();
+    if (!activeVideo) return;
+    const duration = Number.isFinite(activeVideo.duration) ? activeVideo.duration : 0;
+    const nextTime = Math.max(0, Math.min(duration || 0, activeVideo.currentTime + seconds));
+    activeVideo.currentTime = nextTime;
+    setVideoTelemetry({ currentTime: nextTime, duration });
+    revealOverlayControls();
   };
 
   const startPressSpeed = () => {
@@ -302,6 +337,29 @@ export function AssetMediaViewer({ media, title, className }: AssetMediaViewerPr
     revealOverlayControls();
   };
 
+  const onTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (zoom > 1 || total <= 1) return;
+    swipeStartXRef.current = event.touches[0]?.clientX ?? null;
+    revealOverlayControls();
+  };
+
+  const onTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (zoom > 1 || total <= 1 || swipeStartXRef.current === null) return;
+    const endX = event.changedTouches[0]?.clientX ?? swipeStartXRef.current;
+    const delta = endX - swipeStartXRef.current;
+    swipeStartXRef.current = null;
+    if (Math.abs(delta) < SWIPE_THRESHOLD) return;
+    if (delta > 0) {
+      goPrev();
+      return;
+    }
+    goNext();
+  };
+
+  const activeVideoDuration = videoTelemetry.duration;
+  const activeVideoTime = videoTelemetry.currentTime;
+  const videoProgressPct = activeVideoDuration > 0 ? Math.max(0, Math.min(100, (activeVideoTime / activeVideoDuration) * 100)) : 0;
+
   if (!current) {
     return (
       <div className={className}>
@@ -316,10 +374,12 @@ export function AssetMediaViewer({ media, title, className }: AssetMediaViewerPr
     <div className={className}>
       <div
         ref={containerRef}
-        className={`relative overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] ${isTheaterMode ? "shadow-[0_24px_80px_-38px_rgba(0,0,0,0.9)]" : ""}`}
+        className={`relative overflow-hidden rounded-[1.6rem] border border-[var(--color-border)] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-surface-soft)_94%,white_6%),color-mix(in_oklab,var(--color-surface-soft)_78%,black_22%))] ${isTheaterMode ? "shadow-[0_24px_80px_-38px_rgba(0,0,0,0.9)]" : "shadow-[0_18px_40px_-28px_rgba(16,24,40,0.35)]"}`}
         onMouseMove={revealOverlayControls}
         onMouseEnter={revealOverlayControls}
         onTouchStart={revealOverlayControls}
+        onTouchStartCapture={onTouchStart}
+        onTouchEndCapture={onTouchEnd}
       >
         <div className={viewerHeightClass}>
           {current.kind === "image" && (
@@ -363,15 +423,39 @@ export function AssetMediaViewer({ media, title, className }: AssetMediaViewerPr
                 src={current.url}
                 onPlay={() => {
                   setIsVideoPlaying(true);
+                  setVideoTelemetry({
+                    currentTime: videoRef.current?.currentTime ?? 0,
+                    duration: Number.isFinite(videoRef.current?.duration) ? videoRef.current?.duration ?? 0 : 0,
+                  });
                   revealOverlayControls();
                 }}
                 onPause={() => {
                   setIsVideoPlaying(false);
+                  setVideoTelemetry({
+                    currentTime: videoRef.current?.currentTime ?? 0,
+                    duration: Number.isFinite(videoRef.current?.duration) ? videoRef.current?.duration ?? 0 : 0,
+                  });
                   setShowOverlayControls(true);
                 }}
                 onEnded={() => {
                   setIsVideoPlaying(false);
+                  setVideoTelemetry({
+                    currentTime: 0,
+                    duration: Number.isFinite(videoRef.current?.duration) ? videoRef.current?.duration ?? 0 : 0,
+                  });
                   setShowOverlayControls(true);
+                }}
+                onLoadedMetadata={(event) => {
+                  setVideoTelemetry({
+                    currentTime: event.currentTarget.currentTime ?? 0,
+                    duration: Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0,
+                  });
+                }}
+                onTimeUpdate={(event) => {
+                  setVideoTelemetry({
+                    currentTime: event.currentTarget.currentTime ?? 0,
+                    duration: Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0,
+                  });
                 }}
                 onMouseDown={(event) => {
                   if (event.button !== 0) return;
@@ -384,11 +468,19 @@ export function AssetMediaViewer({ media, title, className }: AssetMediaViewerPr
           )}
         </div>
 
-        <div className={`pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between bg-gradient-to-b from-black/55 to-transparent p-3 transition-opacity duration-200 ${showOverlayControls ? "opacity-100" : "opacity-0"}`}>
-          <span className="pointer-events-auto rounded-full bg-black/50 px-3 py-1 text-xs font-semibold text-white">
-            {safeIndex + 1}/{total}
-          </span>
+        <div className={`pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-gradient-to-b from-black/60 via-black/20 to-transparent p-3 transition-opacity duration-200 ${showOverlayControls ? "opacity-100" : "opacity-0"}`}>
+          <div className="pointer-events-auto flex items-center gap-2">
+            <span className="rounded-full bg-black/55 px-3 py-1 text-xs font-semibold text-white shadow-[0_10px_20px_rgba(0,0,0,0.18)]">
+              {safeIndex + 1}/{total}
+            </span>
+            <span className="hidden rounded-full bg-black/45 px-3 py-1 text-[11px] font-medium text-white/90 sm:inline-flex">
+              {current.kind === "image" ? "Imagen" : isExternalVideo ? "Video externo" : "Video"}
+            </span>
+          </div>
           <div className="pointer-events-auto flex gap-2">
+            <Button type="button" variant="outline" className="h-8 border-white/50 bg-black/50 px-2 text-white hover:bg-black/70" onClick={() => setLightboxOpen(true)}>
+              <Expand size={14} />
+            </Button>
             <Button
               type="button"
               variant="outline"
@@ -400,19 +492,52 @@ export function AssetMediaViewer({ media, title, className }: AssetMediaViewerPr
             >
               Teatro
             </Button>
-            <Button type="button" variant="outline" className="h-8 border-white/50 bg-black/50 px-2 text-white hover:bg-black/70" onClick={() => { void requestBestFullscreen(); }}>
-              <Expand size={14} />
+            <Button type="button" variant="outline" className="hidden h-8 border-white/50 bg-black/50 px-2 text-white hover:bg-black/70 sm:inline-flex" onClick={() => { void requestBestFullscreen(); }}>
+              Full
             </Button>
           </div>
         </div>
 
-        <div className={`absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/50 px-2 py-1 transition-opacity duration-200 ${showOverlayControls ? "opacity-100" : "pointer-events-none opacity-0"} ${isExternalVideo ? "hidden" : ""}`}>
-          <Button type="button" variant="outline" className="h-8 border-white/40 bg-black/40 px-2 text-white hover:bg-black/70" onClick={goPrev} disabled={total <= 1}>
-            <ChevronLeft size={14} />
-          </Button>
-          <Button type="button" variant="outline" className="h-8 border-white/40 bg-black/40 px-2 text-white hover:bg-black/70" onClick={goNext} disabled={total <= 1}>
-            <ChevronRight size={14} />
-          </Button>
+        <div className={`absolute inset-x-3 bottom-3 rounded-[1.35rem] border border-white/12 bg-[linear-gradient(180deg,rgba(10,15,20,0.48),rgba(10,15,20,0.7))] px-3 py-2.5 shadow-[0_18px_32px_rgba(0,0,0,0.24)] backdrop-blur-md transition-opacity duration-200 ${showOverlayControls ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" className="h-9 min-w-9 border-white/40 bg-black/35 px-2 text-white hover:bg-black/70" onClick={goPrev} disabled={total <= 1}>
+                <ChevronLeft size={15} />
+              </Button>
+              <Button type="button" variant="outline" className="h-9 min-w-9 border-white/40 bg-black/35 px-2 text-white hover:bg-black/70" onClick={goNext} disabled={total <= 1}>
+                <ChevronRight size={15} />
+              </Button>
+              {current.kind === "video" && !currentEmbeddedVideoUrl && (
+                <Button type="button" variant="outline" className="h-9 min-w-9 border-white/40 bg-black/35 px-2 text-white hover:bg-black/70" onClick={toggleVideoPlayback}>
+                  {isVideoPlaying ? <Pause size={15} /> : <Play size={15} />}
+                </Button>
+              )}
+            </div>
+            <div className="hidden items-center gap-2 sm:flex">
+              <Button type="button" variant="outline" className="h-9 border-white/40 bg-black/35 px-2 text-white hover:bg-black/70" onClick={() => { void requestBestFullscreen(); }}>
+                Pantalla
+              </Button>
+              {current.kind === "image" && (
+                <Button type="button" variant="outline" className="h-9 border-white/40 bg-black/35 px-2 text-white hover:bg-black/70" onClick={resetView}>
+                  Reiniciar
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {current.kind === "video" && !currentEmbeddedVideoUrl && (
+            <div className="mt-2.5">
+              <div className="h-1.5 overflow-hidden rounded-full bg-white/15">
+                <div className="h-full rounded-full bg-[var(--color-secondary)]" style={{ width: `${videoProgressPct}%` }} />
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-2 text-[11px] font-medium text-white/82">
+                <span>{formatPlaybackTime(activeVideoTime)}</span>
+                <span>{formatPlaybackTime(activeVideoDuration)}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-2 flex flex-wrap items-center gap-2">
           {current.kind === "image" && (
             <>
               <Button type="button" variant="outline" className="h-8 border-white/40 bg-black/40 px-2 text-white hover:bg-black/70" onClick={() => applyZoom((prev) => prev - ZOOM_STEP)}>
@@ -430,6 +555,12 @@ export function AssetMediaViewer({ media, title, className }: AssetMediaViewerPr
             <>
               <Button type="button" variant="outline" className="h-8 border-white/40 bg-black/40 px-2 text-white hover:bg-black/70" onClick={() => setIsMuted((prev) => !prev)}>
                 {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+              </Button>
+              <Button type="button" variant="outline" className="h-8 border-white/40 bg-black/40 px-2 text-white hover:bg-black/70" onClick={() => seekVideoBy(-10)}>
+                -10s
+              </Button>
+              <Button type="button" variant="outline" className="h-8 border-white/40 bg-black/40 px-2 text-white hover:bg-black/70" onClick={() => seekVideoBy(10)}>
+                +10s
               </Button>
               <Button type="button" variant="outline" className="h-8 border-white/40 bg-black/40 px-2 text-white hover:bg-black/70" onClick={() => { void togglePictureInPicture(); }}>
                 <MonitorPlay size={14} />
@@ -451,6 +582,7 @@ export function AssetMediaViewer({ media, title, className }: AssetMediaViewerPr
             <span className="rounded-lg border border-white/30 px-2 py-1 text-[11px] text-white/90">Video externo</span>
           )}
           {supportsPressSpeed && <span className="rounded-lg border border-white/30 px-2 py-1 text-[11px] text-white/90">Mantener Espacio o clic: {Math.max(playbackRate, HOLD_FAST_RATE)}x</span>}
+          </div>
         </div>
       </div>
 
@@ -464,7 +596,7 @@ export function AssetMediaViewer({ media, title, className }: AssetMediaViewerPr
                 resetView();
                 setIndex(itemIndex);
               }}
-              className={`h-[5.5rem] w-36 shrink-0 overflow-hidden rounded-xl border sm:h-24 sm:w-40 ${itemIndex === safeIndex ? "border-[var(--color-primary)] ring-2 ring-[var(--color-primary)]/25" : "border-[var(--color-border)]"}`}
+              className={`relative h-[5.8rem] w-28 shrink-0 overflow-hidden rounded-[1.15rem] border bg-[var(--color-surface-soft)] sm:h-24 sm:w-40 ${itemIndex === safeIndex ? "border-[var(--color-primary)] ring-2 ring-[var(--color-primary)]/25" : "border-[var(--color-border)]"}`}
             >
               {item.kind === "image" ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -490,6 +622,9 @@ export function AssetMediaViewer({ media, title, className }: AssetMediaViewerPr
                   />
                 )
               )}
+              <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-semibold text-white">
+                {item.kind === "image" ? "Foto" : "Video"}
+              </span>
             </button>
           ))}
         </div>
@@ -546,15 +681,39 @@ export function AssetMediaViewer({ media, title, className }: AssetMediaViewerPr
                     src={current.url}
                     onPlay={() => {
                       setIsVideoPlaying(true);
+                      setVideoTelemetry({
+                        currentTime: lightboxVideoRef.current?.currentTime ?? 0,
+                        duration: Number.isFinite(lightboxVideoRef.current?.duration) ? lightboxVideoRef.current?.duration ?? 0 : 0,
+                      });
                       revealOverlayControls();
                     }}
                     onPause={() => {
                       setIsVideoPlaying(false);
+                      setVideoTelemetry({
+                        currentTime: lightboxVideoRef.current?.currentTime ?? 0,
+                        duration: Number.isFinite(lightboxVideoRef.current?.duration) ? lightboxVideoRef.current?.duration ?? 0 : 0,
+                      });
                       setShowOverlayControls(true);
                     }}
                     onEnded={() => {
                       setIsVideoPlaying(false);
+                      setVideoTelemetry({
+                        currentTime: 0,
+                        duration: Number.isFinite(lightboxVideoRef.current?.duration) ? lightboxVideoRef.current?.duration ?? 0 : 0,
+                      });
                       setShowOverlayControls(true);
+                    }}
+                    onLoadedMetadata={(event) => {
+                      setVideoTelemetry({
+                        currentTime: event.currentTarget.currentTime ?? 0,
+                        duration: Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0,
+                      });
+                    }}
+                    onTimeUpdate={(event) => {
+                      setVideoTelemetry({
+                        currentTime: event.currentTarget.currentTime ?? 0,
+                        duration: Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0,
+                      });
                     }}
                     onMouseDown={(event) => {
                       if (event.button !== 0) return;

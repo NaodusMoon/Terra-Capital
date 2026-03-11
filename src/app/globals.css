@@ -52,6 +52,7 @@ body {
     linear-gradient(135deg, color-mix(in oklab, var(--color-background) 95%, black), var(--color-background));
   color: var(--color-foreground);
   min-height: 100dvh;
+  overflow-x: hidden;
 }
 
 main {
@@ -61,7 +62,10 @@ main {
 
 @media (max-width: 768px) {
   body {
-    padding-bottom: 94px;
+    padding-bottom: 106px;
+    background:
+      radial-gradient(circle at top, color-mix(in oklab, var(--color-primary) 12%, transparent), transparent 34%),
+      linear-gradient(180deg, color-mix(in oklab, var(--color-background) 96%, white 4%), var(--color-background));
   }
 
   main {
@@ -82,7 +86,7 @@ main {
 
 @media (max-width: 480px) {
   body {
-    padding-bottom: 104px;
+    padding-bottom: 114px;
   }
 
   h1 {
@@ -131,6 +135,37 @@ h4 {
   font-size: 0.875rem;
   font-weight: 600;
   line-height: 1.35;
+}
+
+.tc-mobile-app-shell {
+  position: relative;
+}
+
+@media (max-width: 768px) {
+  .tc-mobile-app-shell::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 50% 0%, color-mix(in oklab, var(--color-primary) 11%, transparent), transparent 30%),
+      radial-gradient(circle at 100% 14%, color-mix(in oklab, var(--color-secondary) 14%, transparent), transparent 22%);
+    z-index: -1;
+  }
+
+  .tc-mobile-panel {
+    border-radius: 1.6rem;
+    border: 1px solid color-mix(in oklab, var(--color-border) 86%, white 14%);
+    background:
+      linear-gradient(180deg, color-mix(in oklab, var(--color-surface) 95%, white 5%), color-mix(in oklab, var(--color-surface) 88%, var(--color-background)));
+    box-shadow:
+      0 18px 34px rgba(15, 23, 42, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  }
+
+  .tc-mobile-section-gap {
+    gap: 0.9rem;
+  }
 }
 
 body.chat-page-lock {

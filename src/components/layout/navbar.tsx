@@ -50,11 +50,11 @@ export function Navbar() {
   const navOutlineClass =
     "border-[color:color-mix(in_oklab,var(--color-nav-foreground)_28%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-nav)_65%,transparent)] text-nav-foreground hover:bg-[color:color-mix(in_oklab,var(--color-nav)_78%,var(--color-surface))]";
   const mobileItemClass =
-    "relative flex flex-col items-center justify-center gap-1 rounded-2xl border px-2 py-2 text-[11px] font-semibold transition-all duration-200";
+    "relative flex min-h-[62px] flex-col items-center justify-center gap-1.5 rounded-[1.35rem] border px-2 py-2.5 text-[11px] font-semibold transition-all duration-200";
   const mobileActiveClass =
-    "border-transparent bg-primary text-primary-contrast shadow-[0_8px_20px_rgba(0,0,0,0.22)] -translate-y-0.5";
+    "border-transparent bg-[linear-gradient(180deg,var(--color-primary),color-mix(in_oklab,var(--color-primary)_76%,black))] text-primary-contrast shadow-[0_14px_28px_rgba(25,44,16,0.34)] -translate-y-1";
   const mobileIdleClass =
-    "border-[color:color-mix(in_oklab,var(--color-nav-foreground)_22%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-nav)_75%,var(--color-surface))] text-foreground active:scale-[0.98]";
+    "border-[color:color-mix(in_oklab,var(--color-nav-foreground)_16%,var(--color-border))] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-nav)_82%,white_18%),color-mix(in_oklab,var(--color-surface)_92%,var(--color-background)))] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] active:scale-[0.98]";
   const quickActionBaseClass =
     "group relative inline-flex h-11 items-center gap-2.5 rounded-2xl border px-3 text-xs font-semibold tracking-[0.01em] transition-all duration-250";
   const quickActionIconClass =
@@ -104,21 +104,36 @@ export function Navbar() {
       {!loading && !!user && (
         <>
           <div className="chat-mobile-topbar fixed left-1/2 top-3 z-50 -translate-x-1/2 md:hidden">
-            <div className="flex items-center gap-2 rounded-2xl border border-[color:color-mix(in_oklab,var(--color-nav)_45%,var(--color-border))] bg-[linear-gradient(135deg,color-mix(in_oklab,var(--color-nav)_88%,transparent),color-mix(in_oklab,var(--color-surface)_72%,transparent))] p-1 text-nav-foreground shadow-[0_12px_28px_rgba(0,0,0,0.16)] backdrop-blur-xl">
-              <ModeToggle
-                mode={activeMode}
-                compact
-                layoutId="mobile-top-mode-pill"
-                className="w-[250px]"
-                onChange={(mode) => {
-                  switchMode(mode);
-                  router.push(mode === "seller" ? "/seller" : "/dashboard");
-                }}
-              />
-              <NotificationsBell mobile />
+            <div className="flex items-center gap-2 rounded-[1.7rem] border border-[color:color-mix(in_oklab,var(--color-nav)_52%,var(--color-border))] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-nav)_92%,white_8%),color-mix(in_oklab,var(--color-surface)_85%,transparent))] px-2 py-2 text-nav-foreground shadow-[0_18px_36px_rgba(0,0,0,0.16)] backdrop-blur-xl">
+              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-[1.25rem] bg-[color:color-mix(in_oklab,var(--color-surface)_75%,white_25%)] px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]">
+                <Link href={panelPath} className="flex min-w-0 items-center gap-2 rounded-xl px-1">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[1rem] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-primary)_90%,white_10%),color-mix(in_oklab,var(--color-primary)_74%,black))] text-primary-contrast shadow-[0_10px_20px_rgba(25,44,16,0.28)]">
+                    <LayoutDashboard size={17} />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-muted)]">Terra Capital</span>
+                    <span className="block truncate text-sm font-semibold text-[var(--color-foreground)]">
+                      {activeMode === "seller" ? "Panel vendedor" : "Panel inversor"}
+                    </span>
+                  </span>
+                </Link>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <ModeToggle
+                  mode={activeMode}
+                  compact
+                  layoutId="mobile-top-mode-pill"
+                  className="w-[160px]"
+                  onChange={(mode) => {
+                    switchMode(mode);
+                    router.push(mode === "seller" ? "/seller" : "/dashboard");
+                  }}
+                />
+                <NotificationsBell mobile />
+              </div>
             </div>
           </div>
-          <div className="chat-mobile-spacer h-16 md:hidden" />
+          <div className="chat-mobile-spacer h-20 md:hidden" />
         </>
       )}
 
@@ -295,7 +310,8 @@ export function Navbar() {
 
       {!loading && (
         <div className="chat-mobile-bottombar fixed bottom-0 left-0 right-0 z-40 px-2 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 md:hidden">
-          <div className={`mx-auto grid w-full max-w-md gap-2 rounded-3xl border border-[color:color-mix(in_oklab,var(--color-nav)_42%,var(--color-border))] bg-[linear-gradient(135deg,color-mix(in_oklab,var(--color-nav)_90%,transparent),color-mix(in_oklab,var(--color-surface)_82%,transparent))] p-2 text-nav-foreground shadow-[0_-10px_28px_rgba(0,0,0,0.14)] backdrop-blur-xl ${user ? (inHome ? "grid-cols-2" : "grid-cols-5") : "grid-cols-2"}`}>
+          <div className={`mx-auto w-full max-w-md rounded-[2rem] border border-[color:color-mix(in_oklab,var(--color-nav)_42%,var(--color-border))] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-nav)_93%,white_7%),color-mix(in_oklab,var(--color-surface)_86%,transparent))] p-2 text-nav-foreground shadow-[0_-16px_36px_rgba(0,0,0,0.16)] backdrop-blur-xl ${user ? (inHome ? "" : "") : ""}`}>
+            <div className={`grid gap-2 ${user ? (inHome ? "grid-cols-2" : "grid-cols-5") : "grid-cols-2"}`}>
             {!user && (
               <>
                 <motion.div whileTap={{ scale: 0.97 }}>
@@ -364,6 +380,10 @@ export function Navbar() {
                 </motion.button>
               </>
             )}
+            </div>
+            <div className="pointer-events-none mt-2 flex justify-center">
+              <span className="h-1.5 w-24 rounded-full bg-[color:color-mix(in_oklab,var(--color-nav-foreground)_18%,transparent)]" />
+            </div>
           </div>
         </div>
       )}

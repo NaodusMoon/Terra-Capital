@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Pause, Play } from "lucide-react";
 import WaveSurfer from "wavesurfer.js";
@@ -38,6 +38,11 @@ type ResolvedSource = {
   revoke: boolean;
   blob: Blob | null;
 };
+
+type FallbackOverride = {
+  key: string;
+  blob: Blob;
+} | null;
 
 function detectAudioMime(bytes: Uint8Array) {
   if (bytes.length >= 12) {
@@ -137,28 +142,35 @@ export function VoiceNotePlayer({
   const [speedIndex, setSpeedIndex] = useState(0);
   const [waveReady, setWaveReady] = useState(false);
   const [errorDetail, setErrorDetail] = useState("");
-  const [source, setSource] = useState<ResolvedSource>({ url: "", revoke: false, blob: null });
+  const [fallbackOverride, setFallbackOverride] = useState<FallbackOverride>(null);
   const fallbackTriedRef = useRef(false);
+  const sourceKey = audioBlob
+    ? `blob:${audioBlob.size}:${audioBlob.type}:${audioBlob instanceof File ? audioBlob.lastModified : "na"}`
+    : audioUrl
+      ? `url:${audioUrl}`
+      : "empty";
 
   useEffect(() => {
     fallbackTriedRef.current = false;
+  }, [sourceKey]);
+
+  const source = useMemo<ResolvedSource>(() => {
+    if (fallbackOverride?.key === sourceKey) {
+      return { url: URL.createObjectURL(fallbackOverride.blob), revoke: true, blob: fallbackOverride.blob };
+    }
     if (audioBlob) {
-      setSource({ url: URL.createObjectURL(audioBlob), revoke: true, blob: audioBlob });
-      return;
+      return { url: URL.createObjectURL(audioBlob), revoke: true, blob: audioBlob };
     }
     if (!audioUrl) {
-      setSource({ url: "", revoke: false, blob: null });
-      return;
+      return { url: "", revoke: false, blob: null };
     }
     if (!audioUrl.startsWith("data:")) {
-      setSource({ url: audioUrl, revoke: false, blob: null });
-      return;
+      return { url: audioUrl, revoke: false, blob: null };
     }
     try {
       const [meta, base64] = audioUrl.split(",");
       if (!meta || !base64) {
-        setSource({ url: audioUrl, revoke: false, blob: null });
-        return;
+        return { url: audioUrl, revoke: false, blob: null };
       }
       const mimeMatch = meta.match(/data:(.*?);base64/);
       const declaredMime = mimeMatch?.[1] ?? audioMimeType ?? "";
@@ -170,11 +182,11 @@ export function VoiceNotePlayer({
       const sniffedMime = detectAudioMime(bytes);
       const mimeType = sniffedMime || declaredMime || "audio/wav";
       const blob = new Blob([bytes], { type: mimeType });
-      setSource({ url: URL.createObjectURL(blob), revoke: true, blob });
+      return { url: URL.createObjectURL(blob), revoke: true, blob };
     } catch {
-      setSource({ url: audioUrl, revoke: false, blob: null });
+      return { url: audioUrl, revoke: false, blob: null };
     }
-  }, [audioBlob, audioMimeType, audioUrl]);
+  }, [audioBlob, audioMimeType, audioUrl, fallbackOverride, sourceKey]);
 
   useEffect(() => {
     return () => {
@@ -221,10 +233,7 @@ export function VoiceNotePlayer({
         setErrorDetail("Convirtiendo audio para compatibilidad...");
         void convertAudioBlobToWav(source.blob)
           .then((wavBlob) => {
-            setSource((current) => {
-              if (current.revoke && current.url.startsWith("blob:")) URL.revokeObjectURL(current.url);
-              return { url: URL.createObjectURL(wavBlob), revoke: true, blob: wavBlob };
-            });
+            setFallbackOverride({ key: sourceKey, blob: wavBlob });
           })
           .catch(() => {
             const detail = `code=${errorCode} (${getMediaErrorLabel(errorCode)})${browserMessage ? ` - ${browserMessage}` : ""}`;
@@ -268,7 +277,7 @@ export function VoiceNotePlayer({
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("error", onError);
     };
-  }, [source.blob, source.url]);
+  }, [source.blob, source.url, sourceKey]);
 
   useEffect(() => {
     const container = waveformRef.current;

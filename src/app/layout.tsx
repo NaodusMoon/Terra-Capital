@@ -28,7 +28,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es" suppressHydrationWarning>
-      <body className={`${sora.variable} ${manrope.variable} min-h-screen bg-[var(--color-background)] text-[var(--color-foreground)] antialiased`}>
+      <body className={`${sora.variable} ${manrope.variable} tc-mobile-app-shell min-h-screen bg-[var(--color-background)] text-[var(--color-foreground)] antialiased`}>
         <AppProviders>
           <Navbar />
           <PageTransition>{children}</PageTransition>
