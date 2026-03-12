@@ -55,14 +55,9 @@ body {
   overflow-x: hidden;
 }
 
-main {
-  content-visibility: auto;
-  contain-intrinsic-size: 1px 900px;
-}
-
 @media (max-width: 768px) {
   body {
-    padding-bottom: 106px;
+    padding-bottom: calc(102px + env(safe-area-inset-bottom));
     background:
       radial-gradient(circle at top, color-mix(in oklab, var(--color-primary) 12%, transparent), transparent 34%),
       linear-gradient(180deg, color-mix(in oklab, var(--color-background) 96%, white 4%), var(--color-background));
@@ -86,7 +81,7 @@ main {
 
 @media (max-width: 480px) {
   body {
-    padding-bottom: 114px;
+    padding-bottom: calc(116px + env(safe-area-inset-bottom));
   }
 
   h1 {
@@ -165,6 +160,14 @@ h4 {
 
   .tc-mobile-section-gap {
     gap: 0.9rem;
+  }
+
+  .tc-mobile-scroll {
+    scrollbar-width: none;
+  }
+
+  .tc-mobile-scroll::-webkit-scrollbar {
+    display: none;
   }
 }
 

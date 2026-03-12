@@ -46,7 +46,7 @@ export function LandingPage() {
         <WheatFieldBackdrop />
 
         <div className="relative z-10 mx-auto grid min-h-[calc(100vh-74px)] w-full max-w-7xl items-center gap-10 px-5 py-16 lg:grid-cols-[1.2fr_0.8fr] lg:gap-12 lg:py-20">
-          <FadeIn>
+          <div>
             <span className="terra-badge">
               <Sprout size={15} /> Tokenizacion de tierras, campo y cultivos en Stellar
             </span>
@@ -69,7 +69,7 @@ export function LandingPage() {
                 </Button>
               </Link>
             </div>
-          </FadeIn>
+          </div>
 
           <FadeIn delay={0.12}>
             <Card className="relative max-w-xl overflow-hidden bg-[color:color-mix(in_oklab,var(--color-surface)_84%,transparent)] backdrop-blur-sm lg:ml-auto">

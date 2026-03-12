@@ -209,11 +209,11 @@ export function BuyerDashboard() {
     <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 sm:py-9">
       <FadeIn>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="tc-heading text-3xl font-black">Marketplace de Activos Productivos</h1>
-            <p className="tc-subtitle mt-2">Modelo por ciclos de produccion en USDT: funding, operacion y liquidacion.</p>
+          <div className="min-w-0">
+            <h1 className="tc-heading break-words text-2xl font-black leading-tight sm:text-3xl [overflow-wrap:anywhere]">Marketplace de Activos Productivos</h1>
+            <p className="tc-subtitle mt-2 max-w-2xl text-sm sm:text-base">Modelo por ciclos de produccion en USDT: funding, operacion y liquidacion.</p>
           </div>
-          <Button type="button" className="bg-[#c4a037] text-[#1f2328] hover:brightness-110" onClick={() => router.push("/portfolio")}>Mi portafolio</Button>
+          <Button type="button" className="w-full bg-[#c4a037] text-[#1f2328] hover:brightness-110 sm:w-auto" onClick={() => router.push("/portfolio")}>Mi portafolio</Button>
         </div>
       </FadeIn>
 
@@ -230,19 +230,19 @@ export function BuyerDashboard() {
         <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Card className="p-3">
             <p className="text-xs uppercase tracking-[0.13em] text-[var(--color-muted)]">Activos en funding</p>
-            <p className="mt-2 text-2xl font-black">{marketSummary.fundingAssets}</p>
+            <p className="mt-2 break-words text-[1.7rem] font-black leading-none [overflow-wrap:anywhere]">{marketSummary.fundingAssets}</p>
           </Card>
           <Card className="p-3">
             <p className="text-xs uppercase tracking-[0.13em] text-[var(--color-muted)]">Activos en operacion</p>
-            <p className="mt-2 text-2xl font-black">{marketSummary.operatingAssets}</p>
+            <p className="mt-2 break-words text-[1.7rem] font-black leading-none [overflow-wrap:anywhere]">{marketSummary.operatingAssets}</p>
           </Card>
           <Card className="p-3">
             <p className="text-xs uppercase tracking-[0.13em] text-[var(--color-muted)]">Ticket minimo</p>
-            <p className="mt-2 text-2xl font-black">{formatUSDT(marketSummary.minTicket)}</p>
+            <p className="mt-2 break-words text-[1.7rem] font-black leading-none [overflow-wrap:anywhere]">{formatUSDT(marketSummary.minTicket)}</p>
           </Card>
           <Card className="p-3">
             <p className="text-xs uppercase tracking-[0.13em] text-[var(--color-muted)]">Capital abierto</p>
-            <p className="mt-2 text-2xl font-black">{formatUSDT(marketSummary.openFunding)}</p>
+            <p className="mt-2 break-words text-[1.7rem] font-black leading-none [overflow-wrap:anywhere]">{formatUSDT(marketSummary.openFunding)}</p>
             <p className="mt-1 text-xs text-[var(--color-muted)]">APY medio: {marketSummary.avgApy.toFixed(2)}%</p>
           </Card>
         </div>

@@ -50,7 +50,7 @@ export function Navbar() {
   const navOutlineClass =
     "border-[color:color-mix(in_oklab,var(--color-nav-foreground)_28%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-nav)_65%,transparent)] text-nav-foreground hover:bg-[color:color-mix(in_oklab,var(--color-nav)_78%,var(--color-surface))]";
   const mobileItemClass =
-    "relative flex min-h-[62px] flex-col items-center justify-center gap-1.5 rounded-[1.35rem] border px-2 py-2.5 text-[11px] font-semibold transition-all duration-200";
+    "relative flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-[1.35rem] border px-1.5 py-2 text-[10px] font-semibold leading-none transition-all duration-200 min-[381px]:min-h-[62px] min-[381px]:gap-1.5 min-[381px]:px-2 min-[381px]:py-2.5 min-[381px]:text-[11px]";
   const mobileActiveClass =
     "border-transparent bg-[linear-gradient(180deg,var(--color-primary),color-mix(in_oklab,var(--color-primary)_76%,black))] text-primary-contrast shadow-[0_14px_28px_rgba(25,44,16,0.34)] -translate-y-1";
   const mobileIdleClass =
@@ -103,8 +103,8 @@ export function Navbar() {
     <>
       {!loading && !!user && (
         <>
-          <div className="chat-mobile-topbar fixed left-1/2 top-3 z-50 -translate-x-1/2 md:hidden">
-            <div className="flex items-center gap-2 rounded-[1.7rem] border border-[color:color-mix(in_oklab,var(--color-nav)_52%,var(--color-border))] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-nav)_92%,white_8%),color-mix(in_oklab,var(--color-surface)_85%,transparent))] px-2 py-2 text-nav-foreground shadow-[0_18px_36px_rgba(0,0,0,0.16)] backdrop-blur-xl">
+          <div className="chat-mobile-topbar fixed left-1/2 top-3 z-50 w-[calc(100vw-1rem)] max-w-md -translate-x-1/2 md:hidden">
+            <div className="flex items-center gap-2 rounded-[1.7rem] border border-[color:color-mix(in_oklab,var(--color-nav)_52%,var(--color-border))] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-nav)_92%,white_8%),color-mix(in_oklab,var(--color-surface)_85%,transparent))] px-2 py-2 text-nav-foreground shadow-[0_18px_36px_rgba(0,0,0,0.16)] backdrop-blur-xl max-[390px]:flex-col max-[390px]:items-stretch">
               <div className="flex min-w-0 flex-1 items-center gap-2 rounded-[1.25rem] bg-[color:color-mix(in_oklab,var(--color-surface)_75%,white_25%)] px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]">
                 <Link href={panelPath} className="flex min-w-0 items-center gap-2 rounded-xl px-1">
                   <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[1rem] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-primary)_90%,white_10%),color-mix(in_oklab,var(--color-primary)_74%,black))] text-primary-contrast shadow-[0_10px_20px_rgba(25,44,16,0.28)]">
@@ -118,12 +118,12 @@ export function Navbar() {
                   </span>
                 </Link>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2 self-stretch max-[390px]:justify-between">
                 <ModeToggle
                   mode={activeMode}
                   compact
                   layoutId="mobile-top-mode-pill"
-                  className="w-[160px]"
+                  className="w-[148px] min-[391px]:w-[160px]"
                   onChange={(mode) => {
                     switchMode(mode);
                     router.push(mode === "seller" ? "/seller" : "/dashboard");
@@ -310,8 +310,8 @@ export function Navbar() {
 
       {!loading && (
         <div className="chat-mobile-bottombar fixed bottom-0 left-0 right-0 z-40 px-2 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 md:hidden">
-          <div className={`mx-auto w-full max-w-md rounded-[2rem] border border-[color:color-mix(in_oklab,var(--color-nav)_42%,var(--color-border))] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-nav)_93%,white_7%),color-mix(in_oklab,var(--color-surface)_86%,transparent))] p-2 text-nav-foreground shadow-[0_-16px_36px_rgba(0,0,0,0.16)] backdrop-blur-xl ${user ? (inHome ? "" : "") : ""}`}>
-            <div className={`grid gap-2 ${user ? (inHome ? "grid-cols-2" : "grid-cols-5") : "grid-cols-2"}`}>
+          <div className={`mx-auto w-full max-w-[min(100%,28rem)] rounded-[2rem] border border-[color:color-mix(in_oklab,var(--color-nav)_42%,var(--color-border))] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-nav)_93%,white_7%),color-mix(in_oklab,var(--color-surface)_86%,transparent))] p-2 text-nav-foreground shadow-[0_-16px_36px_rgba(0,0,0,0.16)] backdrop-blur-xl ${user ? (inHome ? "" : "") : ""}`}>
+            <div className={`grid gap-1.5 min-[381px]:gap-2 ${user ? (inHome ? "grid-cols-2" : "grid-cols-5") : "grid-cols-2"}`}>
             {!user && (
               <>
                 <motion.div whileTap={{ scale: 0.97 }}>
@@ -332,7 +332,7 @@ export function Navbar() {
             {!!user && (
               <>
                 <motion.div whileTap={{ scale: 0.97 }}>
-                  <Link href={panelPath} className={`${mobileItemClass} ${pathname === panelPath ? mobileActiveClass : mobileIdleClass}`} aria-current={pathname === panelPath ? "page" : undefined}>
+                  <Link href={panelPath} className={`${mobileItemClass} ${pathname === panelPath ? mobileActiveClass : mobileIdleClass} min-w-0`} aria-current={pathname === panelPath ? "page" : undefined}>
                     <LayoutDashboard size={16} />
                     Panel
                   </Link>
@@ -340,7 +340,7 @@ export function Navbar() {
                 {showQuickNav && (
                   <>
                     <motion.div whileTap={{ scale: 0.97 }}>
-                      <Link href="/chats" className={`${mobileItemClass} ${pathname === "/chats" ? mobileActiveClass : mobileIdleClass}`} aria-current={pathname === "/chats" ? "page" : undefined}>
+                      <Link href="/chats" className={`${mobileItemClass} ${pathname === "/chats" ? mobileActiveClass : mobileIdleClass} min-w-0`} aria-current={pathname === "/chats" ? "page" : undefined}>
                         <span className={`grid h-6 w-6 place-items-center rounded-lg ${pathname === "/chats" ? "bg-primary-contrast/15" : "bg-[var(--color-surface)]/70"}`}>
                           <MessageCircle size={15} />
                         </span>
@@ -348,7 +348,7 @@ export function Navbar() {
                       </Link>
                     </motion.div>
                     <motion.div whileTap={{ scale: 0.97 }}>
-                      <Link href={portfolioPath} className={`${mobileItemClass} ${isActiveRoute(portfolioPath) ? mobileActiveClass : mobileIdleClass}`} aria-current={isActiveRoute(portfolioPath) ? "page" : undefined}>
+                      <Link href={portfolioPath} className={`${mobileItemClass} ${isActiveRoute(portfolioPath) ? mobileActiveClass : mobileIdleClass} min-w-0`} aria-current={isActiveRoute(portfolioPath) ? "page" : undefined}>
                         <span className={`grid h-6 w-6 place-items-center rounded-lg ${isActiveRoute(portfolioPath) ? "bg-primary-contrast/15" : "bg-[var(--color-surface)]/70"}`}>
                           {activeMode === "seller" ? <Briefcase size={15} /> : <PieChart size={15} />}
                         </span>
@@ -356,7 +356,7 @@ export function Navbar() {
                       </Link>
                     </motion.div>
                     <motion.div whileTap={{ scale: 0.97 }}>
-                      <Link href="/account" className={`${mobileItemClass} ${pathname === "/account" ? mobileActiveClass : mobileIdleClass}`} aria-current={pathname === "/account" ? "page" : undefined}>
+                      <Link href="/account" className={`${mobileItemClass} ${pathname === "/account" ? mobileActiveClass : mobileIdleClass} min-w-0`} aria-current={pathname === "/account" ? "page" : undefined}>
                         <span className={`grid h-6 w-6 place-items-center rounded-lg ${pathname === "/account" ? "bg-primary-contrast/15" : "bg-[var(--color-surface)]/70"}`}>
                           <Settings size={15} />
                         </span>
@@ -368,7 +368,7 @@ export function Navbar() {
                 <motion.button
                   type="button"
                   whileTap={{ scale: 0.97 }}
-                  className={`${mobileItemClass} ${mobileIdleClass}`}
+                  className={`${mobileItemClass} ${mobileIdleClass} min-w-0`}
                   onClick={() => {
                     logout();
                     disconnectWallet();
