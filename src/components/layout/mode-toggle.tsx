@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import type { UserMode } from "@/types/auth";
+import { useLanguage } from "@/components/providers/language-provider";
 import { cn } from "@/lib/utils";
 
 interface ModeToggleProps {
@@ -13,7 +14,11 @@ interface ModeToggleProps {
 }
 
 export function ModeToggle({ mode, onChange, className, compact = false, layoutId = "mode-toggle-pill" }: ModeToggleProps) {
-  const baseButton = compact ? "px-3 py-2 text-[11px]" : "px-4 py-2 text-xs";
+  const { language } = useLanguage();
+  const labels = language === "es"
+    ? { buyer: "Comprador", seller: "Vendedor" }
+    : { buyer: "Buyer", seller: "Seller" };
+  const baseButton = compact ? "px-2 py-2 text-[10px] min-[400px]:px-3 min-[400px]:text-[11px]" : "px-4 py-2 text-xs";
 
   return (
     <div className={cn("relative grid grid-cols-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-soft)] p-1", className)}>
@@ -37,14 +42,14 @@ export function ModeToggle({ mode, onChange, className, compact = false, layoutI
         onClick={() => onChange("buyer")}
         className={cn("relative z-10 rounded-full font-semibold transition", baseButton, mode === "buyer" ? "text-[var(--color-primary-contrast)]" : "text-[var(--color-foreground)]")}
       >
-        Comprador
+        {labels.buyer}
       </button>
       <button
         type="button"
         onClick={() => onChange("seller")}
         className={cn("relative z-10 rounded-full font-semibold transition", baseButton, mode === "seller" ? "text-[var(--color-primary-contrast)]" : "text-[var(--color-foreground)]")}
       >
-        Vendedor
+        {labels.seller}
       </button>
     </div>
   );

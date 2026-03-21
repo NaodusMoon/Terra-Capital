@@ -8,6 +8,7 @@
   lastWalletProvider: "terra_capital_last_wallet_provider",
   recoveryCodes: "terra_capital_recovery_codes",
   theme: "terra_capital_theme",
+  language: "terra_capital_language",
   wallets: "terra_capital_wallets",
   stellarNetwork: "terra_capital_stellar_network",
   assets: "terra_capital_assets",

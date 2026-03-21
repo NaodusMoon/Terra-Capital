@@ -7,6 +7,7 @@
   --color-primary: #6aa64e;
   --color-primary-contrast: #f7faef;
   --color-secondary: #d99923;
+  --color-secondary-contrast: #1c1f26;
   --color-accent: #c9d94e;
   --color-warning: #8c6111;
   --color-warning-contrast: #fff7e5;
@@ -20,21 +21,22 @@
 }
 
 .dark {
-  --color-background: #1c1f26;
+  --color-background: #171b21;
   --color-foreground: #eef2dc;
   --color-primary: #6aa64e;
   --color-primary-contrast: #0f130f;
-  --color-secondary: #d99923;
+  --color-secondary: #e1ac47;
+  --color-secondary-contrast: #181c22;
   --color-accent: #c9d94e;
   --color-warning: #8c6111;
   --color-warning-contrast: #ffefce;
-  --color-nav: #161922;
+  --color-nav: #131720;
   --color-nav-foreground: #eef2dc;
-  --color-gold: #d99923;
-  --color-surface: #232734;
-  --color-surface-soft: #2d3241;
-  --color-border: #3e4558;
-  --color-muted: #b7bf9e;
+  --color-gold: #e1ac47;
+  --color-surface: #222836;
+  --color-surface-soft: #2c3343;
+  --color-border: #41495b;
+  --color-muted: #bcc6a6;
 }
 
 @theme inline {
@@ -47,9 +49,12 @@
 }
 
 body {
+  margin: 0;
   font-family: var(--font-manrope), sans-serif;
   background:
-    linear-gradient(135deg, color-mix(in oklab, var(--color-background) 95%, black), var(--color-background));
+    radial-gradient(circle at top, color-mix(in oklab, var(--color-primary) 12%, transparent), transparent 28%),
+    radial-gradient(circle at 100% 0%, color-mix(in oklab, var(--color-secondary) 8%, transparent), transparent 22%),
+    linear-gradient(135deg, color-mix(in oklab, var(--color-background) 93%, black), var(--color-background));
   color: var(--color-foreground);
   min-height: 100dvh;
   overflow-x: hidden;
@@ -57,9 +62,11 @@ body {
 
 @media (max-width: 768px) {
   body {
-    padding-bottom: calc(102px + env(safe-area-inset-bottom));
+    padding-bottom: calc(124px + env(safe-area-inset-bottom));
+    -webkit-tap-highlight-color: transparent;
     background:
       radial-gradient(circle at top, color-mix(in oklab, var(--color-primary) 12%, transparent), transparent 34%),
+      radial-gradient(circle at 100% 18%, color-mix(in oklab, var(--color-secondary) 10%, transparent), transparent 24%),
       linear-gradient(180deg, color-mix(in oklab, var(--color-background) 96%, white 4%), var(--color-background));
   }
 
@@ -81,7 +88,7 @@ body {
 
 @media (max-width: 480px) {
   body {
-    padding-bottom: calc(116px + env(safe-area-inset-bottom));
+    padding-bottom: calc(136px + env(safe-area-inset-bottom));
   }
 
   h1 {
@@ -104,6 +111,97 @@ h4 {
 
 .tc-subtitle {
   color: color-mix(in oklab, var(--color-accent) 48%, var(--color-muted));
+}
+
+.terra-market-card {
+  border: 1px solid color-mix(in oklab, var(--color-border) 82%, var(--color-primary) 18%);
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--color-surface) 92%, var(--color-primary) 8%), color-mix(in oklab, var(--color-surface-soft) 74%, var(--color-surface) 26%));
+  box-shadow:
+    0 12px 32px rgba(10, 14, 20, 0.08),
+    inset 0 1px 0 color-mix(in oklab, white 22%, transparent);
+}
+
+.dark .terra-market-card {
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.terra-market-card__panel {
+  border: 1px solid color-mix(in oklab, var(--color-border) 88%, var(--color-primary) 12%);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--color-surface) 88%, white 12%), color-mix(in oklab, var(--color-surface-soft) 56%, var(--color-surface) 44%));
+}
+
+.dark .terra-market-card__panel {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--color-surface) 94%, white 6%), color-mix(in oklab, var(--color-surface-soft) 82%, var(--color-background) 18%));
+}
+
+.terra-market-chip {
+  border: 1px solid color-mix(in oklab, var(--color-border) 70%, var(--color-secondary) 30%);
+  background: color-mix(in oklab, var(--color-secondary) 12%, var(--color-surface));
+  color: color-mix(in oklab, var(--color-secondary) 84%, var(--color-foreground));
+}
+
+.terra-market-chip--primary {
+  border: 1px solid color-mix(in oklab, var(--color-primary) 68%, var(--color-border));
+  background: color-mix(in oklab, var(--color-primary) 18%, var(--color-surface));
+  color: color-mix(in oklab, var(--color-primary) 82%, var(--color-foreground));
+}
+
+.terra-seller-shell {
+  border: 1px solid color-mix(in oklab, var(--color-border) 80%, var(--color-secondary) 20%);
+  background:
+    linear-gradient(135deg, color-mix(in oklab, var(--color-surface) 94%, var(--color-primary) 6%), color-mix(in oklab, var(--color-surface-soft) 72%, var(--color-surface) 28%));
+  box-shadow:
+    0 16px 42px rgba(10, 14, 20, 0.09),
+    inset 0 1px 0 color-mix(in oklab, white 18%, transparent);
+}
+
+.dark .terra-seller-shell {
+  box-shadow:
+    0 20px 48px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.terra-seller-panel {
+  border: 1px solid color-mix(in oklab, var(--color-border) 86%, var(--color-secondary) 14%);
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--color-surface) 90%, white 10%), color-mix(in oklab, var(--color-surface-soft) 66%, var(--color-surface) 34%));
+}
+
+.dark .terra-seller-panel {
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--color-surface) 94%, white 6%), color-mix(in oklab, var(--color-surface-soft) 84%, var(--color-background) 16%));
+}
+
+.terra-seller-kpi {
+  border: 1px solid color-mix(in oklab, var(--color-border) 84%, var(--color-secondary) 16%);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--color-surface) 88%, white 12%), color-mix(in oklab, var(--color-surface-soft) 58%, var(--color-surface) 42%));
+}
+
+.dark .terra-seller-kpi {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--color-surface) 92%, white 8%), color-mix(in oklab, var(--color-surface-soft) 80%, var(--color-background) 20%));
+}
+
+.terra-seller-field {
+  width: 100%;
+  border-radius: 0.9rem;
+  border: 1px solid var(--color-border);
+  background: color-mix(in oklab, var(--color-surface) 84%, var(--color-background));
+  color: var(--color-foreground);
+  padding: 0.75rem 0.9rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.terra-seller-field::placeholder {
+  color: color-mix(in oklab, var(--color-muted) 72%, transparent);
+}
+
+.terra-seller-field:focus {
+  outline: none;
+  border-color: color-mix(in oklab, var(--color-primary) 55%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 18%, transparent);
 }
 
 .terra-badge {
@@ -156,9 +254,15 @@ h4 {
     box-shadow:
       0 18px 34px rgba(15, 23, 42, 0.08),
       inset 0 1px 0 rgba(255, 255, 255, 0.32);
+    backdrop-filter: blur(8px);
   }
 
   .tc-mobile-section-gap {
+    gap: 0.9rem;
+  }
+
+  .tc-mobile-stack {
+    display: grid;
     gap: 0.9rem;
   }
 
@@ -168,6 +272,11 @@ h4 {
 
   .tc-mobile-scroll::-webkit-scrollbar {
     display: none;
+  }
+
+  .tc-touch-target {
+    min-height: 44px;
+    min-width: 44px;
   }
 }
 

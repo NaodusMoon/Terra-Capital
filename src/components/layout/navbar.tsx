@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  BellRing,
   Briefcase,
   ChevronDown,
   Copy,
@@ -18,6 +19,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useLanguage } from "@/components/providers/language-provider";
 import { useWallet } from "@/components/providers/wallet-provider";
 import { LogoBadge } from "@/components/layout/logo-badge";
 import { ModeToggle } from "@/components/layout/mode-toggle";
@@ -26,8 +28,105 @@ import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { getWalletProviderLabel } from "@/lib/wallet";
 
+const copyByLanguage = {
+  es: {
+    panelSeller: "Panel vendedor",
+    panelBuyer: "Panel inversor",
+    start: "Inicio",
+    login: "Login",
+    backToPanel: "Volver al panel",
+    signIn: "Iniciar con wallet",
+    backHome: "Volver al inicio",
+    portfolio: "Portafolio",
+    assets: "Activos",
+    chat: "Chat",
+    settings: "Ajustes",
+    account: "Cuenta",
+    logout: "Salir",
+    walletDisconnected: "Wallet no conectada",
+    walletConnected: "Sin direccion conectada",
+    copied: "Copiado",
+    copy: "Copiar",
+    disconnect: "Desconectar",
+    walletLabel: "Wallet",
+    address: "Direccion",
+    mobileHint: "Moverse por la app",
+  },
+  en: {
+    panelSeller: "Seller panel",
+    panelBuyer: "Investor panel",
+    start: "Home",
+    login: "Login",
+    backToPanel: "Back to panel",
+    signIn: "Connect wallet",
+    backHome: "Back home",
+    portfolio: "Portfolio",
+    assets: "Assets",
+    chat: "Chat",
+    settings: "Settings",
+    account: "Account",
+    logout: "Logout",
+    walletDisconnected: "Wallet not connected",
+    walletConnected: "No connected address",
+    copied: "Copied",
+    copy: "Copy",
+    disconnect: "Disconnect",
+    walletLabel: "Wallet",
+    address: "Address",
+    mobileHint: "Move through the app",
+  },
+  pt: {
+    panelSeller: "Painel vendedor",
+    panelBuyer: "Painel investidor",
+    start: "Inicio",
+    login: "Login",
+    backToPanel: "Voltar ao painel",
+    signIn: "Conectar carteira",
+    backHome: "Voltar ao inicio",
+    portfolio: "Portfolio",
+    assets: "Ativos",
+    chat: "Chat",
+    settings: "Configuracoes",
+    account: "Conta",
+    logout: "Sair",
+    walletDisconnected: "Carteira nao conectada",
+    walletConnected: "Sem endereco conectado",
+    copied: "Copiado",
+    copy: "Copiar",
+    disconnect: "Desconectar",
+    walletLabel: "Carteira",
+    address: "Endereco",
+    mobileHint: "Mover-se pelo app",
+  },
+  fr: {
+    panelSeller: "Espace vendeur",
+    panelBuyer: "Espace investisseur",
+    start: "Accueil",
+    login: "Connexion",
+    backToPanel: "Retour au tableau",
+    signIn: "Connecter le wallet",
+    backHome: "Retour a l'accueil",
+    portfolio: "Portefeuille",
+    assets: "Actifs",
+    chat: "Chat",
+    settings: "Parametres",
+    account: "Compte",
+    logout: "Quitter",
+    walletDisconnected: "Wallet non connecte",
+    walletConnected: "Aucune adresse connectee",
+    copied: "Copie",
+    copy: "Copier",
+    disconnect: "Deconnecter",
+    walletLabel: "Portefeuille",
+    address: "Adresse",
+    mobileHint: "Naviguer dans l app",
+  },
+} as const;
+
 export function Navbar() {
   const { user, loading, logout, activeMode, switchMode } = useAuth();
+  const { language } = useLanguage();
+  const t = copyByLanguage[language];
   const { walletAddress, walletProvider, network, setNetwork, disconnectWallet } = useWallet();
   const router = useRouter();
   const pathname = usePathname();
@@ -41,30 +140,26 @@ export function Navbar() {
   const portfolioPath = activeMode === "seller" ? "/seller/assets" : "/portfolio";
   const showQuickNav = !inHome;
   const shortWallet = useMemo(
-    () => (walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : "Wallet no conectada"),
-    [walletAddress],
+    () => (walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : t.walletDisconnected),
+    [t.walletDisconnected, walletAddress],
   );
   const isActiveRoute = (route: string) => pathname === route || pathname.startsWith(`${route}/`);
 
   const desktopActiveClass = "border-transparent bg-primary text-primary-contrast shadow-[0_10px_25px_rgba(0,0,0,0.2)]";
   const navOutlineClass =
-    "border-[color:color-mix(in_oklab,var(--color-nav-foreground)_28%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-nav)_65%,transparent)] text-nav-foreground hover:bg-[color:color-mix(in_oklab,var(--color-nav)_78%,var(--color-surface))]";
-  const mobileItemClass =
-    "relative flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-[1.35rem] border px-1.5 py-2 text-[10px] font-semibold leading-none transition-all duration-200 min-[381px]:min-h-[62px] min-[381px]:gap-1.5 min-[381px]:px-2 min-[381px]:py-2.5 min-[381px]:text-[11px]";
+    "border-[color:color-mix(in_oklab,var(--color-nav-foreground)_28%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-nav)_68%,transparent)] text-nav-foreground hover:bg-[color:color-mix(in_oklab,var(--color-nav)_82%,var(--color-surface))]";
+  const mobileNavClass =
+    "group relative flex min-h-[72px] flex-col items-center justify-center gap-1.5 rounded-[1.6rem] border px-2 pb-3 pt-2 text-center text-[10px] font-semibold leading-tight transition-all duration-200";
   const mobileActiveClass =
-    "border-transparent bg-[linear-gradient(180deg,var(--color-primary),color-mix(in_oklab,var(--color-primary)_76%,black))] text-primary-contrast shadow-[0_14px_28px_rgba(25,44,16,0.34)] -translate-y-1";
+    "border-transparent bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-primary)_94%,white_6%),color-mix(in_oklab,var(--color-primary)_75%,black))] text-primary-contrast shadow-[0_16px_30px_rgba(25,44,16,0.3)] -translate-y-1";
   const mobileIdleClass =
-    "border-[color:color-mix(in_oklab,var(--color-nav-foreground)_16%,var(--color-border))] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-nav)_82%,white_18%),color-mix(in_oklab,var(--color-surface)_92%,var(--color-background)))] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] active:scale-[0.98]";
-  const quickActionBaseClass =
-    "group relative inline-flex h-11 items-center gap-2.5 rounded-2xl border px-3 text-xs font-semibold tracking-[0.01em] transition-all duration-250";
-  const quickActionIconClass =
-    "grid h-7 w-7 shrink-0 place-items-center rounded-xl border border-[color:color-mix(in_oklab,var(--color-nav-foreground)_16%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-surface)_80%,transparent)]";
+    "border-[color:color-mix(in_oklab,var(--color-nav-foreground)_14%,var(--color-border))] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-surface)_94%,white_6%),color-mix(in_oklab,var(--color-nav)_86%,transparent))] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.48)] active:scale-[0.98]";
 
   const quickActions = [
     {
       key: "portfolio",
       href: portfolioPath,
-      label: activeMode === "seller" ? "Mis activos" : "Portafolio",
+      label: activeMode === "seller" ? t.assets : t.portfolio,
       isActive: isActiveRoute(portfolioPath),
       icon: activeMode === "seller" ? Briefcase : PieChart,
       iconTint: "group-hover:text-secondary",
@@ -72,7 +167,7 @@ export function Navbar() {
     {
       key: "chats",
       href: "/chats",
-      label: "Chat",
+      label: t.chat,
       isActive: isActiveRoute("/chats"),
       icon: MessageCircle,
       iconTint: "group-hover:text-primary",
@@ -80,7 +175,7 @@ export function Navbar() {
     {
       key: "account",
       href: "/account",
-      label: "Configuracion",
+      label: t.settings,
       isActive: isActiveRoute("/account"),
       icon: Settings,
       iconTint: "group-hover:text-accent",
@@ -103,41 +198,60 @@ export function Navbar() {
     <>
       {!loading && !!user && (
         <>
-          <div className="chat-mobile-topbar fixed left-1/2 top-3 z-50 w-[calc(100vw-1rem)] max-w-md -translate-x-1/2 md:hidden">
-            <div className="flex items-center gap-2 rounded-[1.7rem] border border-[color:color-mix(in_oklab,var(--color-nav)_52%,var(--color-border))] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-nav)_92%,white_8%),color-mix(in_oklab,var(--color-surface)_85%,transparent))] px-2 py-2 text-nav-foreground shadow-[0_18px_36px_rgba(0,0,0,0.16)] backdrop-blur-xl max-[390px]:flex-col max-[390px]:items-stretch">
-              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-[1.25rem] bg-[color:color-mix(in_oklab,var(--color-surface)_75%,white_25%)] px-2 py-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]">
-                <Link href={panelPath} className="flex min-w-0 items-center gap-2 rounded-xl px-1">
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[1rem] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-primary)_90%,white_10%),color-mix(in_oklab,var(--color-primary)_74%,black))] text-primary-contrast shadow-[0_10px_20px_rgba(25,44,16,0.28)]">
-                    <LayoutDashboard size={17} />
+          <div className="fixed left-1/2 top-2 z-50 w-[calc(100vw-0.9rem)] max-w-md -translate-x-1/2 md:hidden">
+            <div className="rounded-[2rem] border border-[color:color-mix(in_oklab,var(--color-nav)_56%,var(--color-border))] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-nav)_95%,white_5%),color-mix(in_oklab,var(--color-surface)_88%,transparent))] p-2.5 text-nav-foreground shadow-[0_18px_44px_rgba(0,0,0,0.16)] backdrop-blur-2xl">
+              <div className="flex items-start gap-2 min-[390px]:items-center">
+                <Link href={panelPath} className="flex min-w-0 flex-1 items-center gap-3 rounded-[1.45rem] bg-[color:color-mix(in_oklab,var(--color-surface)_78%,white_22%)] px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.52)]">
+                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-[1.15rem] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-primary)_92%,white_8%),color-mix(in_oklab,var(--color-primary)_76%,black))] text-primary-contrast shadow-[0_12px_22px_rgba(25,44,16,0.26)]">
+                    <LayoutDashboard size={18} />
                   </span>
                   <span className="min-w-0">
                     <span className="block truncate text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-muted)]">Terra Capital</span>
                     <span className="block truncate text-sm font-semibold text-[var(--color-foreground)]">
-                      {activeMode === "seller" ? "Panel vendedor" : "Panel inversor"}
+                      {activeMode === "seller" ? t.panelSeller : t.panelBuyer}
                     </span>
                   </span>
                 </Link>
+                <div className="flex shrink-0 items-center gap-2">
+                  <NotificationsBell mobile />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-11 w-11 rounded-[1.15rem] border-[color:color-mix(in_oklab,var(--color-nav-foreground)_16%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-surface)_84%,white_16%)] px-0"
+                    onClick={() => {
+                      logout();
+                      disconnectWallet();
+                      router.push("/");
+                    }}
+                    aria-label={t.logout}
+                  >
+                    <LogOut size={17} />
+                  </Button>
+                </div>
               </div>
-              <div className="flex shrink-0 items-center gap-2 self-stretch max-[390px]:justify-between">
+              <div className="mt-2 grid gap-2 rounded-[1.4rem] bg-[color:color-mix(in_oklab,var(--color-surface)_72%,transparent)] px-2 py-2 min-[390px]:grid-cols-[minmax(0,1fr)_auto] min-[390px]:items-center">
                 <ModeToggle
                   mode={activeMode}
                   compact
                   layoutId="mobile-top-mode-pill"
-                  className="w-[148px] min-[391px]:w-[160px]"
+                  className="min-w-0 flex-1"
                   onChange={(mode) => {
                     switchMode(mode);
                     router.push(mode === "seller" ? "/seller" : "/dashboard");
                   }}
                 />
-                <NotificationsBell mobile />
+                <div className="inline-flex items-center justify-center gap-2 rounded-full bg-[var(--color-background)]/65 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)] min-[390px]:justify-start">
+                  <BellRing size={12} />
+                  {t.mobileHint}
+                </div>
               </div>
             </div>
           </div>
-          <div className="chat-mobile-spacer h-20 md:hidden" />
+          <div className="h-24 md:hidden" />
         </>
       )}
 
-      <header className="sticky top-2 z-40 hidden px-4 md:block">
+      <header className={`${inHome ? "fixed left-0 right-0 top-2" : "sticky top-2"} z-40 hidden px-4 md:block`}>
         <div className="mx-auto w-full max-w-7xl">
           <div className="relative overflow-visible rounded-3xl border border-[color:color-mix(in_oklab,var(--color-nav)_45%,var(--color-border))] bg-[linear-gradient(125deg,color-mix(in_oklab,var(--color-nav)_90%,transparent),color-mix(in_oklab,var(--color-surface)_84%,transparent))] px-4 py-3 text-nav-foreground shadow-[0_14px_34px_rgba(0,0,0,0.14)] backdrop-blur-xl">
             <div className="pointer-events-none absolute -right-20 -top-16 h-36 w-36 rounded-full bg-[color:color-mix(in_oklab,var(--color-secondary)_18%,transparent)] blur-3xl" />
@@ -153,14 +267,14 @@ export function Navbar() {
 
                 {!loading && !user && !isAuthView && (
                   <Link href="/auth/login">
-                    <Button variant="secondary" className="rounded-2xl">Iniciar con wallet</Button>
+                    <Button variant="secondary" className="rounded-2xl">{t.signIn}</Button>
                   </Link>
                 )}
 
                 {!loading && !user && isAuthView && (
                   <Link href="/">
                     <Button variant="ghost" className="rounded-2xl text-nav-foreground hover:bg-[color:color-mix(in_oklab,var(--color-nav-foreground)_12%,transparent)]">
-                      Volver al inicio
+                      {t.backHome}
                     </Button>
                   </Link>
                 )}
@@ -170,7 +284,7 @@ export function Navbar() {
                     {inHome && (
                       <Link href={panelPath}>
                         <Button variant="outline" className={`rounded-2xl ${navOutlineClass} ${isActiveRoute(panelPath) ? desktopActiveClass : ""}`}>
-                          Volver al panel
+                          {t.backToPanel}
                         </Button>
                       </Link>
                     )}
@@ -192,13 +306,13 @@ export function Navbar() {
                           return (
                             <Link key={action.key} href={action.href} title={action.label}>
                               <span
-                                className={`${quickActionBaseClass} ${
+                                className={`group relative inline-flex h-11 items-center gap-2.5 rounded-2xl border px-3 text-xs font-semibold tracking-[0.01em] transition-all duration-250 ${
                                   action.isActive
                                     ? "border-transparent bg-primary text-primary-contrast shadow-[0_10px_22px_rgba(0,0,0,0.24)]"
                                     : navOutlineClass
                                 }`}
                               >
-                                <span className={`${quickActionIconClass} ${action.isActive ? "border-primary-contrast/35 bg-primary-contrast/20 text-primary-contrast" : `text-nav-foreground ${action.iconTint}`}`}>
+                                <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-xl border border-[color:color-mix(in_oklab,var(--color-nav-foreground)_16%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-surface)_80%,transparent)] ${action.isActive ? "border-primary-contrast/35 bg-primary-contrast/20 text-primary-contrast" : `text-nav-foreground ${action.iconTint}`}`}>
                                   <Icon size={15} />
                                 </span>
                                 <span className="pr-0.5">{action.label}</span>
@@ -225,7 +339,7 @@ export function Navbar() {
                         <div className="absolute right-0 top-12 z-50 w-96 overflow-hidden rounded-2xl border border-border bg-surface text-foreground shadow-[0_20px_40px_rgba(0,0,0,0.2)]">
                           <div className="flex items-center justify-between border-b border-border px-4 py-3">
                             <p className="text-2xl font-semibold">
-                              {walletProvider ? getWalletProviderLabel(walletProvider) : "Wallet"}
+                              {walletProvider ? getWalletProviderLabel(walletProvider) : t.walletLabel}
                             </p>
                             <span className="rounded-lg bg-surface-soft px-3 py-1 text-xs font-medium text-muted">
                               {network === "public" ? "Mainnet" : "Testnet"}
@@ -249,9 +363,9 @@ export function Navbar() {
                               </button>
                             </div>
                             <div className="rounded-xl border border-border bg-surface-soft p-4">
-                              <p className="text-sm text-muted">Address</p>
+                              <p className="text-sm text-muted">{t.address}</p>
                               <p className="mt-2 break-all text-xl font-medium text-foreground">
-                                {walletAddress ?? "Sin direccion conectada"}
+                                {walletAddress ?? t.walletConnected}
                               </p>
                             </div>
                           </div>
@@ -269,7 +383,7 @@ export function Navbar() {
                               }}
                             >
                               <Copy size={18} />
-                              {copiedAddress ? "Copied" : "Copy"}
+                              {copiedAddress ? t.copied : t.copy}
                             </Button>
                             <Button
                               variant="outline"
@@ -280,7 +394,7 @@ export function Navbar() {
                               }}
                             >
                               <LogOut size={18} />
-                              Disconnect
+                              {t.disconnect}
                             </Button>
                           </div>
                         </div>
@@ -297,7 +411,7 @@ export function Navbar() {
                       }}
                     >
                       <LogOut size={15} />
-                      Salir
+                      {t.logout}
                     </Button>
                     <NotificationsBell />
                   </>
@@ -309,77 +423,66 @@ export function Navbar() {
       </header>
 
       {!loading && (
-        <div className="chat-mobile-bottombar fixed bottom-0 left-0 right-0 z-40 px-2 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 md:hidden">
-          <div className={`mx-auto w-full max-w-[min(100%,28rem)] rounded-[2rem] border border-[color:color-mix(in_oklab,var(--color-nav)_42%,var(--color-border))] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-nav)_93%,white_7%),color-mix(in_oklab,var(--color-surface)_86%,transparent))] p-2 text-nav-foreground shadow-[0_-16px_36px_rgba(0,0,0,0.16)] backdrop-blur-xl ${user ? (inHome ? "" : "") : ""}`}>
-            <div className={`grid gap-1.5 min-[381px]:gap-2 ${user ? (inHome ? "grid-cols-2" : "grid-cols-5") : "grid-cols-2"}`}>
-            {!user && (
-              <>
-                <motion.div whileTap={{ scale: 0.97 }}>
-                  <Link href="/" className={`${mobileItemClass} ${pathname === "/" ? mobileActiveClass : mobileIdleClass}`} aria-current={pathname === "/" ? "page" : undefined}>
-                    <House size={16} />
-                    Inicio
-                  </Link>
-                </motion.div>
-                <motion.div whileTap={{ scale: 0.97 }}>
-                  <Link href="/auth/login" className={`${mobileItemClass} ${pathname === "/auth/login" ? mobileActiveClass : mobileIdleClass}`} aria-current={pathname === "/auth/login" ? "page" : undefined}>
-                    <LogIn size={16} />
-                    Login
-                  </Link>
-                </motion.div>
-              </>
-            )}
+        <div className="fixed bottom-0 left-0 right-0 z-40 px-2 pb-[max(env(safe-area-inset-bottom),10px)] pt-2 md:hidden">
+          <div className="mx-auto w-full max-w-[28rem] rounded-[2.15rem] border border-[color:color-mix(in_oklab,var(--color-nav)_45%,var(--color-border))] bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-nav)_95%,white_5%),color-mix(in_oklab,var(--color-surface)_88%,transparent))] p-2 text-nav-foreground shadow-[0_-18px_38px_rgba(0,0,0,0.16)] backdrop-blur-2xl">
+            <div className={`grid gap-2 ${user ? "grid-cols-4" : "grid-cols-2"}`}>
+              {!user && (
+                <>
+                  <motion.div whileTap={{ scale: 0.97 }}>
+                    <Link href="/" className={`${mobileNavClass} ${pathname === "/" ? mobileActiveClass : mobileIdleClass}`} aria-current={pathname === "/" ? "page" : undefined}>
+                      <span className={`grid h-9 w-9 place-items-center rounded-[1rem] ${pathname === "/" ? "bg-primary-contrast/16" : "bg-[var(--color-surface)]/90"}`}>
+                        <House size={18} />
+                      </span>
+                      {t.start}
+                    </Link>
+                  </motion.div>
+                  <motion.div whileTap={{ scale: 0.97 }}>
+                    <Link href="/auth/login" className={`${mobileNavClass} ${pathname === "/auth/login" ? mobileActiveClass : mobileIdleClass}`} aria-current={pathname === "/auth/login" ? "page" : undefined}>
+                      <span className={`grid h-9 w-9 place-items-center rounded-[1rem] ${pathname === "/auth/login" ? "bg-primary-contrast/16" : "bg-[var(--color-surface)]/90"}`}>
+                        <LogIn size={18} />
+                      </span>
+                      {t.login}
+                    </Link>
+                  </motion.div>
+                </>
+              )}
 
-            {!!user && (
-              <>
-                <motion.div whileTap={{ scale: 0.97 }}>
-                  <Link href={panelPath} className={`${mobileItemClass} ${pathname === panelPath ? mobileActiveClass : mobileIdleClass} min-w-0`} aria-current={pathname === panelPath ? "page" : undefined}>
-                    <LayoutDashboard size={16} />
-                    Panel
-                  </Link>
-                </motion.div>
-                {showQuickNav && (
-                  <>
-                    <motion.div whileTap={{ scale: 0.97 }}>
-                      <Link href="/chats" className={`${mobileItemClass} ${pathname === "/chats" ? mobileActiveClass : mobileIdleClass} min-w-0`} aria-current={pathname === "/chats" ? "page" : undefined}>
-                        <span className={`grid h-6 w-6 place-items-center rounded-lg ${pathname === "/chats" ? "bg-primary-contrast/15" : "bg-[var(--color-surface)]/70"}`}>
-                          <MessageCircle size={15} />
-                        </span>
-                        Chats
-                      </Link>
-                    </motion.div>
-                    <motion.div whileTap={{ scale: 0.97 }}>
-                      <Link href={portfolioPath} className={`${mobileItemClass} ${isActiveRoute(portfolioPath) ? mobileActiveClass : mobileIdleClass} min-w-0`} aria-current={isActiveRoute(portfolioPath) ? "page" : undefined}>
-                        <span className={`grid h-6 w-6 place-items-center rounded-lg ${isActiveRoute(portfolioPath) ? "bg-primary-contrast/15" : "bg-[var(--color-surface)]/70"}`}>
-                          {activeMode === "seller" ? <Briefcase size={15} /> : <PieChart size={15} />}
-                        </span>
-                        {activeMode === "seller" ? "Activos" : "Portafolio"}
-                      </Link>
-                    </motion.div>
-                    <motion.div whileTap={{ scale: 0.97 }}>
-                      <Link href="/account" className={`${mobileItemClass} ${pathname === "/account" ? mobileActiveClass : mobileIdleClass} min-w-0`} aria-current={pathname === "/account" ? "page" : undefined}>
-                        <span className={`grid h-6 w-6 place-items-center rounded-lg ${pathname === "/account" ? "bg-primary-contrast/15" : "bg-[var(--color-surface)]/70"}`}>
-                          <Settings size={15} />
-                        </span>
-                        Cuenta
-                      </Link>
-                    </motion.div>
-                  </>
-                )}
-                <motion.button
-                  type="button"
-                  whileTap={{ scale: 0.97 }}
-                  className={`${mobileItemClass} ${mobileIdleClass} min-w-0`}
-                  onClick={() => {
-                    logout();
-                    disconnectWallet();
-                    router.push("/");
-                  }}
-                >
-                  <LogOut size={16} />
-                  Salir
-                </motion.button>
-              </>
-            )}
+              {!!user && (
+                <>
+                  <motion.div whileTap={{ scale: 0.97 }}>
+                    <Link href={panelPath} className={`${mobileNavClass} ${pathname === panelPath ? mobileActiveClass : mobileIdleClass}`} aria-current={pathname === panelPath ? "page" : undefined}>
+                      <span className={`grid h-9 w-9 place-items-center rounded-[1rem] ${pathname === panelPath ? "bg-primary-contrast/16" : "bg-[var(--color-surface)]/90"}`}>
+                        <LayoutDashboard size={18} />
+                      </span>
+                      {activeMode === "seller" ? t.panelSeller : t.panelBuyer}
+                    </Link>
+                  </motion.div>
+                  <motion.div whileTap={{ scale: 0.97 }}>
+                    <Link href="/chats" className={`${mobileNavClass} ${pathname === "/chats" ? mobileActiveClass : mobileIdleClass}`} aria-current={pathname === "/chats" ? "page" : undefined}>
+                      <span className={`grid h-9 w-9 place-items-center rounded-[1rem] ${pathname === "/chats" ? "bg-primary-contrast/16" : "bg-[var(--color-surface)]/90"}`}>
+                        <MessageCircle size={18} />
+                      </span>
+                      {t.chat}
+                    </Link>
+                  </motion.div>
+                  <motion.div whileTap={{ scale: 0.97 }}>
+                    <Link href={portfolioPath} className={`${mobileNavClass} ${isActiveRoute(portfolioPath) ? mobileActiveClass : mobileIdleClass}`} aria-current={isActiveRoute(portfolioPath) ? "page" : undefined}>
+                      <span className={`grid h-9 w-9 place-items-center rounded-[1rem] ${isActiveRoute(portfolioPath) ? "bg-primary-contrast/16" : "bg-[var(--color-surface)]/90"}`}>
+                        {activeMode === "seller" ? <Briefcase size={18} /> : <PieChart size={18} />}
+                      </span>
+                      {activeMode === "seller" ? t.assets : t.portfolio}
+                    </Link>
+                  </motion.div>
+                  <motion.div whileTap={{ scale: 0.97 }}>
+                    <Link href="/account" className={`${mobileNavClass} ${pathname === "/account" ? mobileActiveClass : mobileIdleClass}`} aria-current={pathname === "/account" ? "page" : undefined}>
+                      <span className={`grid h-9 w-9 place-items-center rounded-[1rem] ${pathname === "/account" ? "bg-primary-contrast/16" : "bg-[var(--color-surface)]/90"}`}>
+                        <Settings size={18} />
+                      </span>
+                      {t.account}
+                    </Link>
+                  </motion.div>
+                </>
+              )}
             </div>
             <div className="pointer-events-none mt-2 flex justify-center">
               <span className="h-1.5 w-24 rounded-full bg-[color:color-mix(in_oklab,var(--color-nav-foreground)_18%,transparent)]" />

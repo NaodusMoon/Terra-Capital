@@ -1,0 +1,79 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e5]:
+      - link "Terra Capital logo Terra Capital Tokenizacion" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e7]:
+          - img "Terra Capital logo" [ref=e8]
+          - generic [ref=e9]:
+            - paragraph [ref=e10]: Terra Capital
+            - paragraph [ref=e11]: Tokenizacion
+      - button "Cambiar a modo oscuro" [ref=e13]:
+        - img [ref=e14]
+  - main [ref=e17]:
+    - generic [ref=e19]:
+      - generic [ref=e20]:
+        - generic [ref=e21]:
+          - img [ref=e22]
+          - text: Tokenizacion de tierras, campo y cultivos en Stellar
+        - heading "Capital real para el agro, con seguridad legal y trazabilidad digital." [level=1] [ref=e25]
+        - paragraph [ref=e26]: Terra Capital transforma participaciones fiduciarias en tokens digitales vinculantes. Combinamos fideicomiso, cumplimiento regulatorio y tecnologia blockchain para conectar ahorro urbano con produccion rural.
+        - generic [ref=e27]:
+          - link "Empezar con wallet" [ref=e28] [cursor=pointer]:
+            - /url: /auth/login
+            - button "Empezar con wallet" [ref=e29]:
+              - text: Empezar con wallet
+              - img [ref=e30]
+          - link "Iniciar sesion" [ref=e32] [cursor=pointer]:
+            - /url: /auth/login
+            - button "Iniciar sesion" [ref=e33]
+      - generic [ref=e35]:
+        - heading "Arquitectura de confianza" [level=2] [ref=e37]
+        - list [ref=e38]:
+          - listitem [ref=e39]:
+            - img [ref=e40]
+            - text: Activos en resguardo dentro de fideicomiso.
+          - listitem [ref=e43]:
+            - img [ref=e44]
+            - text: Participaciones tokenizadas con derechos economicos.
+          - listitem [ref=e47]:
+            - img [ref=e48]
+            - text: Custodia en wallet legalmente vinculada por escribania.
+    - generic [ref=e51]:
+      - generic [ref=e53]:
+        - heading "Problema" [level=3] [ref=e54]
+        - list [ref=e55]:
+          - listitem [ref=e56]:
+            - generic [ref=e58]: Desplazamiento generacional y tierras productivas subutilizadas.
+          - listitem [ref=e59]:
+            - generic [ref=e61]: Mercado inmobiliario rural lento y sin liquidez para propietarios.
+          - listitem [ref=e62]:
+            - generic [ref=e64]: Ahorristas urbanos con pocas opciones para invertir en activos reales.
+      - generic [ref=e66]:
+        - heading "Solucion" [level=3] [ref=e67]
+        - list [ref=e68]:
+          - listitem [ref=e69]:
+            - generic [ref=e71]: Fideicomiso como resguardo patrimonial y separacion de riesgos.
+          - listitem [ref=e72]:
+            - generic [ref=e74]: Tokenizacion fraccionada de tierra, cosecha y ganado sobre Stellar.
+          - listitem [ref=e75]:
+            - generic [ref=e77]: Trazabilidad legal y financiera con validaciones institucionales.
+    - generic [ref=e78]:
+      - generic [ref=e79]:
+        - heading "Fideicomiso Tokenizado" [level=3] [ref=e80]
+        - paragraph [ref=e81]: Cada token representa una participacion juridica sobre utilidades del rubro (tierra, grano o carne). La estructura separa patrimonio personal y patrimonio productivo para proteger al inversor y al productor.
+      - generic [ref=e82]:
+        - generic [ref=e84]:
+          - img [ref=e85]
+          - heading "Propietarios" [level=4] [ref=e89]
+          - paragraph [ref=e90]: Obtienen liquidez sin vender su campo, manteniendo titularidad y acelerando productividad.
+        - generic [ref=e92]:
+          - img [ref=e93]
+          - heading "Inversores" [level=4] [ref=e98]
+          - paragraph [ref=e99]: Acceden a participaciones desde montos bajos en activos tangibles del agro.
+        - generic [ref=e101]:
+          - img [ref=e102]
+          - heading "Cumplimiento" [level=4] [ref=e104]
+          - paragraph [ref=e105]: Modelo estructurado bajo normativa argentina (CNV) y protocolizacion notarial.
+  - button "Open Next.js Dev Tools" [ref=e111] [cursor=pointer]:
+    - img [ref=e112]

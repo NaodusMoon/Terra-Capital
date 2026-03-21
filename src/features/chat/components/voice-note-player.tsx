@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Pause, Play } from "lucide-react";
+import { Download, Pause, Play, Repeat, RotateCcw, RotateCw, Volume1, Volume2, VolumeX } from "lucide-react";
 import WaveSurfer from "wavesurfer.js";
 import styles from "./voice-note-player.module.css";
 
-const audioSpeeds = [1, 1.5, 2] as const;
+const audioSpeeds = [0.75, 1, 1.25, 1.5, 2] as const;
+const seekStepSeconds = 10;
 
 function formatAudioTime(totalSeconds: number) {
   const safe = Math.max(0, Math.floor(totalSeconds));
@@ -135,11 +136,15 @@ export function VoiceNotePlayer({
   const waveformRef = useRef<HTMLDivElement | null>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const downloadLinkRef = useRef<HTMLAnchorElement | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [speedIndex, setSpeedIndex] = useState(0);
+  const [isMuted, setIsMuted] = useState(false);
+  const [volume, setVolume] = useState(0.88);
+  const [isLooping, setIsLooping] = useState(false);
   const [waveReady, setWaveReady] = useState(false);
   const [errorDetail, setErrorDetail] = useState("");
   const [fallbackOverride, setFallbackOverride] = useState<FallbackOverride>(null);
@@ -199,6 +204,9 @@ export function VoiceNotePlayer({
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !source.url) return;
+    audio.muted = isMuted;
+    audio.volume = volume;
+    audio.loop = isLooping;
 
     const onReady = () => {
       setStatus("ready");
@@ -277,7 +285,7 @@ export function VoiceNotePlayer({
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("error", onError);
     };
-  }, [source.blob, source.url, sourceKey]);
+  }, [isLooping, isMuted, source.blob, source.url, sourceKey, volume]);
 
   useEffect(() => {
     const container = waveformRef.current;
@@ -353,24 +361,95 @@ export function VoiceNotePlayer({
     setCurrentTime(next);
   };
 
+  const skipBy = (delta: number) => {
+    const audio = audioRef.current;
+    if (!audio || duration <= 0) return;
+    const next = Math.max(0, Math.min(duration, (audio.currentTime || 0) + delta));
+    audio.currentTime = next;
+    setCurrentTime(next);
+  };
+
   const cycleSpeed = () => {
     const next = (speedIndex + 1) % audioSpeeds.length;
     setSpeedIndex(next);
     wavesurferRef.current?.setPlaybackRate(audioSpeeds[next]);
   };
 
+  const toggleMute = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const next = !isMuted;
+    setIsMuted(next);
+    audio.muted = next;
+  };
+
+  const handleVolumeChange = (nextVolume: number) => {
+    const audio = audioRef.current;
+    const safe = Math.max(0, Math.min(1, nextVolume));
+    setVolume(safe);
+    if (audio) {
+      audio.volume = safe;
+      if (safe > 0 && isMuted) {
+        setIsMuted(false);
+        audio.muted = false;
+      }
+    }
+  };
+
+  const toggleLooping = () => {
+    const audio = audioRef.current;
+    const next = !isLooping;
+    setIsLooping(next);
+    if (audio) {
+      audio.loop = next;
+    }
+  };
+
+  const downloadAudio = () => {
+    if (!source.url) return;
+    const link = downloadLinkRef.current;
+    if (!link) return;
+    link.href = source.url;
+    link.download = audioBlob instanceof File && audioBlob.name ? audioBlob.name : `voice-note-${Date.now()}.wav`;
+    link.click();
+  };
+
   const progress = duration > 0 ? Math.max(0, Math.min(100, (currentTime / duration) * 100)) : 0;
+  const remaining = duration > 0 ? Math.max(0, duration - currentTime) : 0;
   const wrapperClass = `${styles.player} ${tone === "outgoing" ? styles.outgoing : ""} ${className}`.trim();
   const hasValidSource = Boolean(source.url);
   const visualStatus = hasValidSource ? status : "error";
+  const volumeIcon = isMuted || volume === 0 ? <VolumeX size={15} /> : volume < 0.5 ? <Volume1 size={15} /> : <Volume2 size={15} />;
 
   return (
-    <div className={wrapperClass}>
+    <div className={wrapperClass} data-playing={playing ? "true" : "false"} data-ready={visualStatus === "ready" ? "true" : "false"}>
       <audio ref={audioRef} className="hidden" />
-      <button type="button" className={styles.button} onClick={togglePlay} disabled={visualStatus !== "ready"} aria-label={playing ? "Pausar audio" : "Reproducir audio"}>
-        {playing ? <Pause size={14} /> : <Play size={14} />}
-      </button>
+      <a ref={downloadLinkRef} className="hidden" aria-hidden="true" tabIndex={-1} />
+      <div className={styles.transport}>
+        <button type="button" className={`${styles.button} ${styles.buttonSubtle}`} onClick={() => skipBy(-seekStepSeconds)} disabled={visualStatus !== "ready"} aria-label={`Retroceder ${seekStepSeconds} segundos`}>
+          <RotateCcw size={14} />
+        </button>
+        <button type="button" className={styles.button} onClick={togglePlay} disabled={visualStatus !== "ready"} aria-label={playing ? "Pausar audio" : "Reproducir audio"}>
+          {playing ? <Pause size={14} /> : <Play size={14} />}
+        </button>
+        <button type="button" className={`${styles.button} ${styles.buttonSubtle}`} onClick={() => skipBy(seekStepSeconds)} disabled={visualStatus !== "ready"} aria-label={`Avanzar ${seekStepSeconds} segundos`}>
+          <RotateCw size={14} />
+        </button>
+      </div>
       <div className={styles.body}>
+        <div className={styles.topRow}>
+          <div className={styles.chips}>
+            <span className={styles.chip}>{audioSpeeds[speedIndex]}x</span>
+            <button type="button" className={`${styles.chip} ${isLooping ? styles.chipActive : ""}`} onClick={toggleLooping} disabled={visualStatus !== "ready"} aria-pressed={isLooping}>
+              <Repeat size={11} />
+              Repetir
+            </button>
+          </div>
+          <div className={styles.metaRight}>
+            <span>{formatAudioTime(currentTime)} / {formatAudioTime(duration)}</span>
+            <span>{formatAudioTime(remaining)} restantes</span>
+          </div>
+        </div>
         <div className={styles.waveWrap} onClick={handleWaveSeek}>
           <div ref={waveformRef} className={styles.wave} />
           {(!waveReady || visualStatus === "loading") && <div className={styles.loadingSkeleton} />}
@@ -381,10 +460,28 @@ export function VoiceNotePlayer({
           />
         </div>
         <div className={styles.meta}>
-          <span>{formatAudioTime(currentTime)} / {formatAudioTime(duration)}</span>
-          <button type="button" className={styles.speed} onClick={cycleSpeed} disabled={visualStatus !== "ready"}>
-            {audioSpeeds[speedIndex]}x
-          </button>
+          <div className={styles.metaActions}>
+            <button type="button" className={styles.speed} onClick={cycleSpeed} disabled={visualStatus !== "ready"}>
+              {audioSpeeds[speedIndex]}x
+            </button>
+            <button type="button" className={styles.iconAction} onClick={toggleMute} disabled={visualStatus !== "ready"} aria-label={isMuted ? "Activar sonido" : "Silenciar"}>
+              {volumeIcon}
+            </button>
+            <button type="button" className={styles.iconAction} onClick={downloadAudio} disabled={visualStatus !== "ready" || !source.url} aria-label="Descargar audio">
+              <Download size={15} />
+            </button>
+          </div>
+          <label className={styles.volumeRail} aria-label="Volumen">
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={isMuted ? 0 : volume}
+              onChange={(event) => handleVolumeChange(Number(event.target.value))}
+            />
+            <span className={styles.volumeFill} style={{ width: `${Math.max(0, Math.min(100, (isMuted ? 0 : volume) * 100))}%` }} />
+          </label>
         </div>
         {visualStatus === "error" && <p className={styles.error}>No se pudo reproducir el audio. {errorDetail}</p>}
       </div>

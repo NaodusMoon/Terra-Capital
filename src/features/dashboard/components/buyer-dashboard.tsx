@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
 import { useRouter } from "next/navigation";
@@ -26,14 +26,14 @@ function getStateLabel(status: TokenizedAsset["lifecycleStatus"]) {
 }
 
 function getStateBadgeClass(status: TokenizedAsset["lifecycleStatus"]) {
-  if (status === "FUNDING") return "border border-[color:color-mix(in_oklab,var(--color-primary)_65%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-primary)_26%,transparent)] text-[color:color-mix(in_oklab,var(--color-primary)_72%,white)]";
-  if (status === "OPERATING") return "border border-[color:color-mix(in_oklab,var(--color-secondary)_65%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-secondary)_22%,transparent)] text-[color:color-mix(in_oklab,var(--color-secondary)_78%,white)]";
+  if (status === "FUNDING") return "terra-market-chip--primary";
+  if (status === "OPERATING") return "terra-market-chip";
   return "border border-[var(--color-border)] bg-[var(--color-surface-soft)] text-[var(--color-muted)]";
 }
 
 function getCategoryBadgeClass(category: AssetCategory) {
-  if (category === "cultivo") return "border border-[color:color-mix(in_oklab,var(--color-accent)_70%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-accent)_20%,var(--color-surface))] text-[color:color-mix(in_oklab,var(--color-accent)_86%,var(--color-foreground))]";
-  if (category === "ganaderia") return "border border-[color:color-mix(in_oklab,var(--color-warning)_70%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-warning)_18%,var(--color-surface))] text-[color:color-mix(in_oklab,var(--color-warning)_92%,var(--color-warning-contrast))]";
+  if (category === "cultivo") return "terra-market-chip--primary";
+  if (category === "ganaderia") return "terra-market-chip";
   return "border border-[color:color-mix(in_oklab,var(--color-foreground)_28%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-foreground)_9%,var(--color-surface))] text-[color:color-mix(in_oklab,var(--color-foreground)_78%,white)]";
 }
 
@@ -58,7 +58,7 @@ function TokenPreview({ asset }: { asset: TokenizedAsset }) {
 
   if (previewMedia?.kind === "image") {
     return (
-      <div className="h-16 w-16 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] shadow-md shadow-black/20">
+      <div className="h-[4.5rem] w-[4.5rem] overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] shadow-md shadow-black/20">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={previewMedia.url} alt={asset.title} className="h-full w-full object-cover" />
       </div>
@@ -68,7 +68,7 @@ function TokenPreview({ asset }: { asset: TokenizedAsset }) {
   if (previewMedia?.kind === "video") {
     const thumbUrl = getVideoThumbnailUrl(previewMedia.url);
     return (
-      <div className="h-16 w-16 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] shadow-md shadow-black/20">
+      <div className="h-[4.5rem] w-[4.5rem] overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] shadow-md shadow-black/20">
         {thumbUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={thumbUrl} alt={`${asset.title} video`} className="h-full w-full object-cover" />
@@ -93,8 +93,8 @@ function TokenPreview({ asset }: { asset: TokenizedAsset }) {
   }
 
   return (
-    <div className="grid h-16 w-16 place-items-center rounded-xl bg-gradient-to-br from-[var(--color-primary)] via-[var(--color-accent)] to-[var(--color-gold)] text-[var(--color-primary-contrast)] shadow-md shadow-black/20">
-      <Icon size={20} />
+    <div className="grid h-[4.5rem] w-[4.5rem] place-items-center rounded-2xl bg-gradient-to-br from-[var(--color-primary)] via-[var(--color-accent)] to-[var(--color-gold)] text-[var(--color-primary-contrast)] shadow-md shadow-black/20">
+      <Icon size={24} />
     </div>
   );
 }
@@ -109,7 +109,6 @@ export function BuyerDashboard() {
   const [sortBy, setSortBy] = useState<"recent" | "priceAsc" | "priceDesc" | "stock">("recent");
   const [syncError, setSyncError] = useState("");
   const [hasBootstrapped, setHasBootstrapped] = useState(false);
-  const [categoryHintAssetId, setCategoryHintAssetId] = useState<string | null>(null);
 
   const syncData = useCallback(async () => {
     if (!user) return;
@@ -206,14 +205,14 @@ export function BuyerDashboard() {
   const isEmptyByFilter = hasBootstrapped && assets.length > 0 && filteredAssets.length === 0;
 
   return (
-    <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 sm:py-9">
+    <main className="mx-auto w-full max-w-7xl overflow-x-clip px-4 py-6 md:px-6 md:py-8 lg:px-8">
       <FadeIn>
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
-            <h1 className="tc-heading break-words text-2xl font-black leading-tight sm:text-3xl [overflow-wrap:anywhere]">Marketplace de Activos Productivos</h1>
-            <p className="tc-subtitle mt-2 max-w-2xl text-sm sm:text-base">Modelo por ciclos de produccion en USDT: funding, operacion y liquidacion.</p>
+            <h1 className="tc-heading text-2xl font-black leading-tight md:text-3xl">Marketplace de Activos Productivos</h1>
+            <p className="tc-subtitle mt-2 max-w-[70ch]">Modelo por ciclos de produccion en USDT: funding, operacion y liquidacion.</p>
           </div>
-          <Button type="button" className="w-full bg-[#c4a037] text-[#1f2328] hover:brightness-110 sm:w-auto" onClick={() => router.push("/portfolio")}>Mi portafolio</Button>
+          <Button type="button" variant="secondary" className="w-full md:w-auto" onClick={() => router.push("/portfolio")}>Mi portafolio</Button>
         </div>
       </FadeIn>
 
@@ -226,28 +225,28 @@ export function BuyerDashboard() {
         </section>
       )}
 
-      <section className="mt-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-        <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="mt-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 md:p-5">
+        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
           <Card className="p-3">
             <p className="text-xs uppercase tracking-[0.13em] text-[var(--color-muted)]">Activos en funding</p>
-            <p className="mt-2 break-words text-[1.7rem] font-black leading-none [overflow-wrap:anywhere]">{marketSummary.fundingAssets}</p>
+            <p className="mt-2 text-2xl font-black">{marketSummary.fundingAssets}</p>
           </Card>
           <Card className="p-3">
             <p className="text-xs uppercase tracking-[0.13em] text-[var(--color-muted)]">Activos en operacion</p>
-            <p className="mt-2 break-words text-[1.7rem] font-black leading-none [overflow-wrap:anywhere]">{marketSummary.operatingAssets}</p>
+            <p className="mt-2 text-2xl font-black">{marketSummary.operatingAssets}</p>
           </Card>
           <Card className="p-3">
             <p className="text-xs uppercase tracking-[0.13em] text-[var(--color-muted)]">Ticket minimo</p>
-            <p className="mt-2 break-words text-[1.7rem] font-black leading-none [overflow-wrap:anywhere]">{formatUSDT(marketSummary.minTicket)}</p>
+            <p className="mt-2 text-2xl font-black">{formatUSDT(marketSummary.minTicket)}</p>
           </Card>
           <Card className="p-3">
             <p className="text-xs uppercase tracking-[0.13em] text-[var(--color-muted)]">Capital abierto</p>
-            <p className="mt-2 break-words text-[1.7rem] font-black leading-none [overflow-wrap:anywhere]">{formatUSDT(marketSummary.openFunding)}</p>
+            <p className="mt-2 text-2xl font-black">{formatUSDT(marketSummary.openFunding)}</p>
             <p className="mt-1 text-xs text-[var(--color-muted)]">APY medio: {marketSummary.avgApy.toFixed(2)}%</p>
           </Card>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-[1fr_220px_220px]">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
           <label className="relative block">
             <Search size={16} className="pointer-events-none absolute left-3 top-3.5 text-[var(--color-muted)]" />
             <input
@@ -303,9 +302,9 @@ export function BuyerDashboard() {
         </div>
       </section>
 
-      <section className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <section className="mt-7 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {isLoadingInitial && (
-          <Card className="sm:col-span-2 xl:col-span-3">
+          <Card className="md:col-span-2 lg:col-span-3">
             <p className="inline-flex items-center gap-2 text-sm font-semibold">
               <RefreshCcw size={16} className="animate-spin text-[var(--color-primary)]" />
               Cargando activos del marketplace...
@@ -314,7 +313,7 @@ export function BuyerDashboard() {
         )}
 
         {isEmptyMarketplace && (
-          <Card className="sm:col-span-2 xl:col-span-3">
+          <Card className="md:col-span-2 lg:col-span-3">
             <p className="inline-flex items-center gap-2 text-sm font-semibold">
               <CircleAlert size={16} className="text-[var(--color-gold)]" />
               Todavia no hay activos publicados.
@@ -329,7 +328,7 @@ export function BuyerDashboard() {
         )}
 
         {isEmptyByFilter && (
-          <Card className="sm:col-span-2 xl:col-span-3">
+          <Card className="md:col-span-2 lg:col-span-3">
             <p className="inline-flex items-center gap-2 text-sm font-semibold">
               <CircleAlert size={16} className="text-[var(--color-gold)]" />
               {hasAnyFilter ? "No hay activos para este filtro." : "No hay activos visibles en este momento."}
@@ -347,67 +346,76 @@ export function BuyerDashboard() {
           const normalizedProgress = Math.max(0, Math.min(100, progress));
           const estimatedDaysLeft = Math.max(0, Math.ceil(((100 - normalizedProgress) / 100) * asset.cycleDurationDays));
           const CategoryIcon = categoryMeta[asset.category].icon;
-          const showCategoryHint = categoryHintAssetId === asset.id;
           return (
             <article
               key={asset.id}
-              className="flex h-full flex-col rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-sm shadow-black/5"
+              className="terra-market-card group flex h-full min-w-0 flex-col overflow-hidden rounded-2xl p-4 transition duration-200 hover:-translate-y-0.5 hover:border-[color:color-mix(in_oklab,var(--color-primary)_35%,var(--color-border))] hover:shadow-lg hover:shadow-black/10"
             >
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <TokenPreview asset={asset} />
-                <div className="flex flex-col items-end gap-1">
-                  <div className="relative">
-                    <button
-                      type="button"
+              <div className="terra-market-card__panel rounded-2xl p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <TokenPreview asset={asset} />
+                  <div className="flex flex-col items-end gap-2">
+                    <span className={`rounded-full px-3 py-1 text-[0.625rem] font-semibold uppercase tracking-[0.12em] ${getStateBadgeClass(asset.lifecycleStatus)}`}>
+                      {getStateLabel(asset.lifecycleStatus)}
+                    </span>
+                    <span
                       aria-label={`Categoria: ${categoryMeta[asset.category].label}`}
-                      className={`grid h-9 w-9 place-items-center rounded-full ${getCategoryBadgeClass(asset.category)}`}
-                      onClick={() => setCategoryHintAssetId((prev) => (prev === asset.id ? null : asset.id))}
+                      className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[0.625rem] font-semibold uppercase tracking-[0.12em] shadow-sm ${getCategoryBadgeClass(asset.category)}`}
                     >
-                      <CategoryIcon size={16} />
-                    </button>
-                    {showCategoryHint && (
-                      <span className="absolute right-0 top-11 whitespace-nowrap rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--color-foreground)] shadow-md shadow-black/15">
-                        {categoryMeta[asset.category].label}
-                      </span>
-                    )}
+                      <CategoryIcon size={14} />
+                      {categoryMeta[asset.category].label}
+                    </span>
                   </div>
-                  <span className={`rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${getStateBadgeClass(asset.lifecycleStatus)}`}>
-                    {getStateLabel(asset.lifecycleStatus)}
-                  </span>
+                </div>
+
+                <div className="mt-3 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="tc-heading break-words text-lg font-bold leading-tight">{asset.title}</h3>
+                    <p className="mt-1 text-xs uppercase tracking-[0.15em] text-[var(--color-muted)]">{asset.location}</p>
+                  </div>
                 </div>
               </div>
 
-              <h3 className="tc-heading text-lg font-bold leading-tight">{asset.title}</h3>
-              <p className="mt-1 text-xs uppercase tracking-[0.15em] text-[var(--color-muted)]">{asset.location}</p>
-              <p className="mt-3 min-h-[2.75rem] line-clamp-2 text-sm text-[var(--color-muted)]">{asset.description}</p>
-
-              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                <div className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2">
-                  <p className="text-xs text-[var(--color-muted)]">Precio por token</p>
-                  <p className="text-xl font-black leading-none">{formatTokenPriceUsdt(asset.tokenPriceSats)}</p>
-                </div>
-                <div className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2">
-                  <p className="text-xs text-[var(--color-muted)]">Disponibles</p>
-                  <p className="text-xl font-black leading-none">{asset.availableTokens.toLocaleString("es-AR")}</p>
-                </div>
-              </div>
-
-              <div className="mt-4 flex items-center justify-between text-xs text-[var(--color-muted)]">
-                <p>Ciclo {normalizedProgress.toFixed(0)}% completado</p>
-                <p>{estimatedDaysLeft} dias restantes</p>
-              </div>
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--color-surface-soft)]">
-                <div className="h-full rounded-full bg-[var(--color-primary)]" style={{ width: `${normalizedProgress}%` }} />
-              </div>
-              <p className="mt-4 inline-flex items-center gap-1 text-xs text-[var(--color-muted)]">
-                <Activity size={13} /> ROI proyectado (estimado): {asset.investorMetrics?.projectedRoi ?? asset.expectedYield}
+              <p className="mt-3 min-h-[2.75rem] break-words text-sm text-[var(--color-muted)] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
+                {asset.description}
               </p>
 
-              <div className="mt-7 grid gap-2 sm:mt-auto sm:grid-cols-2">
-                <Button type="button" className="w-full" onClick={() => router.push(`/assets/${asset.id}`)}>
+              <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-xl border border-[var(--color-border)] bg-[color:color-mix(in_oklab,var(--color-surface-soft)_82%,var(--color-surface))] px-3 py-2.5">
+                  <p className="text-[0.6875rem] font-medium uppercase tracking-[0.1em] text-[var(--color-muted)]">Precio por token</p>
+                  <p className="mt-1 break-words text-[1.15rem] font-black leading-none">{formatTokenPriceUsdt(asset.tokenPriceSats)}</p>
+                </div>
+                <div className="rounded-xl border border-[var(--color-border)] bg-[color:color-mix(in_oklab,var(--color-surface-soft)_82%,var(--color-surface))] px-3 py-2.5">
+                  <p className="text-[0.6875rem] font-medium uppercase tracking-[0.1em] text-[var(--color-muted)]">Disponibles</p>
+                  <p className="mt-1 break-words text-[1.15rem] font-black leading-none">{asset.availableTokens.toLocaleString("es-AR")}</p>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-[var(--color-border)] bg-[color:color-mix(in_oklab,var(--color-surface-soft)_76%,var(--color-surface))] px-3 py-3">
+                <div className="flex items-center justify-between gap-3 text-xs text-[var(--color-muted)]">
+                  <p className="font-medium uppercase tracking-[0.1em]">Ciclo {normalizedProgress.toFixed(0)}% completado</p>
+                  <p>{estimatedDaysLeft} dias restantes</p>
+                </div>
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-[color:color-mix(in_oklab,var(--color-surface)_72%,var(--color-border))]">
+                  <div className="h-full rounded-full bg-[linear-gradient(90deg,color-mix(in_oklab,var(--color-primary)_84%,white)_0%,var(--color-primary)_100%)]" style={{ width: `${normalizedProgress}%` }} />
+                </div>
+                <p className="mt-3 inline-flex items-center gap-1 text-xs text-[var(--color-muted)]">
+                  <Activity size={13} /> ROI proyectado (estimado): {asset.investorMetrics?.projectedRoi ?? asset.expectedYield}
+                </p>
+              </div>
+
+              <div className="mt-4">
+                <Button
+                  type="button"
+                  className="w-full bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-primary)_96%,white)_0%,var(--color-primary)_100%)] text-[var(--color-primary-contrast)] shadow-sm shadow-[color:color-mix(in_oklab,var(--color-primary)_20%,black)] hover:brightness-110"
+                  onClick={() => router.push(`/assets/${asset.id}`)}
+                >
                   Ver activo
                 </Button>
-                <Button type="button" variant="outline" className="w-full gap-2 border-[#c9a746] bg-[#c9a746]/12 text-[#f0d68d] hover:bg-[#c9a746]/20 hover:text-[#ffe6a6]" onClick={() => router.push(`/chats?assetId=${asset.id}`)}>
+              </div>
+
+              <div className="mt-2">
+                <Button type="button" variant="outline" className="w-full gap-2 border-[color:color-mix(in_oklab,var(--color-secondary)_52%,var(--color-border))] bg-[color:color-mix(in_oklab,var(--color-secondary)_10%,var(--color-surface))] text-[color:color-mix(in_oklab,var(--color-secondary)_84%,var(--color-foreground))] hover:bg-[color:color-mix(in_oklab,var(--color-secondary)_16%,var(--color-surface))] hover:text-[color:color-mix(in_oklab,var(--color-secondary)_92%,var(--color-foreground))]" onClick={() => router.push(`/chats?assetId=${asset.id}`)}>
                   <MessageCircle size={15} /> Chat vendedor
                 </Button>
               </div>

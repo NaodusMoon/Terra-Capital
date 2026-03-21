@@ -1,0 +1,20 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e5]:
+      - link "Terra Capital logo Terra Capital Tokenizacion" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e7]:
+          - img "Terra Capital logo" [ref=e8]
+          - generic [ref=e9]:
+            - paragraph [ref=e10]: Terra Capital
+            - paragraph [ref=e11]: Tokenizacion
+      - button "Cambiar a modo oscuro" [ref=e13]:
+        - img [ref=e14]
+  - generic [ref=e17]: Validando sesion...
+  - button "Open Next.js Dev Tools" [ref=e27] [cursor=pointer]:
+    - generic [ref=e30]:
+      - text: Compiling
+      - generic [ref=e31]:
+        - generic [ref=e32]: .
+        - generic [ref=e33]: .
+        - generic [ref=e34]: .

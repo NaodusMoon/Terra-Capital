@@ -1,0 +1,78 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e121]:
+    - link "Inicio" [ref=e123] [cursor=pointer]:
+      - /url: /
+      - img [ref=e125]
+      - text: Inicio
+    - link "Login" [ref=e129] [cursor=pointer]:
+      - /url: /auth/login
+      - img [ref=e131]
+      - text: Login
+  - main [ref=e20]:
+    - generic [ref=e22]:
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - img [ref=e25]
+          - text: Tokenizacion de tierras, campo y cultivos en Stellar
+        - heading "Capital real para el agro, con seguridad legal y trazabilidad digital." [level=1] [ref=e28]
+        - paragraph [ref=e29]: Terra Capital transforma participaciones fiduciarias en tokens digitales vinculantes. Combinamos fideicomiso, cumplimiento regulatorio y tecnologia blockchain para conectar ahorro urbano con produccion rural.
+        - generic [ref=e30]:
+          - link "Empezar con wallet" [ref=e31] [cursor=pointer]:
+            - /url: /auth/login
+            - button "Empezar con wallet" [ref=e32]:
+              - text: Empezar con wallet
+              - img [ref=e33]
+          - link "Iniciar sesion" [ref=e35] [cursor=pointer]:
+            - /url: /auth/login
+            - button "Iniciar sesion" [ref=e36]
+      - generic [ref=e135]:
+        - heading "Arquitectura de confianza" [level=2] [ref=e137]
+        - list [ref=e138]:
+          - listitem [ref=e139]:
+            - img [ref=e140]
+            - text: Activos en resguardo dentro de fideicomiso.
+          - listitem [ref=e143]:
+            - img [ref=e144]
+            - text: Participaciones tokenizadas con derechos economicos.
+          - listitem [ref=e147]:
+            - img [ref=e148]
+            - text: Custodia en wallet legalmente vinculada por escribania.
+    - generic [ref=e54]:
+      - generic [ref=e152]:
+        - heading "Problema" [level=3] [ref=e153]
+        - list [ref=e154]:
+          - listitem [ref=e155]:
+            - generic [ref=e157]: Desplazamiento generacional y tierras productivas subutilizadas.
+          - listitem [ref=e158]:
+            - generic [ref=e160]: Mercado inmobiliario rural lento y sin liquidez para propietarios.
+          - listitem [ref=e161]:
+            - generic [ref=e163]: Ahorristas urbanos con pocas opciones para invertir en activos reales.
+      - generic [ref=e165]:
+        - heading "Solucion" [level=3] [ref=e166]
+        - list [ref=e167]:
+          - listitem [ref=e168]:
+            - generic [ref=e170]: Fideicomiso como resguardo patrimonial y separacion de riesgos.
+          - listitem [ref=e171]:
+            - generic [ref=e173]: Tokenizacion fraccionada de tierra, cosecha y ganado sobre Stellar.
+          - listitem [ref=e174]:
+            - generic [ref=e176]: Trazabilidad legal y financiera con validaciones institucionales.
+    - generic [ref=e81]:
+      - generic [ref=e177]:
+        - heading "Fideicomiso Tokenizado" [level=3] [ref=e178]
+        - paragraph [ref=e179]: Cada token representa una participacion juridica sobre utilidades del rubro (tierra, grano o carne). La estructura separa patrimonio personal y patrimonio productivo para proteger al inversor y al productor.
+      - generic [ref=e85]:
+        - generic [ref=e181]:
+          - img [ref=e182]
+          - heading "Propietarios" [level=4] [ref=e186]
+          - paragraph [ref=e187]: Obtienen liquidez sin vender su campo, manteniendo titularidad y acelerando productividad.
+        - generic [ref=e189]:
+          - img [ref=e190]
+          - heading "Inversores" [level=4] [ref=e195]
+          - paragraph [ref=e196]: Acceden a participaciones desde montos bajos en activos tangibles del agro.
+        - generic [ref=e198]:
+          - img [ref=e199]
+          - heading "Cumplimiento" [level=4] [ref=e201]
+          - paragraph [ref=e202]: Modelo estructurado bajo normativa argentina (CNV) y protocolizacion notarial.
+  - button "Open Next.js Dev Tools" [ref=e114] [cursor=pointer]:
+    - img [ref=e115]
+  - alert [ref=e118]

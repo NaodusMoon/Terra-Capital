@@ -37,6 +37,15 @@ function emitMarketUpdate() {
   window.dispatchEvent(new CustomEvent(MARKETPLACE_EVENT));
 }
 
+function resolveNextAssets(incoming?: TokenizedAsset[]) {
+  if (!incoming) return undefined;
+  if (incoming.length > 0) return incoming;
+  if (volatileAssets.length > 0) {
+    return volatileAssets;
+  }
+  return incoming;
+}
+
 async function parseResponse<T>(response: Response): Promise<T | null> {
   const raw = await response.text();
   if (!raw) return null;
@@ -79,9 +88,10 @@ function writeMarketplaceState(state: {
   messages?: ChatMessage[];
   blendSnapshot?: BlendSnapshot;
 }, options?: { emitEvent?: boolean }) {
-  if (state.assets) {
-    volatileAssets = state.assets;
-    try { writeLocalStorage(STORAGE_KEYS.assets, state.assets); } catch {}
+  const nextAssets = resolveNextAssets(state.assets);
+  if (nextAssets) {
+    volatileAssets = nextAssets;
+    try { writeLocalStorage(STORAGE_KEYS.assets, nextAssets); } catch {}
   }
   if (state.purchases) {
     volatilePurchases = state.purchases;

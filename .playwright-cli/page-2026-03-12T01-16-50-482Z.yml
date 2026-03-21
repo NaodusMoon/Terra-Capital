@@ -1,0 +1,84 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e5]:
+      - link "Terra Capital logo Terra Capital Tokenizacion" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e7]:
+          - img "Terra Capital logo" [ref=e8]
+          - generic [ref=e9]:
+            - paragraph [ref=e10]: Terra Capital
+            - paragraph [ref=e11]: Tokenizacion
+      - generic [ref=e12]:
+        - button "Cambiar a modo oscuro" [ref=e13]:
+          - img [ref=e15]
+        - link "Iniciar con wallet" [ref=e17] [cursor=pointer]:
+          - /url: /auth/login
+          - button "Iniciar con wallet" [ref=e18]
+  - main [ref=e20]:
+    - generic [ref=e22]:
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - img [ref=e25]
+          - text: Tokenizacion de tierras, campo y cultivos en Stellar
+        - heading "Capital real para el agro, con seguridad legal y trazabilidad digital." [level=1] [ref=e28]
+        - paragraph [ref=e29]: Terra Capital transforma participaciones fiduciarias en tokens digitales vinculantes. Combinamos fideicomiso, cumplimiento regulatorio y tecnologia blockchain para conectar ahorro urbano con produccion rural.
+        - generic [ref=e30]:
+          - link "Empezar con wallet" [ref=e31] [cursor=pointer]:
+            - /url: /auth/login
+            - button "Empezar con wallet" [ref=e32]:
+              - text: Empezar con wallet
+              - img [ref=e33]
+          - link "Iniciar sesion" [ref=e35] [cursor=pointer]:
+            - /url: /auth/login
+            - button "Iniciar sesion" [ref=e36]
+      - generic [ref=e38]:
+        - heading "Arquitectura de confianza" [level=2] [ref=e40]
+        - list [ref=e41]:
+          - listitem [ref=e42]:
+            - img [ref=e43]
+            - text: Activos en resguardo dentro de fideicomiso.
+          - listitem [ref=e46]:
+            - img [ref=e47]
+            - text: Participaciones tokenizadas con derechos economicos.
+          - listitem [ref=e50]:
+            - img [ref=e51]
+            - text: Custodia en wallet legalmente vinculada por escribania.
+    - generic [ref=e54]:
+      - generic [ref=e56]:
+        - heading "Problema" [level=3] [ref=e57]
+        - list [ref=e58]:
+          - listitem [ref=e59]:
+            - generic [ref=e61]: Desplazamiento generacional y tierras productivas subutilizadas.
+          - listitem [ref=e62]:
+            - generic [ref=e64]: Mercado inmobiliario rural lento y sin liquidez para propietarios.
+          - listitem [ref=e65]:
+            - generic [ref=e67]: Ahorristas urbanos con pocas opciones para invertir en activos reales.
+      - generic [ref=e69]:
+        - heading "Solucion" [level=3] [ref=e70]
+        - list [ref=e71]:
+          - listitem [ref=e72]:
+            - generic [ref=e74]: Fideicomiso como resguardo patrimonial y separacion de riesgos.
+          - listitem [ref=e75]:
+            - generic [ref=e77]: Tokenizacion fraccionada de tierra, cosecha y ganado sobre Stellar.
+          - listitem [ref=e78]:
+            - generic [ref=e80]: Trazabilidad legal y financiera con validaciones institucionales.
+    - generic [ref=e81]:
+      - generic [ref=e82]:
+        - heading "Fideicomiso Tokenizado" [level=3] [ref=e83]
+        - paragraph [ref=e84]: Cada token representa una participacion juridica sobre utilidades del rubro (tierra, grano o carne). La estructura separa patrimonio personal y patrimonio productivo para proteger al inversor y al productor.
+      - generic [ref=e85]:
+        - generic [ref=e87]:
+          - img [ref=e88]
+          - heading "Propietarios" [level=4] [ref=e92]
+          - paragraph [ref=e93]: Obtienen liquidez sin vender su campo, manteniendo titularidad y acelerando productividad.
+        - generic [ref=e95]:
+          - img [ref=e96]
+          - heading "Inversores" [level=4] [ref=e101]
+          - paragraph [ref=e102]: Acceden a participaciones desde montos bajos en activos tangibles del agro.
+        - generic [ref=e104]:
+          - img [ref=e105]
+          - heading "Cumplimiento" [level=4] [ref=e107]
+          - paragraph [ref=e108]: Modelo estructurado bajo normativa argentina (CNV) y protocolizacion notarial.
+  - button "Open Next.js Dev Tools" [ref=e114] [cursor=pointer]:
+    - img [ref=e115]
+  - alert [ref=e118]

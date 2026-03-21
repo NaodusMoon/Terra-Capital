@@ -389,7 +389,7 @@ export function SellerDashboard() {
 
   const previewMedia = mediaItems[previewIndex];
   const previewEmbedUrl = previewMedia?.kind === "video" ? getEmbeddableVideoUrl(previewMedia.url) : null;
-  const fieldClassName = "h-11 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3";
+  const fieldClassName = "terra-seller-field h-11";
   const labelClassName = "text-sm font-medium text-[var(--color-muted)]";
   const shouldShowError = (fieldTouched: boolean) => submitAttempted || fieldTouched;
 
@@ -578,49 +578,50 @@ export function SellerDashboard() {
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-5 sm:py-9">
       <FadeIn>
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="terra-seller-shell flex flex-wrap items-center justify-between gap-3 rounded-3xl p-5 sm:p-6">
           <div>
-            <h1 className="tc-heading text-3xl font-black">Panel de emision y tokenizacion</h1>
-            <p className="tc-subtitle mt-2">Publica ciclos productivos en USDT y ordena tu carrusel multimedia.</p>
+            <p className="terra-badge">Panel de emision</p>
+            <h1 className="tc-heading mt-3 text-3xl font-black sm:text-4xl">Panel de emision y tokenizacion</h1>
+            <p className="tc-subtitle mt-2 max-w-2xl">Publica ciclos productivos en USDT y ordena tu carrusel multimedia.</p>
           </div>
-          <Button variant="outline" onClick={() => router.push("/seller/assets")}>Ver mis activos publicados</Button>
+          <Button variant="secondary" onClick={() => router.push("/seller/assets")}>Ver mis activos publicados</Button>
         </div>
       </FadeIn>
 
       {!sellerVerified && (
         <section className="mt-5">
-          <Card>
-            <p className="text-sm font-semibold text-amber-600">Modo vendedor bloqueado</p>
+          <Card className="terra-seller-panel">
+            <p className="text-sm font-semibold text-amber-500">Modo vendedor bloqueado</p>
             <p className="mt-1 text-sm text-[var(--color-muted)]">Completa tu verificacion desde Cuenta para habilitar publicaciones.</p>
           </Card>
         </section>
       )}
 
-      <section className="mt-6 grid gap-4 sm:grid-cols-3">
-        <Card>
+      <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Card className="terra-seller-kpi relative overflow-hidden p-4">
           <p className="text-sm text-[var(--color-muted)]">Activos publicados</p>
           <p className="mt-2 text-2xl font-bold">{summary.publishedAssets}</p>
         </Card>
-        <Card>
+        <Card className="terra-seller-kpi relative overflow-hidden p-4">
           <p className="text-sm text-[var(--color-muted)]">Operaciones cerradas</p>
           <p className="mt-2 text-2xl font-bold">{summary.operations}</p>
         </Card>
-        <Card>
+        <Card className="terra-seller-kpi relative overflow-hidden p-4">
           <p className="text-sm text-[var(--color-muted)]">Tokens vendidos</p>
           <p className="mt-2 text-2xl font-bold">{summary.soldTokens.toLocaleString("es-AR")}</p>
         </Card>
-        <Card>
+        <Card className="terra-seller-kpi relative overflow-hidden p-4">
           <p className="text-sm text-[var(--color-muted)]">Ingresos</p>
           <p className="mt-2 text-2xl font-bold">{formatUSDT(summary.grossAmount)}</p>
         </Card>
       </section>
 
       <section className="mt-5 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-        <Card>
+        <Card className="terra-seller-panel">
           <h2 className="tc-heading flex items-center gap-2 text-xl font-bold"><ListChecks size={18} /> Estado de publicacion</h2>
           <p className="tc-subtitle mt-2 text-sm">Avanza por etapas para crear la publicacion de forma guiada.</p>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--color-surface-soft)]">
-            <div className="h-full rounded-full bg-[var(--color-primary)] transition-all" style={{ width: `${checklistPct}%` }} />
+            <div className="h-full rounded-full bg-[linear-gradient(90deg,color-mix(in_oklab,var(--color-primary)_84%,white)_0%,color-mix(in_oklab,var(--color-secondary)_72%,white)_100%)] transition-all" style={{ width: `${checklistPct}%` }} />
           </div>
           <p className="mt-2 text-xs text-[var(--color-muted)]">{checklistCompleted}/{publishingChecklist.length} bloques listos ({checklistPct}%)</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -634,10 +635,10 @@ export function SellerDashboard() {
                 key={item.step}
                 type="button"
                 onClick={() => setCurrentStep(item.step)}
-                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${
+                className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition ${
                   currentStep === item.step
-                    ? "border border-[var(--color-primary)] bg-[color:color-mix(in_oklab,var(--color-primary)_16%,transparent)]"
-                    : "bg-[var(--color-surface-soft)]"
+                    ? "border-[var(--color-primary)] bg-[color:color-mix(in_oklab,var(--color-primary)_16%,transparent)]"
+                    : "border-[var(--color-border)] bg-[var(--color-surface-soft)] hover:bg-[color:color-mix(in_oklab,var(--color-surface-soft)_82%,white_18%)]"
                 }`}
               >
                 {item.done ? <CircleCheck size={15} className="text-emerald-500" /> : <CircleDashed size={15} className="text-[var(--color-muted)]" />}
@@ -647,21 +648,21 @@ export function SellerDashboard() {
           </div>
           <p className="mt-3 text-xs text-[var(--color-muted)]">Paso actual: {currentStep} de 4</p>
         </Card>
-        <Card>
+        <Card className="terra-seller-panel">
           <h2 className="tc-heading flex items-center gap-2 text-xl font-bold"><BarChart3 size={18} /> Proyeccion de emision</h2>
           <p className="mt-3 text-sm text-[var(--color-muted)]">Capital objetivo estimado con la configuracion actual:</p>
           <p className="mt-2 text-3xl font-black">{formatUSDT(previewTotal)}</p>
           <p className="mt-3 text-xs text-[var(--color-muted)]">
             Ciclo seleccionado: {cycleDurationDays} dias - APY estimado: {estimatedApyPct || "0.00"}% - ROI historico: {historicalRoiPct || "0.00"}%
           </p>
-          <Button variant="outline" className="mt-4 w-full" onClick={() => router.push("/seller/assets")}>
+          <Button variant="secondary" className="mt-4 w-full" onClick={() => router.push("/seller/assets")}>
             Revisar cartera publicada
           </Button>
         </Card>
       </section>
 
       <section className="mt-7 grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-        <Card>
+        <Card className="terra-seller-panel">
           <h2 className="tc-heading flex items-center gap-2 text-xl font-bold"><Upload size={18} /> Nueva publicacion</h2>
 
           <form className="mt-4 grid gap-3" onSubmit={handleCreateAsset}>
@@ -689,7 +690,7 @@ export function SellerDashboard() {
                 </div>
                 <div className="space-y-1">
                   <label className={labelClassName}>Descripcion legal y productiva</label>
-                  <textarea className="h-24 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] p-3" placeholder="Resumen del activo, estructura legal y alcance productivo" value={description} onBlur={() => setTouched((prev) => ({ ...prev, description: true }))} onChange={(event) => setDescription(event.target.value)} required disabled={!sellerVerified || isPublishing} />
+                  <textarea className="terra-seller-field h-24 resize-none" placeholder="Resumen del activo, estructura legal y alcance productivo" value={description} onBlur={() => setTouched((prev) => ({ ...prev, description: true }))} onChange={(event) => setDescription(event.target.value)} required disabled={!sellerVerified || isPublishing} />
                   {shouldShowError(touched.description) && liveValidation.descriptionError && <p className="text-xs text-amber-500">{liveValidation.descriptionError}</p>}
                 </div>
               </>
@@ -697,13 +698,13 @@ export function SellerDashboard() {
 
             {currentStep === 2 && (
               <>
-                <Card>
+                <Card className="terra-seller-panel">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="text-sm font-semibold">Oraculo de referencia ({category})</p>
                       <p className="text-xs text-[var(--color-muted)]">Indice de mercado: {oracleSnapshot ? oracleSnapshot.marketIndex.toFixed(2) : "--"}</p>
                     </div>
-                    <Button type="button" variant="outline" onClick={applyOracleSuggestion} disabled={!canUseOracle || !oracleSnapshot || !sellerVerified || isPublishing}>
+                    <Button type="button" variant="secondary" onClick={applyOracleSuggestion} disabled={!canUseOracle || !oracleSnapshot || !sellerVerified || isPublishing}>
                       Usar precio sugerido
                     </Button>
                   </div>
@@ -721,7 +722,7 @@ export function SellerDashboard() {
                   {oracleSnapshot && (
                     <div className="mt-3 grid gap-2 sm:grid-cols-2">
                       {oracleSnapshot.feeds.map((feed) => (
-                        <p key={feed.id} className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-xs">
+                        <p key={feed.id} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 py-2 text-xs">
                           <strong>{feed.symbol}</strong>: {feed.value.toLocaleString("es-AR")} {feed.unit}
                         </p>
                       ))}
@@ -774,8 +775,8 @@ export function SellerDashboard() {
                 </div>
                 <div className="space-y-1">
                   <label className={labelClassName}>Referencias de registro/catastro (una URL por linea)</label>
-                  <textarea
-                    className="h-24 w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] p-3"
+                <textarea
+                    className="terra-seller-field h-24 resize-none"
                     placeholder="https://registro-pais/expediente/123&#10;https://catastro-pais/ficha/ABC"
                     value={externalRefsRaw}
                     onChange={(event) => setExternalRefsRaw(event.target.value)}
@@ -787,7 +788,7 @@ export function SellerDashboard() {
 
             {currentStep === 3 && (
               <>
-                <Card>
+                <Card className="terra-seller-panel">
                   <p className="text-sm font-semibold">Agregar multimedia (imagenes y videos)</p>
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     <Button type="button" variant="outline" className="gap-2" disabled={!sellerVerified || isPublishing} onClick={() => mediaInputRef.current?.click()}><Upload size={15} /> Buscar en PC</Button>
@@ -804,11 +805,11 @@ export function SellerDashboard() {
                   </div>
                   <input ref={mediaInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={(event) => { void handleMediaFile(event); }} />
                 </Card>
-                <Card>
+                <Card className="terra-seller-panel">
                   <p className="text-sm font-semibold">Orden del carrusel ({mediaItems.length})</p>
                   <div className="mt-3 space-y-2">
                     {mediaItems.map((item, index) => (
-                      <div key={item.id} className="flex items-center justify-between gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm">
+                      <div key={item.id} className="flex items-center justify-between gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2.5 text-sm">
                         <p className="truncate"><strong>{index + 1}.</strong> {item.kind === "image" ? "Imagen" : "Video"}</p>
                         <div className="flex items-center gap-1">
                           <Button type="button" variant="outline" className="h-8 px-2" onClick={() => moveMedia(index, -1)} disabled={index === 0}><MoveUp size={14} /></Button>
@@ -824,22 +825,22 @@ export function SellerDashboard() {
             )}
 
             {currentStep === 4 && (
-              <Card>
+              <Card className="terra-seller-panel">
                 <p className="text-sm font-semibold">Revision final antes de publicar</p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Activo: <strong>{title || "Sin titulo"}</strong></p>
-                  <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Categoria: <strong>{category}</strong></p>
-                  <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Ubicacion: <strong>{location || "Pendiente"}</strong></p>
-                  <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Precio token: <strong>{formatUSDT(Number(tokenPriceSats) || 0)}</strong></p>
-                  <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Supply: <strong>{Number(totalTokens || 0).toLocaleString("es-AR")}</strong></p>
-                  <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Meta estimada: <strong>{formatUSDT(previewTotal)}</strong></p>
-                  <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Ciclo: <strong>{cycleDurationDays} dias</strong></p>
-                  <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Multimedia: <strong>{mediaItems.length} items</strong></p>
+                  <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Activo: <strong>{title || "Sin titulo"}</strong></p>
+                  <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Categoria: <strong>{category}</strong></p>
+                  <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Ubicacion: <strong>{location || "Pendiente"}</strong></p>
+                  <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Precio token: <strong>{formatUSDT(Number(tokenPriceSats) || 0)}</strong></p>
+                  <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Supply: <strong>{Number(totalTokens || 0).toLocaleString("es-AR")}</strong></p>
+                  <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Meta estimada: <strong>{formatUSDT(previewTotal)}</strong></p>
+                  <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Ciclo: <strong>{cycleDurationDays} dias</strong></p>
+                  <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 py-2 text-sm">Multimedia: <strong>{mediaItems.length} items</strong></p>
                 </div>
                 <div className="mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-sm font-semibold">Verificacion de evidencia y anclaje blockchain</p>
-                    <Button type="button" variant="outline" onClick={() => { void runAssetVerification(); }} disabled={!canUseOracle || !sellerVerified || isPublishing || verifyingAsset}>
+                    <Button type="button" variant="secondary" onClick={() => { void runAssetVerification(); }} disabled={!canUseOracle || !sellerVerified || isPublishing || verifyingAsset}>
                       {verifyingAsset ? "Verificando..." : "Verificar activo"}
                     </Button>
                   </div>
@@ -890,7 +891,7 @@ export function SellerDashboard() {
                 Atras
               </Button>
               {currentStep < 4 ? (
-                <Button type="button" className="w-full" onClick={goToNextStep} disabled={!sellerVerified || isPublishing}>
+                <Button type="button" variant="secondary" className="w-full" onClick={goToNextStep} disabled={!sellerVerified || isPublishing}>
                   Continuar
                 </Button>
               ) : (
@@ -902,20 +903,20 @@ export function SellerDashboard() {
           </form>
         </Card>
 
-        <Card>
+        <Card className="terra-seller-panel">
           <h2 className="tc-heading flex items-center gap-2 text-xl font-bold"><Eye size={18} /> Previsualizacion comprador</h2>
           <p className="tc-subtitle mt-2 text-sm">Carrusel ordenado como se mostrara en la ficha del activo.</p>
           <div className="sticky top-20 z-10 mt-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] p-3">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-muted)]">Resumen financiero (USDT)</p>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              <p className="rounded-lg bg-[var(--color-surface)] px-3 py-2 text-sm">Precio token: <strong>{formatUSDT(Number(tokenPriceSats) || 0)}</strong></p>
-              <p className="rounded-lg bg-[var(--color-surface)] px-3 py-2 text-sm">Supply: <strong>{Number(totalTokens || 0).toLocaleString("es-AR")}</strong></p>
-              <p className="rounded-lg bg-[var(--color-surface)] px-3 py-2 text-sm">Meta total: <strong>{formatUSDT(previewTotal)}</strong></p>
-              <p className="rounded-lg bg-[var(--color-surface)] px-3 py-2 text-sm">Ciclo: <strong>{cycleDurationDays} dias</strong></p>
+              <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm">Precio token: <strong>{formatUSDT(Number(tokenPriceSats) || 0)}</strong></p>
+              <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm">Supply: <strong>{Number(totalTokens || 0).toLocaleString("es-AR")}</strong></p>
+              <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm">Meta total: <strong>{formatUSDT(previewTotal)}</strong></p>
+              <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm">Ciclo: <strong>{cycleDurationDays} dias</strong></p>
             </div>
           </div>
 
-          <div className="mt-4 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-background)]">
+          <div className="mt-4 overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-background)]">
             <div className="h-56 bg-[var(--color-surface-soft)]">
               {!previewMedia && <div className="grid h-full place-items-center text-sm text-[var(--color-muted)]">Sin multimedia</div>}
               {previewMedia?.kind === "image" && (
@@ -972,10 +973,10 @@ export function SellerDashboard() {
               <h3 className="tc-heading text-lg font-bold break-words [overflow-wrap:anywhere]">{title || "Titulo del activo"}</h3>
               <p className="text-[var(--color-muted)] break-words [overflow-wrap:anywhere]">{description || "Descripcion del activo para compradores."}</p>
               <div className="grid gap-2 sm:grid-cols-2">
-                <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2">Precio token: <strong>{formatUSDT(Number(tokenPriceSats) || 0)}</strong></p>
-                <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2">Supply: <strong>{Number(totalTokens || 0).toLocaleString("es-AR")}</strong></p>
-                <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2">Ciclo: <strong>{cycleDurationDays} dias</strong></p>
-                <p className="rounded-lg bg-[var(--color-surface-soft)] px-3 py-2">ROI proyectado: <strong>{historicalRoiPct || "0.00"}%</strong></p>
+                <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 py-2">Precio token: <strong>{formatUSDT(Number(tokenPriceSats) || 0)}</strong></p>
+                <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 py-2">Supply: <strong>{Number(totalTokens || 0).toLocaleString("es-AR")}</strong></p>
+                <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 py-2">Ciclo: <strong>{cycleDurationDays} dias</strong></p>
+                <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-soft)] px-3 py-2">ROI proyectado: <strong>{historicalRoiPct || "0.00"}%</strong></p>
               </div>
               <p className="text-xs text-[var(--color-muted)]">Meta de recaudacion aproximada: {formatUSDT(previewTotal)}</p>
             </div>

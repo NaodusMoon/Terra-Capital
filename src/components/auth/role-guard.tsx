@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { WalletRequiredCard } from "@/components/auth/wallet-required-card";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useLanguage } from "@/components/providers/language-provider";
 import { useWallet } from "@/components/providers/wallet-provider";
 import type { UserMode } from "@/types/auth";
 
@@ -13,8 +14,16 @@ function getModePath(mode: UserMode) {
 
 export function RoleGuard({ mode, children }: { mode: UserMode; children: React.ReactNode }) {
   const { user, loading, activeMode } = useAuth();
+  const { language } = useLanguage();
   const { walletAddress, walletReady } = useWallet();
   const router = useRouter();
+  const isSpanish = language === "es";
+  const t = {
+    validating: isSpanish ? "Validando sesion..." : "Validating session...",
+    redirecting: isSpanish ? "Redirigiendo al login..." : "Redirecting to login...",
+    preparingWallet: isSpanish ? "Preparando wallet..." : "Preparing wallet...",
+    switchingPanel: isSpanish ? "Cambiando de panel..." : "Switching panel...",
+  };
 
   useEffect(() => {
     if (loading) return;
@@ -39,7 +48,7 @@ export function RoleGuard({ mode, children }: { mode: UserMode; children: React.
   if (loading) {
     return (
       <div className="mx-auto grid min-h-[60vh] max-w-6xl place-items-center px-4 text-center text-sm text-[var(--color-muted)]">
-        Validando sesion...
+        {t.validating}
       </div>
     );
   }
@@ -47,7 +56,7 @@ export function RoleGuard({ mode, children }: { mode: UserMode; children: React.
   if (!user) {
     return (
       <div className="mx-auto grid min-h-[60vh] max-w-6xl place-items-center px-4 text-center text-sm text-[var(--color-muted)]">
-        Redirigiendo al login...
+        {t.redirecting}
       </div>
     );
   }
@@ -55,7 +64,7 @@ export function RoleGuard({ mode, children }: { mode: UserMode; children: React.
   if (!walletReady) {
     return (
       <div className="mx-auto grid min-h-[60vh] max-w-6xl place-items-center px-4 text-center text-sm text-[var(--color-muted)]">
-        Preparando wallet...
+        {t.preparingWallet}
       </div>
     );
   }
@@ -71,7 +80,7 @@ export function RoleGuard({ mode, children }: { mode: UserMode; children: React.
   if (activeMode !== mode) {
     return (
       <div className="mx-auto grid min-h-[60vh] max-w-6xl place-items-center px-4 text-center text-sm text-[var(--color-muted)]">
-        Cambiando de panel...
+        {t.switchingPanel}
       </div>
     );
   }
